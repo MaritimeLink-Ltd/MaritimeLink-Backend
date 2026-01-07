@@ -38,6 +38,28 @@ const options: swaggerJsdoc.Options = {
             createdAt: { type: 'string', format: 'date-time' },
           },
         },
+        Recruiter: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            email: { type: 'string', format: 'email' },
+            role: {
+              type: 'string',
+              enum: ['RECRUITMENT_AGENT', 'TRAINING_AGENT'],
+            },
+            organizationName: { type: 'string', nullable: true },
+            address: { type: 'string', nullable: true },
+            website: { type: 'string', nullable: true },
+            orgEmail: { type: 'string', nullable: true },
+            idPassportUrl: { type: 'string', format: 'url', nullable: true },
+            status: {
+              type: 'string',
+              enum: ['PENDING', 'APPROVED', 'REJECTED'],
+            },
+            isVerified: { type: 'boolean' },
+            createdAt: { type: 'string', format: 'date-time' },
+          },
+        },
         Error: {
           type: 'object',
           properties: {
