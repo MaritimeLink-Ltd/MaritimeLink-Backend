@@ -1,8 +1,10 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import compression from 'compression';
 import { errorHandler } from './middlewares/errorHandler.js';
+import { AppError } from './utils/AppError.js';
+import professionalRoutes from './routes/professionalRoutes.js';
 
 const app = express();
 
@@ -23,8 +25,13 @@ app.get('/health', (req: Request, res: Response) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Routes will be added here
-// app.use('/api', routes);
+// Professional routes
+app.use('/api/professional', professionalRoutes);
+
+// 404 handler
+app.use((req: Request, res: Response, next: NextFunction) => {
+  next(new AppError(`Can't find ${req.originalUrl} on this server!`, 404));
+});
 
 // Error handling (must be last)
 app.use(errorHandler);
