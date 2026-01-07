@@ -22,6 +22,7 @@ const envSchema = z.object({
   SUPABASE_ANON_KEY: z.string().min(1),
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   SUPABASE_BUCKET_NAME: z.string().default('professional-ids'),
+  SUPABASE_RECRUITER_BUCKET_NAME: z.string().default('recruiter-ids'),
 });
 
 const parsed = envSchema.safeParse(process.env);
