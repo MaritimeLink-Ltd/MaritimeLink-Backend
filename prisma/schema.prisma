@@ -13,3 +13,19 @@ datasource db {
   provider = "postgresql"
 }
 
+model Professional {
+  id            String    @id @default(uuid())
+  fullname      String
+  email         String    @unique
+  password      String
+  profession    String?
+  idPassportUrl String?
+  bio           String?
+  isVerified    Boolean   @default(false)
+  otpCode       String?
+  otpExpiresAt  DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+
