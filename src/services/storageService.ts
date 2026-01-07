@@ -6,9 +6,10 @@ const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY);
 export const uploadToSupabase = async (
   file: Express.Multer.File,
   path: string,
+  bucketName: string = env.SUPABASE_BUCKET_NAME,
 ) => {
   const { data, error } = await supabase.storage
-    .from(env.SUPABASE_BUCKET_NAME)
+    .from(bucketName)
     .upload(path, file.buffer, {
       contentType: file.mimetype,
       upsert: true,
@@ -19,7 +20,7 @@ export const uploadToSupabase = async (
   }
 
   const { data: publicUrlData } = supabase.storage
-    .from(env.SUPABASE_BUCKET_NAME)
+    .from(bucketName)
     .getPublicUrl(data.path);
 
   return publicUrlData.publicUrl;

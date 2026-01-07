@@ -7,6 +7,7 @@ import { AppError } from './utils/AppError.js';
 import swaggerUi from 'swagger-ui-express';
 import { swaggerSpec } from './config/swagger.js';
 import professionalRoutes from './routes/professionalRoutes.js';
+import recruiterRoutes from './routes/recruiterRoutes.js';
 
 const app = express();
 
@@ -32,6 +33,9 @@ app.get('/health', (req: Request, res: Response) => {
 
 // Professional routes
 app.use('/api/professional', professionalRoutes);
+
+// Recruiter routes
+app.use('/api/recruiter', recruiterRoutes);
 
 // 404 handler
 app.use((req: Request, res: Response, next: NextFunction) => {
