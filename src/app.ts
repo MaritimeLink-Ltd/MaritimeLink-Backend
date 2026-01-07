@@ -4,6 +4,8 @@ import cors from 'cors';
 import compression from 'compression';
 import { errorHandler } from './middlewares/errorHandler.js';
 import { AppError } from './utils/AppError.js';
+import swaggerUi from 'swagger-ui-express';
+import { swaggerSpec } from './config/swagger.js';
 import professionalRoutes from './routes/professionalRoutes.js';
 
 const app = express();
@@ -19,6 +21,9 @@ app.use(express.urlencoded({ extended: true }));
 
 // Remove X-Powered-By header
 app.disable('x-powered-by');
+
+// Swagger Documentation
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Health check route
 app.get('/health', (req: Request, res: Response) => {

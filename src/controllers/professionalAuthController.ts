@@ -9,8 +9,33 @@ import { sendOTPEmail } from '../services/emailService.js';
 import { uploadToSupabase } from '../services/storageService.js';
 
 /**
- * Step 1: Registration
- * Payload: { fullname, email, password }
+ * @swagger
+ * /api/professional/register:
+ *   post:
+ *     summary: Step 1 - Register a new professional
+ *     tags: [Professional]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [fullname, email, password]
+ *             properties:
+ *               fullname: { type: string }
+ *               email: { type: string, format: email }
+ *               password: { type: string, minLength: 6 }
+ *     responses:
+ *       201:
+ *         description: Registration successful, OTP sent.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 message: { type: string }
+ *                 data: { type: object, properties: { professionalId: { type: string } } }
  */
 export const register = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
@@ -56,8 +81,26 @@ export const register = catchAsync(
 );
 
 /**
- * Step 2: Verification
- * Payload: { professionalId, code }
+ * @swagger
+ * /api/professional/verify-otp:
+ *   post:
+ *     summary: Step 2 - Verify OTP code
+ *     tags: [Professional]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [professionalId, code]
+ *             properties:
+ *               professionalId: { type: string }
+ *               code: { type: string, minLength: 6, maxLength: 6 }
+ *     responses:
+ *       200:
+ *         description: OTP verified successfully.
+ *       400:
+ *         description: Invalid or expired OTP.
  */
 export const verifyOTP = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
@@ -93,8 +136,30 @@ export const verifyOTP = catchAsync(
 );
 
 /**
- * Step 3: Upload ID (Multipart)
- * Payload: id_passport (file)
+ * @swagger
+ * /api/professional/upload-id:
+ *   post:
+ *     summary: Step 3 - Upload ID/Passport image
+ *     tags: [Professional]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [id_passport]
+ *             properties:
+ *               id_passport: { type: string, format: binary }
+ *     responses:
+ *       200:
+ *         description: ID uploaded successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data: { type: object, properties: { url: { type: string } } }
  */
 export const uploadID = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
@@ -121,8 +186,33 @@ export const uploadID = catchAsync(
 );
 
 /**
- * Step 4: Complete Profile
- * Payload: { professionalId, profession, idPassportUrl, bio? }
+ * @swagger
+ * /api/professional/complete-profile:
+ *   post:
+ *     summary: Step 4 - Complete profile
+ *     tags: [Professional]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [professionalId, profession, idPassportUrl]
+ *             properties:
+ *               professionalId: { type: string }
+ *               profession: { type: string }
+ *               idPassportUrl: { type: string }
+ *               bio: { type: string }
+ *     responses:
+ *       200:
+ *         description: Profile completed. Returns JWT token.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 token: { type: string }
  */
 export const completeProfile = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
@@ -175,6 +265,33 @@ export const completeProfile = catchAsync(
   },
 );
 
+/**
+ * @swagger
+ * /api/professional/login:
+ *   post:
+ *     summary: Log in as a professional
+ *     tags: [Professional]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email, password]
+ *             properties:
+ *               email: { type: string }
+ *               password: { type: string }
+ *     responses:
+ *       200:
+ *         description: Login successful.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string }
+ *                 token: { type: string }
+ */
 export const login = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const { email, password } = req.body;
