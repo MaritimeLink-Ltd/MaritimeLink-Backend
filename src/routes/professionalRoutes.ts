@@ -177,4 +177,57 @@ router.post('/login', authController.login);
  */
 router.post('/resend-otp', authController.resendOTP);
 
+/**
+ * @swagger
+ * /api/professional/forgot-password:
+ *   post:
+ *     summary: Request a password reset link
+ *     tags: [Professional]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email]
+ *             properties:
+ *               email: { type: string, format: email }
+ *     responses:
+ *       200:
+ *         description: Reset link sent to email.
+ *       404:
+ *         description: User not found.
+ */
+router.post('/forgot-password', authController.forgotPassword);
+
+/**
+ * @swagger
+ * /api/professional/reset-password/{token}:
+ *   patch:
+ *     summary: Reset password using token
+ *     tags: [Professional]
+ *     parameters:
+ *       - in: path
+ *         name: token
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The reset token received via email
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [password]
+ *             properties:
+ *               password: { type: string, minLength: 6 }
+ *     responses:
+ *       200:
+ *         description: Password reset successful.
+ *       400:
+ *         description: Token invalid or expired.
+ */
+router.patch('/reset-password/:token', authController.resetPassword);
+
 export default router;

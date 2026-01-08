@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
@@ -5,7 +6,10 @@ import { prisma } from '../config/prisma.js';
 import { env } from '../config/env.js';
 import { AppError } from '../utils/AppError.js';
 import { catchAsync } from '../utils/catchAsync.js';
-import { sendOTPEmail } from '../services/emailService.js';
+import {
+  sendOTPEmail,
+  sendPasswordResetEmail,
+} from '../services/emailService.js';
 import { uploadToSupabase } from '../services/storageService.js';
 
 /**
@@ -280,6 +284,128 @@ export const resendOTP = catchAsync(
     res.status(200).json({
       status: 'success',
       message: 'OTP resent to your email.',
+    });
+  },
+);
+
+/**
+ * Forgot Password
+ */
+export const forgotPassword = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const { email } = req.body;
+
+    if (!email) {
+      return next(new AppError('Please provide an email address', 400));
+    }
+
+    const recruiter = await prisma.recruiter.findUnique({
+      where: { email },
+    });
+
+    if (!recruiter) {
+      return next(
+        new AppError('No recruiter found with that email address', 404),
+      );
+    }
+
+    // Generate random reset token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+
+    // Hash token and set expiry
+    const hashedToken = crypto
+      .createHash('sha256')
+      .update(resetToken)
+      .digest('hex');
+    const resetExpires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+    await prisma.recruiter.update({
+      where: { id: recruiter.id },
+      data: {
+        passwordResetToken: hashedToken,
+        passwordResetExpires: resetExpires,
+      },
+    });
+
+    // Send email
+    const resetURL = `${env.FRONTEND_URL}/reset-password/${resetToken}`;
+
+    try {
+      await sendPasswordResetEmail(email, resetURL);
+      res.status(200).json({
+        status: 'success',
+        message: 'Password reset link sent to your email.',
+      });
+    } catch {
+      // If email fails, clear the token fields
+      await prisma.recruiter.update({
+        where: { id: recruiter.id },
+        data: {
+          passwordResetToken: null,
+          passwordResetExpires: null,
+        },
+      });
+      return next(
+        new AppError(
+          'There was an error sending the email. Try again later.',
+          500,
+        ),
+      );
+    }
+  },
+);
+
+/**
+ * Reset Password
+ */
+export const resetPassword = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const { token } = req.params;
+    const { password } = req.body;
+
+    if (!password) {
+      return next(new AppError('Please provide a new password', 400));
+    }
+
+    // Hash the token from params to compare with DB
+    const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
+
+    const recruiter = await prisma.recruiter.findFirst({
+      where: {
+        passwordResetToken: hashedToken,
+        passwordResetExpires: { gt: new Date() },
+      },
+    });
+
+    if (!recruiter) {
+      return next(new AppError('Token is invalid or has expired', 400));
+    }
+
+    // Update password, clear token fields
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    await prisma.recruiter.update({
+      where: { id: recruiter.id },
+      data: {
+        password: hashedPassword,
+        passwordResetToken: null,
+        passwordResetExpires: null,
+      },
+    });
+
+    // Issuing token (Optional based on UX choice, let's keep it consistent with Professional)
+    const jwtToken = jwt.sign(
+      { id: recruiter.id, role: recruiter.role },
+      env.JWT_SECRET,
+      {
+        expiresIn: '7d',
+      },
+    );
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Password reset successful.',
+      token: jwtToken,
     });
   },
 );

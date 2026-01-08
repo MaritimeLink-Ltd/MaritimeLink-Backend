@@ -153,4 +153,57 @@ router.post('/login', recruiterController.login);
  */
 router.post('/resend-otp', recruiterController.resendOTP);
 
+/**
+ * @swagger
+ * /api/recruiter/forgot-password:
+ *   post:
+ *     summary: Request a password reset link for recruiter
+ *     tags: [Recruiter]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email]
+ *             properties:
+ *               email: { type: string, format: email }
+ *     responses:
+ *       200:
+ *         description: Reset link sent to email.
+ *       404:
+ *         description: Recruiter not found.
+ */
+router.post('/forgot-password', recruiterController.forgotPassword);
+
+/**
+ * @swagger
+ * /api/recruiter/reset-password/{token}:
+ *   patch:
+ *     summary: Reset recruiter password using token
+ *     tags: [Recruiter]
+ *     parameters:
+ *       - in: path
+ *         name: token
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The reset token received via email
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [password]
+ *             properties:
+ *               password: { type: string, minLength: 6 }
+ *     responses:
+ *       200:
+ *         description: Password reset successful.
+ *       400:
+ *         description: Token invalid or expired.
+ */
+router.patch('/reset-password/:token', recruiterController.resetPassword);
+
 export default router;
