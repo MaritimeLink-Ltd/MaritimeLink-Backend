@@ -128,4 +128,29 @@ router.post('/complete-profile', recruiterController.completeProfile);
  */
 router.post('/login', recruiterController.login);
 
+/**
+ * @swagger
+ * /api/recruiter/resend-otp:
+ *   post:
+ *     summary: Resend OTP code for recruiter
+ *     tags: [Recruiter]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email]
+ *             properties:
+ *               email: { type: string, format: email }
+ *     responses:
+ *       200:
+ *         description: OTP resent successfully.
+ *       400:
+ *         description: Invalid request or already verified.
+ *       404:
+ *         description: User not found.
+ */
+router.post('/resend-otp', recruiterController.resendOTP);
+
 export default router;
