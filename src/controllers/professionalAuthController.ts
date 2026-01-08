@@ -214,3 +214,46 @@ export const login = catchAsync(
     });
   },
 );
+
+/**
+ * Resend OTP
+ */
+export const resendOTP = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const { email } = req.body;
+
+    if (!email) {
+      return next(new AppError('Please provide an email address', 400));
+    }
+
+    const professional = await prisma.professional.findUnique({
+      where: { email },
+    });
+
+    if (!professional) {
+      return next(new AppError('Professional not found', 404));
+    }
+
+    if (professional.isVerified) {
+      return next(new AppError('Account is already verified', 400));
+    }
+
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    await prisma.professional.update({
+      where: { id: professional.id },
+      data: {
+        otpCode,
+        otpExpiresAt,
+      },
+    });
+
+    await sendOTPEmail(email, otpCode);
+
+    res.status(200).json({
+      status: 'success',
+      message: 'OTP resent to your email.',
+    });
+  },
+);
