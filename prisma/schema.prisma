@@ -24,6 +24,10 @@ model Professional {
   isVerified    Boolean   @default(false)
   otpCode       String?
   otpExpiresAt  DateTime?
+  
+  passwordResetToken   String?
+  passwordResetExpires DateTime?
+
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 }
@@ -48,6 +52,9 @@ model Recruiter {
   otpCode         String?
   otpExpiresAt    DateTime?
   
+  passwordResetToken   String?
+  passwordResetExpires DateTime?
+
   // Organizational Details (Step 4)
   organizationName String?
   address          String?

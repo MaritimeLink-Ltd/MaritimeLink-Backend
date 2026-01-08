@@ -23,6 +23,7 @@ const envSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   SUPABASE_BUCKET_NAME: z.string().default('professional-ids'),
   SUPABASE_RECRUITER_BUCKET_NAME: z.string().default('recruiter-ids'),
+  FRONTEND_URL: z.string().url().default('http://localhost:5173'),
 });
 
 const parsed = envSchema.safeParse(process.env);
