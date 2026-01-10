@@ -12,8 +12,18 @@ const options: swaggerJsdoc.Options = {
     },
     servers: [
       {
+        url: env.BACKEND_URL || `http://localhost:${env.PORT}`,
+        description: env.BACKEND_URL
+          ? 'Production server'
+          : 'Development server',
+      },
+      {
+        url: 'https://maritime-apis.onrender.com',
+        description: 'Production server (Render)',
+      },
+      {
         url: `http://localhost:${env.PORT}`,
-        description: 'Development server',
+        description: 'Local development server',
       },
     ],
     components: {

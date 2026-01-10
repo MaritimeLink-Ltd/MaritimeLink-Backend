@@ -24,6 +24,7 @@ const envSchema = z.object({
   SUPABASE_BUCKET_NAME: z.string().default('professional-ids'),
   SUPABASE_RECRUITER_BUCKET_NAME: z.string().default('recruiter-ids'),
   FRONTEND_URL: z.string().url().default('http://localhost:5173'),
+  BACKEND_URL: z.string().url().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
