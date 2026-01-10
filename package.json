@@ -14,7 +14,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:pull": "prisma db pull",
     "test": "NODE_OPTIONS=--experimental-vm-modules jest",
-    "prepare": "husky"
+    "prepare": "if [ \"$NODE_ENV\" != \"production\" ]; then husky; fi"
   },
   "keywords": [],
   "author": "",
