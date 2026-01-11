@@ -23,7 +23,16 @@ export const register = catchAsync(
       where: { email },
     });
     if (existingUser) {
-      return next(new AppError('Email already registered', 400));
+      return next(
+        new AppError('Email already registered as a professional', 400),
+      );
+    }
+
+    const existingRecruiter = await prisma.recruiter.findUnique({
+      where: { email },
+    });
+    if (existingRecruiter) {
+      return next(new AppError('Email already registered as a recruiter', 400));
     }
 
     const hashedPassword = await bcrypt.hash(password, 12);
