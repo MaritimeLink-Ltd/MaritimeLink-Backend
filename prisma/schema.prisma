@@ -236,3 +236,24 @@ model ProfessionalReferee {
 
   @@map("professional_referees")
 }
+
+enum AdminRole {
+  SUPER_ADMIN
+  ADMIN
+  MODERATOR
+}
+
+model Admin {
+  id               String      @id @default(uuid())
+  email            String      @unique
+  password         String
+  role             AdminRole   @default(SUPER_ADMIN)
+  
+  passwordResetToken   String?
+  passwordResetExpires DateTime?
+
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+
+   @@map("admins")
+}
