@@ -10,6 +10,7 @@ import professionalRoutes from './routes/professionalRoutes.js';
 import recruiterRoutes from './routes/recruiterRoutes.js';
 import authRoutes from './routes/authRoutes.js';
 import professionalResumeRoutes from './routes/professionalResumeRoutes.js';
+import adminRoutes from './routes/adminRoutes.js';
 
 const app = express();
 
@@ -44,6 +45,9 @@ app.use('/api/auth', authRoutes);
 
 // Resume routes
 app.use('/api/professional/resume', professionalResumeRoutes);
+
+// Admin routes
+app.use('/api/admin', adminRoutes);
 
 // 404 handler
 app.use((req: Request, res: Response, next: NextFunction) => {

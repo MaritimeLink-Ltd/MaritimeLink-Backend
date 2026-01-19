@@ -221,6 +221,18 @@ const options: swaggerJsdoc.Options = {
             message: { type: 'string' },
           },
         },
+        Admin: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            email: { type: 'string', format: 'email' },
+            role: {
+              type: 'string',
+              enum: ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'],
+            },
+            createdAt: { type: 'string', format: 'date-time' },
+          },
+        },
       },
     },
   },
