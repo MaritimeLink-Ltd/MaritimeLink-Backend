@@ -30,6 +30,8 @@ model Professional {
 
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+
+  resume        ProfessionalResume?
 }
 
 enum RecruiterRole {
@@ -66,6 +68,171 @@ model Recruiter {
   
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
+}model ProfessionalResume {
+  id                  String   @id @default(uuid())
+  professionalId      String   @unique
+  professional        Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  // Category info
+  category            String?
+  subcategory         String?
+
+  // Personal Info
+  address             String?
+  city                String?
+  state               String?
+  postcode            String?
+  country             String?
+  phoneCode           String?
+  phoneNumber         String?
+  emailAddress        String?
+  dateOfBirth        DateTime?
+
+  // Professional Summary
+  summary             String?  @db.Text
+
+  // Biometrics
+  gender              String?
+  height              Float?
+  weight              Float?
+  bmi                 Float?
+  eyeColor            String?
+  overallSize         String?
+  shoeSize            String?
+
+  // Relations
+  skills              ProfessionalSkill[]
+  licenses            ProfessionalLicense[]
+  seaService          ProfessionalSeaServiceLog[]
+  education           ProfessionalEducation[]
+  stcwCertificates    ProfessionalSTCWCertificate[]
+  medicalCertificates ProfessionalMedicalCertificate[]
+  travelDocuments     ProfessionalTravelDocument[]
+  nextOfKin           ProfessionalNextOfKin[]
+  referees            ProfessionalReferee[]
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@map("professional_resumes")
 }
 
+model ProfessionalSkill {
+  id               String             @id @default(uuid())
+  resumeId         String
+  resume           ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  skillName        String
+  rating           Int?               @default(0)
 
+  @@map("professional_skills")
+}
+
+model ProfessionalLicense {
+  id               String             @id @default(uuid())
+  resumeId         String
+  resume           ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  name             String
+  number           String?
+  country          String?
+  issueDate        DateTime?
+  expiryDate       DateTime?
+
+  @@map("professional_licenses")
+}
+
+model ProfessionalSeaServiceLog {
+  id               String             @id @default(uuid())
+  resumeId         String
+  resume           ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  companyName      String
+  role             String?
+  vesselName       String?
+  imoNumber        String?
+  flag             String?
+  vesselType       String?
+  dwt              String?
+  meType           String?
+  kwtType          String?
+  joiningDate      DateTime?
+  tillDate         DateTime?
+
+  @@map("professional_sea_service_logs")
+}
+
+model ProfessionalEducation {
+  id               String             @id @default(uuid())
+  resumeId         String
+  resume           ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  qualificationName String
+  institution      String?
+  grade            String?
+  startDate        DateTime?
+  endDate          DateTime?
+
+  @@map("professional_educations")
+}
+
+model ProfessionalSTCWCertificate {
+  id               String             @id @default(uuid())
+  resumeId         String
+  resume           ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  qualification    String
+  certificateNumber String?
+  issuingCountry   String?
+  issueDate        DateTime?
+  expiryDate       DateTime?
+
+  @@map("professional_stcw_certs")
+}
+
+model ProfessionalMedicalCertificate {
+  id               String             @id @default(uuid())
+  resumeId         String
+  resume           ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  name             String
+  certificateNumber String?
+  issuingCountry   String?
+  issueDate        DateTime?
+  expiryDate       DateTime?
+
+  @@map("professional_medical_certs")
+}
+
+model ProfessionalTravelDocument {
+  id               String             @id @default(uuid())
+  resumeId         String
+  resume           ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  name             String
+  documentNumber   String?
+  issuingCountry   String?
+  issueDate        DateTime?
+  expiryDate       DateTime?
+
+  @@map("professional_travel_docs")
+}
+
+model ProfessionalNextOfKin {
+  id               String             @id @default(uuid())
+  resumeId         String
+  resume           ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  name             String
+  relationship     String?
+  countryCode      String?
+  phoneNumber      String?
+  email            String?
+
+  @@map("professional_next_of_kin")
+}
+
+model ProfessionalReferee {
+  id               String             @id @default(uuid())
+  resumeId         String
+  resume           ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+  name             String
+  position         String?
+  countryCode      String?
+  phoneNumber      String?
+  email            String?
+
+  @@map("professional_referees")
+}

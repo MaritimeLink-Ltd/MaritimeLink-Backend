@@ -9,6 +9,7 @@ import { swaggerSpec } from './config/swagger.js';
 import professionalRoutes from './routes/professionalRoutes.js';
 import recruiterRoutes from './routes/recruiterRoutes.js';
 import authRoutes from './routes/authRoutes.js';
+import professionalResumeRoutes from './routes/professionalResumeRoutes.js';
 
 const app = express();
 
@@ -40,6 +41,9 @@ app.use('/api/recruiter', recruiterRoutes);
 
 // Unified Auth routes
 app.use('/api/auth', authRoutes);
+
+// Resume routes
+app.use('/api/professional/resume', professionalResumeRoutes);
 
 // 404 handler
 app.use((req: Request, res: Response, next: NextFunction) => {
