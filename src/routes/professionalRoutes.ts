@@ -107,7 +107,7 @@ router.post(
  *             required: [professionalId, profession, idPassportUrl]
  *             properties:
  *               professionalId: { type: string }
- *               profession: { type: string }
+ *               profession: { type: string, enum: [OFFICER, RATINGS_AND_CREW, CATERING_AND_MEDICAL] }
  *               idPassportUrl: { type: string }
  *               bio: { type: string }
  *     responses:

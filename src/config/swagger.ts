@@ -41,7 +41,11 @@ const options: swaggerJsdoc.Options = {
             id: { type: 'string', format: 'uuid' },
             fullname: { type: 'string' },
             email: { type: 'string', format: 'email' },
-            profession: { type: 'string', nullable: true },
+            profession: {
+              type: 'string',
+              enum: ['OFFICER', 'RATINGS_AND_CREW', 'CATERING_AND_MEDICAL'],
+              nullable: true,
+            },
             idPassportUrl: { type: 'string', format: 'url', nullable: true },
             bio: { type: 'string', nullable: true },
             isVerified: { type: 'boolean' },
@@ -73,7 +77,11 @@ const options: swaggerJsdoc.Options = {
         Resume: {
           type: 'object',
           properties: {
-            category: { type: 'string' },
+            category: {
+              type: 'string',
+              enum: ['OFFICER', 'RATINGS_AND_CREW', 'CATERING_AND_MEDICAL'],
+              nullable: true,
+            },
             subcategory: { type: 'string' },
             address: { type: 'string' },
             city: { type: 'string' },
