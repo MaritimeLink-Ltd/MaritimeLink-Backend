@@ -18,7 +18,7 @@ model Professional {
   fullname      String
   email         String    @unique
   password      String
-  profession    String?
+  profession    JobCategory?
   idPassportUrl String?
   bio           String?
   isVerified    Boolean   @default(false)
@@ -32,6 +32,19 @@ model Professional {
   updatedAt     DateTime  @updatedAt
 
   resume        ProfessionalResume?
+  savedJobs     SavedJob[]
+}
+
+enum JobCategory {
+  OFFICER
+  RATINGS_AND_CREW
+  CATERING_AND_MEDICAL
+}
+
+enum JobType {
+  TEMPORARY
+  CONTRACT
+  PERMANENT
 }
 
 enum RecruiterRole {
@@ -78,7 +91,7 @@ model ProfessionalResume {
   professional        Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
 
   // Category info
-  category            String?
+  category            JobCategory?
   subcategory         String?
 
   // Personal Info
@@ -266,42 +279,56 @@ model Admin {
 }
 
 model Job {
-  id           String   @id @default(uuid())
+  id           String      @id @default(uuid())
   title        String
   location     String
-  category     String
-  contractType String
+  category     JobCategory
+  contractType JobType
   salary       String
-  description  String   @db.Text
+  description  String      @db.Text
   
   recruiterId  String?
-  recruiter    Recruiter? @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
+  recruiter    Recruiter?  @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
   
   adminId      String?
-  admin        Admin?     @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  admin        Admin?      @relation(fields: [adminId], references: [id], onDelete: Cascade)
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  savedBy      SavedJob[]
+
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
 
   @@map("jobs")
 }
 
+model SavedJob {
+  id             String       @id @default(uuid())
+  professionalId String
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  jobId          String
+  job            Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@unique([professionalId, jobId])
+  @@map("saved_jobs")
+}
+
 model Course {
-  id           String   @id @default(uuid())
+  id           String      @id @default(uuid())
   title        String
   location     String
   category     String
   contractType String
-  description  String   @db.Text
+  description  String      @db.Text
   
   recruiterId  String?
-  recruiter    Recruiter? @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
+  recruiter    Recruiter?  @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
   
   adminId      String?
-  admin        Admin?     @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  admin        Admin?      @relation(fields: [adminId], references: [id], onDelete: Cascade)
 
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
 
   @@map("courses")
 }
