@@ -68,7 +68,11 @@ model Recruiter {
   
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
-}model ProfessionalResume {
+
+  jobs             Job[]
+  courses          Course[]
+}
+model ProfessionalResume {
   id                  String   @id @default(uuid())
   professionalId      String   @unique
   professional        Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
@@ -255,5 +259,49 @@ model Admin {
   createdAt        DateTime    @default(now())
   updatedAt        DateTime    @updatedAt
 
+  jobs             Job[]
+  courses          Course[]
+
    @@map("admins")
+}
+
+model Job {
+  id           String   @id @default(uuid())
+  title        String
+  location     String
+  category     String
+  contractType String
+  salary       String
+  description  String   @db.Text
+  
+  recruiterId  String?
+  recruiter    Recruiter? @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
+  
+  adminId      String?
+  admin        Admin?     @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("jobs")
+}
+
+model Course {
+  id           String   @id @default(uuid())
+  title        String
+  location     String
+  category     String
+  contractType String
+  description  String   @db.Text
+  
+  recruiterId  String?
+  recruiter    Recruiter? @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
+  
+  adminId      String?
+  admin        Admin?     @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("courses")
 }
