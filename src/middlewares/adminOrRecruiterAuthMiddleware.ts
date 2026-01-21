@@ -11,7 +11,7 @@ interface JWTPayload {
   role: string;
 }
 
-export const protectAdmin = catchAsync(
+export const protectAdminOrRecruiter = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     let token;
     if (
@@ -32,24 +32,41 @@ export const protectAdmin = catchAsync(
 
     const decoded = jwt.verify(token, env.JWT_SECRET) as unknown as JWTPayload;
 
-    const currentAdmin = await prisma.admin.findUnique({
+    // 1) Try finding as Admin
+    const admin = await prisma.admin.findUnique({
       where: { id: decoded.id },
     });
 
-    if (!currentAdmin) {
-      return next(
-        new AppError(
-          'The admin belonging to this token no longer exists.',
-          401,
-        ),
-      );
+    if (admin) {
+      req.user = {
+        id: admin.id,
+        email: admin.email,
+        role: admin.role,
+      };
+      return next();
     }
 
-    req.user = {
-      id: currentAdmin.id,
-      email: currentAdmin.email,
-      role: currentAdmin.role,
-    };
-    next();
+    // 2) Try finding as Recruiter
+    const recruiter = await prisma.recruiter.findUnique({
+      where: { id: decoded.id },
+    });
+
+    if (recruiter) {
+      if (recruiter.status !== 'APPROVED') {
+        return next(
+          new AppError('Your account is not approved by admin yet.', 403),
+        );
+      }
+      req.user = {
+        id: recruiter.id,
+        email: recruiter.email,
+        role: recruiter.role,
+      };
+      return next();
+    }
+
+    return next(
+      new AppError('The user belonging to this token no longer exists.', 401),
+    );
   },
 );
