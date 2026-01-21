@@ -58,4 +58,68 @@ router.post('/', protectAdminOrRecruiter, jobController.createJob);
  */
 router.get('/', jobController.getJobs);
 
+/**
+ * @swagger
+ * /api/jobs/my:
+ *   get:
+ *     summary: Get jobs created by current user
+ *     tags: [Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of user's jobs
+ */
+router.get('/my', protectAdminOrRecruiter, jobController.getMyJobs);
+
+/**
+ * @swagger
+ * /api/jobs/{id}:
+ *   patch:
+ *     summary: Update a job post
+ *     tags: [Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               title: { type: string }
+ *               location: { type: string }
+ *               category: { type: string }
+ *               contractType: { type: string }
+ *               salary: { type: string }
+ *               description: { type: string }
+ *     responses:
+ *       200:
+ *         description: Job updated successfully
+ */
+router.patch('/:id', protectAdminOrRecruiter, jobController.updateJob);
+
+/**
+ * @swagger
+ * /api/jobs/{id}:
+ *   delete:
+ *     summary: Delete a job post
+ *     tags: [Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       204:
+ *         description: Job deleted successfully
+ */
+router.delete('/:id', protectAdminOrRecruiter, jobController.deleteJob);
+
 export default router;

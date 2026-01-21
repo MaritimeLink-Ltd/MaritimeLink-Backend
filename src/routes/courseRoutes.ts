@@ -57,4 +57,67 @@ router.post('/', protectAdminOrRecruiter, courseController.createCourse);
  */
 router.get('/', courseController.getCourses);
 
+/**
+ * @swagger
+ * /api/courses/my:
+ *   get:
+ *     summary: Get courses created by current user
+ *     tags: [Courses]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of user's courses
+ */
+router.get('/my', protectAdminOrRecruiter, courseController.getMyCourses);
+
+/**
+ * @swagger
+ * /api/courses/{id}:
+ *   patch:
+ *     summary: Update a course post
+ *     tags: [Courses]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               title: { type: string }
+ *               location: { type: string }
+ *               category: { type: string }
+ *               contractType: { type: string }
+ *               description: { type: string }
+ *     responses:
+ *       200:
+ *         description: Course updated successfully
+ */
+router.patch('/:id', protectAdminOrRecruiter, courseController.updateCourse);
+
+/**
+ * @swagger
+ * /api/courses/{id}:
+ *   delete:
+ *     summary: Delete a course post
+ *     tags: [Courses]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       204:
+ *         description: Course deleted successfully
+ */
+router.delete('/:id', protectAdminOrRecruiter, courseController.deleteCourse);
+
 export default router;
