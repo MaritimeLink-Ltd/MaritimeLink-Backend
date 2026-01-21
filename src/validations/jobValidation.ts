@@ -16,3 +16,6 @@ export const createCourseSchema = z.object({
   contractType: z.string().min(2).max(50), // Consistent with user request
   description: z.string().min(10),
 });
+
+export const updateJobSchema = createJobSchema.partial();
+export const updateCourseSchema = createCourseSchema.partial();
