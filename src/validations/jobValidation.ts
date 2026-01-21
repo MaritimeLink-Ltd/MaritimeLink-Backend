@@ -3,8 +3,8 @@ import { z } from 'zod';
 export const createJobSchema = z.object({
   title: z.string().min(3).max(100),
   location: z.string().min(2).max(100),
-  category: z.string().min(2).max(50),
-  contractType: z.string().min(2).max(50),
+  category: z.enum(['OFFICER', 'RATINGS_AND_CREW', 'CATERING_AND_MEDICAL']),
+  contractType: z.enum(['TEMPORARY', 'CONTRACT', 'PERMANENT']),
   salary: z.string().min(1).max(50),
   description: z.string().min(10),
 });

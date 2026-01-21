@@ -5,7 +5,9 @@ const dateSchema = z.preprocess((arg) => {
 }, z.date());
 
 export const resumeSchema = z.object({
-  category: z.string().optional(),
+  category: z
+    .enum(['OFFICER', 'RATINGS_AND_CREW', 'CATERING_AND_MEDICAL'])
+    .optional(),
   subcategory: z.string().optional(),
 
   // Personal Info
