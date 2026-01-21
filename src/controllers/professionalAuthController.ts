@@ -11,13 +11,18 @@ import {
   sendPasswordResetEmail,
 } from '../services/emailService.js';
 import { uploadToSupabase } from '../services/storageService.js';
+import {
+  registerSchema,
+  completeProfileSchema,
+} from '../validations/professionalValidation.js';
 
 /**
  * Step 1: Registration
  */
 export const register = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
-    const { fullname, email, password } = req.body;
+    const validatedData = registerSchema.parse(req.body);
+    const { fullname, email, password } = validatedData;
 
     const existingUser = await prisma.professional.findUnique({
       where: { email },
@@ -135,7 +140,8 @@ export const uploadID = catchAsync(
  */
 export const completeProfile = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
-    const { professionalId, profession, idPassportUrl, bio } = req.body;
+    const validatedData = completeProfileSchema.parse(req.body);
+    const { professionalId, profession, idPassportUrl, bio } = validatedData;
 
     const professional = await prisma.professional.findUnique({
       where: { id: professionalId },
@@ -157,7 +163,7 @@ export const completeProfile = catchAsync(
     const updatedProfessional = await prisma.professional.update({
       where: { id: professionalId },
       data: {
-        profession,
+        profession, // Zod should validate this is a valid JobCategory
         bio,
         idPassportUrl,
       },

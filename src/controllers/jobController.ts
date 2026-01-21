@@ -1,5 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma.js';
+import { Prisma, JobCategory, JobType } from '../generated/client/index.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
@@ -40,14 +41,43 @@ export const createJob = catchAsync(
 );
 
 /**
- * Get all job posts (Public)
+ * Get all job posts (Public with Filters)
  */
 export const getJobs = catchAsync(async (req: CustomRequest, res: Response) => {
   const page = parseInt(req.query.page as string) || 1;
   const limit = parseInt(req.query.limit as string) || 10;
   const skip = (page - 1) * limit;
 
+  const { category, jobType, datePosted } = req.query;
+
+  // Build filters
+  const where: Prisma.JobWhereInput = {};
+
+  if (category) {
+    where.category = category as JobCategory;
+  }
+
+  if (jobType) {
+    where.contractType = jobType as JobType;
+  }
+
+  if (datePosted) {
+    const now = new Date();
+    if (datePosted === '24h') {
+      where.createdAt = { gte: new Date(now.getTime() - 24 * 60 * 60 * 1000) };
+    } else if (datePosted === '7d') {
+      where.createdAt = {
+        gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000),
+      };
+    } else if (datePosted === '30d') {
+      where.createdAt = {
+        gte: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000),
+      };
+    }
+  }
+
   const jobs = await prisma.job.findMany({
+    where,
     skip,
     take: limit,
     include: {
@@ -61,7 +91,7 @@ export const getJobs = catchAsync(async (req: CustomRequest, res: Response) => {
     orderBy: { createdAt: 'desc' },
   });
 
-  const total = await prisma.job.count();
+  const total = await prisma.job.count({ where });
 
   res.status(200).json({
     status: 'success',
@@ -70,6 +100,41 @@ export const getJobs = catchAsync(async (req: CustomRequest, res: Response) => {
     data: { jobs },
   });
 });
+
+/**
+ * Get a single job by ID
+ */
+export const getJobById = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const { id } = req.params;
+
+    const job = await prisma.job.findUnique({
+      where: { id },
+      include: {
+        recruiter: {
+          select: {
+            organizationName: true,
+            email: true,
+            website: true,
+            address: true,
+          },
+        },
+        admin: {
+          select: { email: true },
+        },
+      },
+    });
+
+    if (!job) {
+      return next(new AppError('Job not found', 404));
+    }
+
+    res.status(200).json({
+      status: 'success',
+      data: { job },
+    });
+  },
+);
 
 /**
  * Get jobs created by current user
