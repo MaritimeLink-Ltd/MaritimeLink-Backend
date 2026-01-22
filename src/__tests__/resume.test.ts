@@ -1,8 +1,8 @@
 import request from 'supertest';
-import app from './app.js';
-import { prisma } from './config/prisma.js';
+import app from '../app.js';
+import { prisma } from '../config/prisma.js';
 import jwt from 'jsonwebtoken';
-import { env } from './config/env.js';
+import { env } from '../config/env.js';
 
 describe('Professional Resume API', () => {
   let token: string;
