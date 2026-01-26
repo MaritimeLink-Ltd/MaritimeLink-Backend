@@ -5,5 +5,6 @@ export interface CustomRequest extends Request {
     id: string;
     email: string;
     role?: string;
+    userType?: 'PROFESSIONAL' | 'RECRUITER' | 'ADMIN';
   };
 }
