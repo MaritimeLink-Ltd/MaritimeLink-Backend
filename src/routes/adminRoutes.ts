@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import * as adminAuthController from '../controllers/adminAuthController.js';
 import * as adminRecruiterController from '../controllers/adminRecruiterController.js';
+import * as adminProfessionalController from '../controllers/adminProfessionalController.js';
 import { protectAdmin } from '../middlewares/adminAuthMiddleware.js';
 
 const router = Router();
@@ -239,5 +240,58 @@ router.get('/kyc/pending', adminRecruiterController.getPendingKYCs);
  *         description: KYC status updated
  */
 router.patch('/kyc/:id/status', adminRecruiterController.updateKYCStatus);
+
+/**
+ * @swagger
+ * /api/admin/professional-kyc/pending:
+ *   get:
+ *     summary: Get all professionals with pending KYC
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of pending professional KYCs
+ */
+router.get(
+  '/professional-kyc/pending',
+  adminProfessionalController.getPendingKYCs,
+);
+
+/**
+ * @swagger
+ * /api/admin/professional-kyc/{id}/status:
+ *   patch:
+ *     summary: Update Professional KYC status (Approve/Reject)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Professional ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - status
+ *             properties:
+ *               status:
+ *                 type: string
+ *                 enum: [APPROVED, REJECTED]
+ *     responses:
+ *       200:
+ *         description: Professional KYC status updated
+ */
+router.patch(
+  '/professional-kyc/:id/status',
+  adminProfessionalController.updateKYCStatus,
+);
 
 export default router;

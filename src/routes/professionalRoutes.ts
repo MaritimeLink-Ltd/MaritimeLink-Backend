@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import * as authController from '../controllers/professionalAuthController.js';
+import * as kycController from '../controllers/professionalKycController.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -229,5 +230,85 @@ router.post('/forgot-password', authController.forgotPassword);
  *         description: Token invalid or expired.
  */
 router.patch('/reset-password/:token', authController.resetPassword);
+
+/**
+ * @swagger
+ * /api/professional/kyc/upload-document:
+ *   post:
+ *     summary: Professional KYC Step 1 - Upload Identity Document
+ *     tags: [Professional KYC]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [document]
+ *             properties:
+ *               document: { type: string, format: binary }
+ *     responses:
+ *       200:
+ *         description: Document uploaded successfully.
+ */
+router.post(
+  '/kyc/upload-document',
+  upload.single('document'),
+  kycController.uploadKYCDocument,
+);
+
+/**
+ * @swagger
+ * /api/professional/kyc/submit:
+ *   post:
+ *     summary: Professional KYC Step 2 - Submit Personal Details & Document URL
+ *     tags: [Professional KYC]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [professionalId, firstName, lastName, dateOfBirth, documentType, documentNumber, expiryDate, issueCountry, documentUrl]
+ *             properties:
+ *               professionalId: { type: string }
+ *               firstName: { type: string }
+ *               lastName: { type: string }
+ *               dateOfBirth: { type: string, format: date }
+ *               documentType: { type: string, enum: [PASSPORT, DRIVING_LICENSE, NATIONAL_ID, RESIDENCE_PERMIT] }
+ *               documentNumber: { type: string }
+ *               expiryDate: { type: string, format: date }
+ *               issueCountry: { type: string }
+ *               documentUrl: { type: string }
+ *     responses:
+ *       200:
+ *         description: KYC details submitted. Please upload a selfie next.
+ */
+router.post('/kyc/submit', kycController.submitKYC);
+
+/**
+ * @swagger
+ * /api/professional/kyc/upload-selfie:
+ *   post:
+ *     summary: Professional KYC Step 3 - Upload Selfie
+ *     tags: [Professional KYC]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [professionalId, selfie]
+ *             properties:
+ *               professionalId: { type: string }
+ *               selfie: { type: string, format: binary }
+ *     responses:
+ *       200:
+ *         description: Selfie uploaded and linked successfully.
+ */
+router.post(
+  '/kyc/upload-selfie',
+  upload.single('selfie'),
+  kycController.uploadKYCSelfie,
+);
 
 export default router;
