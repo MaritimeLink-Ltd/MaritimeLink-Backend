@@ -1,0 +1,153 @@
+import { Request, Response, NextFunction } from 'express';
+import { prisma } from '../config/prisma.js';
+import { env } from '../config/env.js';
+import { AppError } from '../utils/AppError.js';
+import { catchAsync } from '../utils/catchAsync.js';
+import { uploadToSupabase } from '../services/storageService.js';
+import { submitKYCSchema } from '../validations/kycValidation.js';
+
+/**
+ * Upload Identity Document
+ */
+export const uploadKYCDocument = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const file = req.file;
+
+    if (!file) {
+      return next(
+        new AppError('Please upload an identity document image', 400),
+      );
+    }
+
+    const sanitizedOriginalName = file.originalname.replace(
+      /[^a-zA-Z0-9.]/g,
+      '_',
+    );
+    const fileName = `professional-kyc-docs/${Date.now()}-${sanitizedOriginalName}`;
+
+    const publicUrl = await uploadToSupabase(
+      file,
+      fileName,
+      env.SUPABASE_PROFESSIONAL_KYC_DOCS_BUCKET,
+    );
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Document uploaded successfully.',
+      data: { url: publicUrl },
+    });
+  },
+);
+
+/**
+ * Submit KYC Details (Step 2)
+ */
+export const submitKYC = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const { professionalId } = req.body;
+
+    if (!professionalId) {
+      return next(new AppError('professionalId is required', 400));
+    }
+
+    const validationResult = submitKYCSchema.safeParse(req.body);
+
+    if (!validationResult.success) {
+      return next(new AppError(validationResult.error.message, 400));
+    }
+
+    const {
+      firstName,
+      lastName,
+      dateOfBirth,
+      documentType,
+      documentNumber,
+      expiryDate,
+      issueCountry,
+      documentUrl,
+    } = validationResult.data;
+
+    // Check if KYC already exists
+    const existingKyc = await prisma.professionalKyc.findUnique({
+      where: { professionalId },
+    });
+
+    if (existingKyc && existingKyc.status === 'APPROVED') {
+      return next(new AppError('KYC already approved', 400));
+    }
+
+    const kycData = {
+      firstName,
+      lastName,
+      dateOfBirth: new Date(dateOfBirth),
+      documentType,
+      documentNumber,
+      expiryDate: new Date(expiryDate),
+      issueCountry,
+      documentUrl,
+      status: 'PENDING' as const,
+    };
+
+    if (existingKyc) {
+      await prisma.professionalKyc.update({
+        where: { professionalId },
+        data: kycData,
+      });
+    } else {
+      await prisma.professionalKyc.create({
+        data: {
+          ...kycData,
+          professionalId,
+        },
+      });
+    }
+
+    res.status(200).json({
+      status: 'success',
+      message:
+        'KYC details submitted successfully. Please upload a selfie next.',
+    });
+  },
+);
+
+/**
+ * Upload Selfie (Step 3)
+ */
+export const uploadKYCSelfie = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const file = req.file;
+    const { professionalId } = req.body;
+
+    if (!file) {
+      return next(new AppError('Please upload a selfie image', 400));
+    }
+
+    if (!professionalId) {
+      return next(new AppError('professionalId is required', 400));
+    }
+
+    const sanitizedOriginalName = file.originalname.replace(
+      /[^a-zA-Z0-9.]/g,
+      '_',
+    );
+    const fileName = `professional-kyc-selfies/${Date.now()}-${sanitizedOriginalName}`;
+
+    const publicUrl = await uploadToSupabase(
+      file,
+      fileName,
+      env.SUPABASE_PROFESSIONAL_KYC_SELFIES_BUCKET,
+    );
+
+    // Update the KYC record with the selfie URL
+    await prisma.professionalKyc.update({
+      where: { professionalId },
+      data: { selfieUrl: publicUrl },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Selfie uploaded and linked to KYC successfully.',
+      data: { url: publicUrl },
+    });
+  },
+);

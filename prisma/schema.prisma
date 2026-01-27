@@ -34,6 +34,7 @@ model Professional {
   resume        ProfessionalResume?
   savedJobs     SavedJob[]
   conversations Conversation[]
+  kyc           ProfessionalKyc?
 }
 
 enum JobCategory {
@@ -409,4 +410,27 @@ model RecruiterKyc {
   updatedAt        DateTime        @updatedAt
 
   @@map("recruiter_kyc")
+}
+
+model ProfessionalKyc {
+  id               String          @id @default(uuid())
+  professionalId   String          @unique
+  professional     Professional    @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  
+  firstName        String
+  lastName         String
+  dateOfBirth      DateTime
+  documentType     KYCDocumentType
+  documentNumber   String
+  expiryDate       DateTime
+  issueCountry     String
+  documentUrl      String
+  selfieUrl        String?
+  
+  status           RecruiterStatus @default(PENDING)
+  
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@map("professional_kyc")
 }

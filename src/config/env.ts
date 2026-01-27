@@ -27,6 +27,12 @@ const envSchema = z.object({
   SUPABASE_RECRUITER_KYC_SELFIES_BUCKET: z
     .string()
     .default('recruiter-kyc-selfies'),
+  SUPABASE_PROFESSIONAL_KYC_DOCS_BUCKET: z
+    .string()
+    .default('professional-kyc-docs'),
+  SUPABASE_PROFESSIONAL_KYC_SELFIES_BUCKET: z
+    .string()
+    .default('professional-kyc-selfies'),
   FRONTEND_URL: z.string().url().default('http://localhost:5173'),
   BACKEND_URL: z.string().url().optional(),
 });
