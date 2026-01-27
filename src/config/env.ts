@@ -23,6 +23,10 @@ const envSchema = z.object({
   SUPABASE_SERVICE_ROLE_KEY: z.string().min(1),
   SUPABASE_BUCKET_NAME: z.string().default('professional-ids'),
   SUPABASE_RECRUITER_BUCKET_NAME: z.string().default('recruiter-ids'),
+  SUPABASE_RECRUITER_KYC_DOCS_BUCKET: z.string().default('recruiter-kyc-docs'),
+  SUPABASE_RECRUITER_KYC_SELFIES_BUCKET: z
+    .string()
+    .default('recruiter-kyc-selfies'),
   FRONTEND_URL: z.string().url().default('http://localhost:5173'),
   BACKEND_URL: z.string().url().optional(),
 });

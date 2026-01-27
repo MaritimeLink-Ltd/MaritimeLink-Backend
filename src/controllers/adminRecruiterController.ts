@@ -111,3 +111,62 @@ export const updateRecruiterStatus = catchAsync(
     });
   },
 );
+
+/**
+ * Get all recruiters with pending KYC
+ */
+export const getPendingKYCs = catchAsync(
+  async (req: CustomRequest, res: Response) => {
+    const kycs = await prisma.recruiterKyc.findMany({
+      where: { status: 'PENDING' },
+      include: {
+        recruiter: {
+          select: {
+            email: true,
+            organizationName: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      results: kycs.length,
+      data: {
+        kycs,
+      },
+    });
+  },
+);
+
+/**
+ * Update KYC status (Approve/Reject)
+ */
+export const updateKYCStatus = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const { id } = req.params; // recruiterKyc id or recruiterId? Let's use recruiterId for convenience
+    const { status } = req.body; // APPROVED or REJECTED
+
+    if (!['APPROVED', 'REJECTED'].includes(status)) {
+      return next(new AppError('Invalid status', 400));
+    }
+
+    const kyc = await prisma.recruiterKyc.update({
+      where: { recruiterId: id },
+      data: { status },
+    });
+
+    // If KYC is approved, we might also want to approve the recruiter account?
+    // Or keep them separate. Usually KYC approval is a prerequisite for account approval.
+    // Let's just update KYC status for now as requested.
+
+    res.status(200).json({
+      status: 'success',
+      message: `KYC status updated to ${status}`,
+      data: {
+        kyc,
+      },
+    });
+  },
+);

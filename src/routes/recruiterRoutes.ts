@@ -1,6 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import * as recruiterController from '../controllers/recruiterAuthController.js';
+import * as kycController from '../controllers/kycController.js';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -205,5 +206,85 @@ router.post('/forgot-password', recruiterController.forgotPassword);
  *         description: Token invalid or expired.
  */
 router.patch('/reset-password/:token', recruiterController.resetPassword);
+
+/**
+ * @swagger
+ * /api/recruiter/kyc/upload-document:
+ *   post:
+ *     summary: KYC Step 1 - Upload Identity Document
+ *     tags: [Recruiter KYC]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [document]
+ *             properties:
+ *               document: { type: string, format: binary }
+ *     responses:
+ *       200:
+ *         description: Document uploaded successfully.
+ */
+router.post(
+  '/kyc/upload-document',
+  upload.single('document'),
+  kycController.uploadKYCDocument,
+);
+
+/**
+ * @swagger
+ * /api/recruiter/kyc/upload-selfie:
+ *   post:
+ *     summary: KYC Step 3 - Upload Selfie
+ *     tags: [Recruiter KYC]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [recruiterId, selfie]
+ *             properties:
+ *               recruiterId: { type: string }
+ *               selfie: { type: string, format: binary }
+ *     responses:
+ *       200:
+ *         description: Selfie uploaded and linked successfully.
+ */
+router.post(
+  '/kyc/upload-selfie',
+  upload.single('selfie'),
+  kycController.uploadKYCSelfie,
+);
+
+/**
+ * @swagger
+ * /api/recruiter/kyc/submit:
+ *   post:
+ *     summary: KYC Step 2 - Submit Personal Details & Document URL
+ *     tags: [Recruiter KYC]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [recruiterId, firstName, lastName, dateOfBirth, documentType, documentNumber, expiryDate, issueCountry, documentUrl]
+ *             properties:
+ *               recruiterId: { type: string }
+ *               firstName: { type: string }
+ *               lastName: { type: string }
+ *               dateOfBirth: { type: string, format: date }
+ *               documentType: { type: string, enum: [PASSPORT, DRIVING_LICENSE, NATIONAL_ID, RESIDENCE_PERMIT] }
+ *               documentNumber: { type: string }
+ *               expiryDate: { type: string, format: date }
+ *               issueCountry: { type: string }
+ *               documentUrl: { type: string }
+ *     responses:
+ *       200:
+ *         description: KYC details submitted. Please upload a selfie next.
+ */
+router.post('/kyc/submit', kycController.submitKYC);
 
 export default router;

@@ -59,6 +59,13 @@ enum RecruiterStatus {
   REJECTED
 }
 
+enum KYCDocumentType {
+  PASSPORT
+  DRIVING_LICENSE
+  NATIONAL_ID
+  RESIDENCE_PERMIT
+}
+
 model Recruiter {
   id               String          @id @default(uuid())
   email            String          @unique
@@ -83,6 +90,7 @@ model Recruiter {
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 
+  kyc              RecruiterKyc?
   jobs             Job[]
   courses          Course[]
   conversations    Conversation[]
@@ -378,4 +386,27 @@ model Message {
   @@index([conversationId, createdAt])
   @@index([isRead])
   @@map("messages")
+}
+
+model RecruiterKyc {
+  id               String          @id @default(uuid())
+  recruiterId      String          @unique
+  recruiter        Recruiter       @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
+  
+  firstName        String
+  lastName         String
+  dateOfBirth      DateTime
+  documentType     KYCDocumentType
+  documentNumber   String
+  expiryDate       DateTime
+  issueCountry     String
+  documentUrl      String
+  selfieUrl        String?
+  
+  status           RecruiterStatus @default(PENDING)
+  
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@map("recruiter_kyc")
 }

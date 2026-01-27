@@ -193,4 +193,51 @@ router.patch(
   adminRecruiterController.updateRecruiterStatus,
 );
 
+/**
+ * @swagger
+ * /api/admin/kyc/pending:
+ *   get:
+ *     summary: Get all recruiters with pending KYC
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of pending KYCs
+ */
+router.get('/kyc/pending', adminRecruiterController.getPendingKYCs);
+
+/**
+ * @swagger
+ * /api/admin/kyc/{id}/status:
+ *   patch:
+ *     summary: Update KYC status (Approve/Reject)
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Recruiter ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - status
+ *             properties:
+ *               status:
+ *                 type: string
+ *                 enum: [APPROVED, REJECTED]
+ *     responses:
+ *       200:
+ *         description: KYC status updated
+ */
+router.patch('/kyc/:id/status', adminRecruiterController.updateKYCStatus);
+
 export default router;
