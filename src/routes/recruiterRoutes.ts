@@ -2,6 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import * as recruiterController from '../controllers/recruiterAuthController.js';
 import * as kycController from '../controllers/kycController.js';
+import * as sessionController from '../controllers/courseSessionController.js';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -286,5 +287,130 @@ router.post(
  *         description: KYC details submitted. Please upload a selfie next.
  */
 router.post('/kyc/submit', kycController.submitKYC);
+
+/**
+ * @swagger
+ * /api/recruiter/courses/{courseId}/sessions:
+ *   post:
+ *     summary: Create a new session for a course
+ *     tags: [Course Sessions]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: courseId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [startDate, endDate, startTime, endTime, location, instructor, totalSeats]
+ *             properties:
+ *               startDate: { type: string, format: date-time }
+ *               endDate: { type: string, format: date-time }
+ *               startTime: { type: string, example: "09:00" }
+ *               endTime: { type: string, example: "17:00" }
+ *               location: { type: string }
+ *               instructor: { type: string }
+ *               totalSeats: { type: integer }
+ *     responses:
+ *       201:
+ *         description: Session created successfully.
+ */
+router.post('/courses/:courseId/sessions', sessionController.createSession);
+
+/**
+ * @swagger
+ * /api/recruiter/courses/{courseId}/sessions:
+ *   get:
+ *     summary: Get all sessions for a specific course
+ *     tags: [Course Sessions]
+ *     parameters:
+ *       - in: path
+ *         name: courseId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: List of sessions for the course.
+ */
+router.get('/courses/:courseId/sessions', sessionController.getCourseSessions);
+
+/**
+ * @swagger
+ * /api/recruiter/sessions/{id}:
+ *   get:
+ *     summary: Get a single session by ID
+ *     tags: [Course Sessions]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Session details.
+ */
+router.get('/sessions/:id', sessionController.getSession);
+
+/**
+ * @swagger
+ * /api/recruiter/sessions/{id}:
+ *   patch:
+ *     summary: Update a session
+ *     tags: [Course Sessions]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               startDate: { type: string, format: date-time }
+ *               endDate: { type: string, format: date-time }
+ *               startTime: { type: string, example: "09:00" }
+ *               endTime: { type: string, example: "17:00" }
+ *               location: { type: string }
+ *               instructor: { type: string }
+ *               totalSeats: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Session updated successfully.
+ */
+router.patch('/sessions/:id', sessionController.updateSession);
+
+/**
+ * @swagger
+ * /api/recruiter/sessions/{id}:
+ *   delete:
+ *     summary: Delete a session
+ *     tags: [Course Sessions]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       204:
+ *         description: Session deleted successfully.
+ */
+router.delete('/sessions/:id', sessionController.deleteSession);
 
 export default router;
