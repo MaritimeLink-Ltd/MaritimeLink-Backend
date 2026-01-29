@@ -3,9 +3,9 @@ import multer from 'multer';
 import * as recruiterController from '../controllers/recruiterAuthController.js';
 import * as kycController from '../controllers/kycController.js';
 import * as sessionController from '../controllers/courseSessionController.js';
-
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
+import { protectRecruiter } from '../middlewares/recruiterAuthMiddleware.js';
 
 /**
  * @swagger
@@ -207,6 +207,36 @@ router.post('/forgot-password', recruiterController.forgotPassword);
  *         description: Token invalid or expired.
  */
 router.patch('/reset-password/:token', recruiterController.resetPassword);
+
+/**
+ * @swagger
+ * /api/recruiter/update-password:
+ *   patch:
+ *     summary: Update password (authenticated)
+ *     tags: [Recruiter]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [oldPassword, newPassword]
+ *             properties:
+ *               oldPassword: { type: string }
+ *               newPassword: { type: string, minLength: 6 }
+ *     responses:
+ *       200:
+ *         description: Password updated successfully.
+ *       401:
+ *         description: Incorrect old password.
+ */
+router.patch(
+  '/update-password',
+  protectRecruiter,
+  recruiterController.updatePassword,
+);
 
 /**
  * @swagger

@@ -11,6 +11,8 @@ import {
   sendPasswordResetEmail,
 } from '../services/emailService.js';
 import { uploadToSupabase } from '../services/storageService.js';
+import { changePasswordSchema } from '../validations/passwordValidation.js';
+import { CustomRequest } from '../types/index.js';
 
 /**
  * Step 1: Registration
@@ -415,6 +417,41 @@ export const resetPassword = catchAsync(
       status: 'success',
       message: 'Password reset successful.',
       token: jwtToken,
+    });
+  },
+);
+
+/**
+ * Update Password (Authenticated)
+ */
+export const updatePassword = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const validatedData = changePasswordSchema.parse(req.body);
+    const { oldPassword, newPassword } = validatedData;
+
+    const recruiter = await prisma.recruiter.findUnique({
+      where: { id: req.user?.id },
+    });
+
+    if (
+      !recruiter ||
+      !(await bcrypt.compare(oldPassword, recruiter.password))
+    ) {
+      return next(new AppError('Incorrect old password', 401));
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+
+    await prisma.recruiter.update({
+      where: { id: recruiter.id },
+      data: {
+        password: hashedPassword,
+      },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Password updated successfully.',
     });
   },
 );
