@@ -346,7 +346,29 @@ model Course {
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
+  sessions     CourseSession[]
+
   @@map("courses")
+}
+
+model CourseSession {
+  id               String   @id @default(uuid())
+  courseId         String
+  course           Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  
+  startDate        DateTime
+  endDate          DateTime
+  startTime        String
+  endTime          String
+  location         String
+  instructor       String
+  totalSeats       Int
+  availableSeats   Int
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("course_sessions")
 }
 
 model Conversation {
