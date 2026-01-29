@@ -2,6 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import * as authController from '../controllers/professionalAuthController.js';
 import * as kycController from '../controllers/professionalKycController.js';
+import { protect } from '../middlewares/authMiddleware.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -230,6 +231,32 @@ router.post('/forgot-password', authController.forgotPassword);
  *         description: Token invalid or expired.
  */
 router.patch('/reset-password/:token', authController.resetPassword);
+
+/**
+ * @swagger
+ * /api/professional/update-password:
+ *   patch:
+ *     summary: Update password (authenticated)
+ *     tags: [Professional]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [oldPassword, newPassword]
+ *             properties:
+ *               oldPassword: { type: string }
+ *               newPassword: { type: string, minLength: 6 }
+ *     responses:
+ *       200:
+ *         description: Password updated successfully.
+ *       401:
+ *         description: Incorrect old password.
+ */
+router.patch('/update-password', protect, authController.updatePassword);
 
 /**
  * @swagger
