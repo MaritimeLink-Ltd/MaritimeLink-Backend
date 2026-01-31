@@ -2,6 +2,7 @@ import { Router } from 'express';
 import multer from 'multer';
 import * as authController from '../controllers/professionalAuthController.js';
 import * as kycController from '../controllers/professionalKycController.js';
+import * as documentController from '../controllers/professionalDocumentController.js';
 import { protect } from '../middlewares/authMiddleware.js';
 
 const router = Router();
@@ -282,6 +283,114 @@ router.post(
   upload.single('document'),
   kycController.uploadKYCDocument,
 );
+
+/**
+ * @swagger
+ * /api/professional/documents/upload:
+ *   post:
+ *     summary: Upload a document to wallet
+ *     tags: [Professional Documents]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [document, category, name]
+ *             properties:
+ *               document: { type: string, format: binary }
+ *               category:
+ *                 type: string
+ *                 enum: [LICENSES_ENDORSEMENTS, MEDICAL_CERTIFICATES, TRAVEL_DOCUMENTS, SEAMANS_BOOK, ACADEMIC_QUALIFICATIONS, MISC_COMPANY_LETTERS, RECENT_APPRAISALS]
+ *               name: { type: string }
+ *               number: { type: string }
+ *               issuingCountry: { type: string }
+ *               issueDate: { type: string, format: date-time }
+ *               expiryDate: { type: string, format: date-time }
+ *     responses:
+ *       201:
+ *         description: Document uploaded successfully.
+ */
+router.post(
+  '/documents/upload',
+  protect,
+  upload.single('document'),
+  documentController.uploadDocument,
+);
+
+/**
+ * @swagger
+ * /api/professional/documents:
+ *   get:
+ *     summary: Get all documents (optional category filter)
+ *     tags: [Professional Documents]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: category
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: List of documents.
+ */
+router.get('/documents', protect, documentController.getDocuments);
+
+/**
+ * @swagger
+ * /api/professional/documents/{id}:
+ *   patch:
+ *     summary: Update a document
+ *     tags: [Professional Documents]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name: { type: string }
+ *               category: { type: string }
+ *               number: { type: string }
+ *               issuingCountry: { type: string }
+ *               issueDate: { type: string, format: date-time }
+ *               expiryDate: { type: string, format: date-time }
+ *     responses:
+ *       200:
+ *         description: Document updated successfully.
+ */
+router.patch('/documents/:id', protect, documentController.updateDocument);
+
+/**
+ * @swagger
+ * /api/professional/documents/{id}:
+ *   delete:
+ *     summary: Delete a document
+ *     tags: [Professional Documents]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       204:
+ *         description: Document deleted successfully.
+ */
+router.delete('/documents/:id', protect, documentController.deleteDocument);
 
 /**
  * @swagger
