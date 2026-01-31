@@ -35,6 +35,7 @@ model Professional {
   savedJobs     SavedJob[]
   conversations Conversation[]
   kyc           ProfessionalKyc?
+  documents     ProfessionalDocument[]
 }
 
 enum JobCategory {
@@ -455,4 +456,33 @@ model ProfessionalKyc {
   updatedAt        DateTime        @updatedAt
 
   @@map("professional_kyc")
+}
+
+enum DocumentCategory {
+  LICENSES_ENDORSEMENTS
+  MEDICAL_CERTIFICATES
+  TRAVEL_DOCUMENTS
+  SEAMANS_BOOK
+  ACADEMIC_QUALIFICATIONS
+  MISC_COMPANY_LETTERS
+  RECENT_APPRAISALS
+}
+
+model ProfessionalDocument {
+  id              String           @id @default(uuid())
+  professionalId  String
+  professional    Professional     @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  
+  category        DocumentCategory
+  name            String
+  number          String?
+  issuingCountry  String?
+  issueDate       DateTime?
+  expiryDate      DateTime?
+  fileUrl         String
+  
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@map("professional_documents")
 }

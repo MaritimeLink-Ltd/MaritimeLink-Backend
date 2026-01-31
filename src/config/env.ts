@@ -29,10 +29,11 @@ const envSchema = z.object({
     .default('recruiter-kyc-selfies'),
   SUPABASE_PROFESSIONAL_KYC_DOCS_BUCKET: z
     .string()
-    .default('professional-kyc-docs'),
+    .default('professional-kyc-documents'),
   SUPABASE_PROFESSIONAL_KYC_SELFIES_BUCKET: z
     .string()
     .default('professional-kyc-selfies'),
+  SUPABASE_DOCUMENT_WALLET_BUCKET: z.string().default('document-wallet'),
   FRONTEND_URL: z.string().url().default('http://localhost:5173'),
   BACKEND_URL: z.string().url().optional(),
 });
