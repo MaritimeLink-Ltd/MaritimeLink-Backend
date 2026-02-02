@@ -161,3 +161,30 @@ export const getResume = catchAsync(
     });
   },
 );
+
+export const deleteResume = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const professionalId = req.user?.id;
+
+    if (!professionalId) {
+      return next(new AppError('Unauthorized', 401));
+    }
+
+    const resume = await prisma.professionalResume.findUnique({
+      where: { professionalId },
+    });
+
+    if (!resume) {
+      return next(new AppError('Resume not found', 404));
+    }
+
+    await prisma.professionalResume.delete({
+      where: { professionalId },
+    });
+
+    res.status(204).json({
+      status: 'success',
+      data: null,
+    });
+  },
+);
