@@ -19,12 +19,15 @@ import webhookRoutes from './routes/webhookRoutes.js';
 
 const app = express();
 
-// Security & optimization middleware
+// Security & optimization middleware (Must be before routes)
 app.use(helmet());
 app.use(cors());
 app.use(compression());
 
-// Body parsers
+// Webhook routes (MUST be before body parsers for raw body verification)
+app.use('/api/webhooks', webhookRoutes);
+
+// Global body parsers (Only applies to routes below)
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -61,9 +64,6 @@ app.use('/api/conversations', conversationRoutes);
 
 // Booking routes
 app.use('/api/professional', professionalBookingRoutes);
-
-// Webhook routes (must be before body parsers for raw body)
-app.use('/api/webhooks', webhookRoutes);
 
 // 404 handler
 app.use((req: Request, res: Response, next: NextFunction) => {
