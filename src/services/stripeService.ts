@@ -12,29 +12,82 @@ interface CreateCheckoutSessionParams {
   amount: number;
   currency: string;
   courseTitle: string;
-  sessionId?: string;
+  priceId?: string;
 }
 
+let cachedPriceId: string | null = null;
+
 export const stripeService = {
+  /**
+   * List all active products and their prices from Stripe
+   */
+  async listActivePrices() {
+    const products = await stripe.products.list({ active: true });
+    const prices = await stripe.prices.list({ active: true });
+
+    return products.data.map((product) => {
+      const productPrices = prices.data.filter(
+        (price) => price.product === product.id,
+      );
+      return {
+        id: product.id,
+        name: product.name,
+        description: product.description,
+        prices: productPrices.map((price) => ({
+          id: price.id,
+          amount: price.unit_amount ? price.unit_amount / 100 : 0,
+          currency: price.currency,
+        })),
+      };
+    });
+  },
+
+  /**
+   * Get the fixed Price ID for the product named 'Course'
+   */
+  async getFixedPriceId() {
+    if (cachedPriceId) return cachedPriceId;
+
+    const products = await stripe.products.list({ active: true });
+    const courseProduct = products.data.find((p) => p.name === 'Course');
+
+    if (!courseProduct) {
+      throw new Error("Product named 'Course' not found in Stripe dashboard.");
+    }
+
+    const prices = await stripe.prices.list({
+      product: courseProduct.id,
+      active: true,
+      limit: 1,
+    });
+
+    if (prices.data.length === 0) {
+      throw new Error(
+        `No active price found for product '${courseProduct.name}'`,
+      );
+    }
+
+    cachedPriceId = prices.data[0].id;
+    return cachedPriceId;
+  },
+
   /**
    * Create a Stripe Checkout Session for course payment
    */
   async createCheckoutSession(params: CreateCheckoutSessionParams) {
-    const {
-      courseId,
-      professionalId,
-      amount,
-      currency,
-      courseTitle,
-      sessionId,
-    } = params;
+    const { courseId, professionalId, amount, currency, courseTitle } = params;
+    let { priceId } = params;
+
+    // If no specific priceId provided, fetch the fixed one
+    if (!priceId) {
+      priceId = await this.getFixedPriceId();
+    }
 
     // Create a pending booking in the database
     const booking = await prisma.courseBooking.create({
       data: {
         professionalId,
         courseId,
-        sessionId: sessionId || null,
         amountPaid: amount,
         currency,
         bookingStatus: 'PENDING',
@@ -42,22 +95,31 @@ export const stripeService = {
       },
     });
 
+    const line_items: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
+
+    if (priceId) {
+      line_items.push({
+        price: priceId,
+        quantity: 1,
+      });
+    } else {
+      line_items.push({
+        price_data: {
+          currency: currency.toLowerCase(),
+          product_data: {
+            name: courseTitle,
+            description: `Course booking for ${courseTitle}`,
+          },
+          unit_amount: Math.round(amount * 100), // Convert to cents
+        },
+        quantity: 1,
+      });
+    }
+
     // Create Stripe Checkout Session
     const checkoutSession = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
-      line_items: [
-        {
-          price_data: {
-            currency: currency.toLowerCase(),
-            product_data: {
-              name: courseTitle,
-              description: `Course booking for ${courseTitle}`,
-            },
-            unit_amount: Math.round(amount * 100), // Convert to cents
-          },
-          quantity: 1,
-        },
-      ],
+      line_items,
       mode: 'payment',
       success_url: `${env.FRONTEND_URL}/bookings/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${env.FRONTEND_URL}/courses/${courseId}?canceled=true`,
