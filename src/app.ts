@@ -14,6 +14,8 @@ import adminRoutes from './routes/adminRoutes.js';
 import jobRoutes from './routes/jobRoutes.js';
 import courseRoutes from './routes/courseRoutes.js';
 import conversationRoutes from './routes/conversationRoutes.js';
+import professionalBookingRoutes from './routes/professionalBookingRoutes.js';
+import webhookRoutes from './routes/webhookRoutes.js';
 
 const app = express();
 
@@ -56,6 +58,12 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/jobs', jobRoutes);
 app.use('/api/courses', courseRoutes);
 app.use('/api/conversations', conversationRoutes);
+
+// Booking routes
+app.use('/api/professional', professionalBookingRoutes);
+
+// Webhook routes (must be before body parsers for raw body)
+app.use('/api/webhooks', webhookRoutes);
 
 // 404 handler
 app.use((req: Request, res: Response, next: NextFunction) => {

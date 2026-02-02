@@ -36,6 +36,9 @@ const envSchema = z.object({
   SUPABASE_DOCUMENT_WALLET_BUCKET: z.string().default('document-wallet'),
   FRONTEND_URL: z.string().url().default('http://localhost:5173'),
   BACKEND_URL: z.string().url().optional(),
+  STRIPE_PUBLISHABLE_KEY: z.string().min(1),
+  STRIPE_SECRET_KEY: z.string().min(1),
+  STRIPE_WEBHOOK_SECRET: z.string().min(1),
 });
 
 const parsed = envSchema.safeParse(process.env);
