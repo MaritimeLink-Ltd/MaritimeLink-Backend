@@ -12,7 +12,7 @@ export const createCheckoutSession = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const professionalId = req.user?.id;
     const { courseId } = req.params;
-    const { sessionId } = req.body; // Optional: specific course session
+    const { priceId } = req.body; // Optional: specific Stripe price ID
 
     if (!professionalId) {
       return next(new AppError('Unauthorized', 401));
@@ -29,20 +29,32 @@ export const createCheckoutSession = catchAsync(
     }
 
     // Check if session is specified and exists
-    if (sessionId) {
-      const session = await prisma.courseSession.findUnique({
-        where: { id: sessionId },
-      });
+    // if (sessionId) {
+    //     const sessionCount = await prisma.courseSession.count({
+    //         where: { id: sessionId, courseId },
+    //     });
 
-      if (!session || session.courseId !== courseId) {
-        return next(new AppError('Course session not found', 404));
-      }
+    //     if (sessionCount === 0) {
+    //         return next(new AppError('Course session not found', 404));
+    //     }
 
-      // Check if seats are available
-      if (session.availableSeats <= 0) {
-        return next(new AppError('No seats available for this session', 400));
-      }
-    }
+    //     // Check seats (optional optimization: skip if sessionCount check is sufficient for existence, but seats need full object)
+    //     const session = await prisma.courseSession.findUnique({
+    //         where: { id: sessionId },
+    //     });
+    //     if (session && session.availableSeats <= 0) {
+    //         return next(new AppError('No seats available for this session', 400));
+    //     }
+    // } else {
+    //     // Enforce Mandatory Session ID as per user request
+    //     const hasSessions = await prisma.courseSession.count({
+    //         where: { courseId }
+    //     });
+
+    //     if (hasSessions > 0) {
+    //         return next(new AppError('Session ID is required for this course', 400));
+    //     }
+    // }
 
     // Check if user already has a pending or confirmed booking
     const existingBooking = await prisma.courseBooking.findFirst({
@@ -66,7 +78,7 @@ export const createCheckoutSession = catchAsync(
       amount: Number(course.price),
       currency: course.currency,
       courseTitle: course.title,
-      sessionId,
+      priceId, // Use priceId from request body if provided
     });
 
     res.status(200).json({
@@ -174,5 +186,19 @@ export const handleStripeWebhook = catchAsync(
     await stripeService.handleWebhook(signature, rawBody);
 
     res.status(200).json({ received: true });
+  },
+);
+
+/**
+ * List all available Stripe prices
+ */
+export const getStripePrices = catchAsync(
+  async (req: CustomRequest, res: Response) => {
+    const prices = await stripeService.listActivePrices();
+
+    res.status(200).json({
+      status: 'success',
+      data: { prices },
+    });
   },
 );

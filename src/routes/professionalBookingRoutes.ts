@@ -13,6 +13,22 @@ const router = Router();
 
 /**
  * @swagger
+ * /api/professional/stripe-prices:
+ *   get:
+ *     summary: List all active products and prices from Stripe
+ *     tags: [Course Bookings]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of products and prices
+ *       401:
+ *         description: Unauthorized
+ */
+router.get('/stripe-prices', protect, bookingController.getStripePrices);
+
+/**
+ * @swagger
  * /api/professional/courses/{courseId}/checkout:
  *   post:
  *     summary: Create a Stripe checkout session for course booking
@@ -32,9 +48,9 @@ const router = Router();
  *           schema:
  *             type: object
  *             properties:
- *               sessionId:
+ *               priceId:
  *                 type: string
- *                 description: Optional specific course session ID
+ *                 description: Optional specific Stripe Price ID to use
  *     responses:
  *       200:
  *         description: Checkout session created

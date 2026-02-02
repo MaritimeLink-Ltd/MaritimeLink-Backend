@@ -59,6 +59,25 @@ router.get('/', courseController.getCourses);
 
 /**
  * @swagger
+ * /api/courses/{id}:
+ *   get:
+ *     summary: Get a single course by ID
+ *     tags: [Courses]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Course details
+ *       404:
+ *         description: Course not found
+ */
+router.get('/:id', courseController.getCourse);
+
+/**
+ * @swagger
  * /api/courses/my:
  *   get:
  *     summary: Get courses created by current user

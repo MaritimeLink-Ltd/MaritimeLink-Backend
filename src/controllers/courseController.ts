@@ -73,6 +73,46 @@ export const getCourses = catchAsync(
 );
 
 /**
+ * Get a single course
+ */
+export const getCourse = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const { id } = req.params;
+
+    const course = await prisma.course.findUnique({
+      where: { id },
+      include: {
+        recruiter: {
+          select: { organizationName: true, email: true },
+        },
+        admin: {
+          select: { email: true },
+        },
+        sessions: {
+          where: {
+            startDate: {
+              gte: new Date(),
+            },
+          },
+          orderBy: {
+            startDate: 'asc',
+          },
+        },
+      },
+    });
+
+    if (!course) {
+      return next(new AppError('Course not found', 404));
+    }
+
+    res.status(200).json({
+      status: 'success',
+      data: { course },
+    });
+  },
+);
+
+/**
  * Get courses created by current user
  */
 export const getMyCourses = catchAsync(
@@ -130,7 +170,9 @@ export const updateCourse = catchAsync(
 
     const updatedCourse = await prisma.course.update({
       where: { id },
-      data: validatedData,
+      data: {
+        ...validatedData,
+      },
     });
 
     res.status(200).json({
