@@ -19,7 +19,17 @@ import webhookRoutes from './routes/webhookRoutes.js';
 
 const app = express();
 
-// Security & optimization middleware (Must be before routes)
+// Health check (Must be at the very top for cloud reliability)
+app.get('/health', (req: Request, res: Response) => {
+  console.log(
+    `🏥 Health check request received at ${new Date().toISOString()}`,
+  );
+  res
+    .status(200)
+    .json({ status: 'ok', environment: process.env.NODE_ENV || 'development' });
+});
+
+// Security & optimization middleware
 app.use(helmet());
 app.use(cors());
 app.use(compression());
@@ -36,11 +46,6 @@ app.disable('x-powered-by');
 
 // Swagger Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
-
-// Health check route
-app.get('/health', (req: Request, res: Response) => {
-  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
-});
 
 // Professional routes
 app.use('/api/professional', professionalRoutes);
