@@ -19,14 +19,17 @@ import webhookRoutes from './routes/webhookRoutes.js';
 
 const app = express();
 
-// Health check (Must be at the very top for cloud reliability)
+// Health check (Root)
+app.get('/', (req: Request, res: Response) => {
+  res.status(200).send('API is Live');
+});
+
+// Health check (Specific)
 app.get('/health', (req: Request, res: Response) => {
   console.log(
     `🏥 Health check request received at ${new Date().toISOString()}`,
   );
-  res
-    .status(200)
-    .json({ status: 'ok', environment: process.env.NODE_ENV || 'development' });
+  res.status(200).send('OK');
 });
 
 // Security & optimization middleware
