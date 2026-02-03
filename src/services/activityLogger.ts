@@ -10,7 +10,8 @@ interface LogActivityParams {
   ipAddress?: string;
   userAgent?: string;
   status?: ActionStatus;
-  metadata?: Record<string, unknown>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  metadata?: Record<string, any>;
 }
 
 export const logActivity = async (params: LogActivityParams) => {
