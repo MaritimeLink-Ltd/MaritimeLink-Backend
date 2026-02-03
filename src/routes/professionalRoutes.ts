@@ -447,4 +447,113 @@ router.post(
   kycController.uploadKYCSelfie,
 );
 
+// --- User Support Routes ---
+import * as userSupportController from '../controllers/userSupportController.js';
+
+/**
+ * @swagger
+ * /api/professional/support/cases:
+ *   post:
+ *     summary: Create a new support case
+ *     tags: [Professional Support]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [subject, description, category]
+ *             properties:
+ *               subject:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               category:
+ *                 type: string
+ *               priority:
+ *                 type: string
+ *                 enum: [HIGH, MEDIUM, LOW]
+ *     responses:
+ *       201:
+ *         description: Support case created successfully.
+ */
+router.post('/support/cases', protect, userSupportController.createCase);
+
+/**
+ * @swagger
+ * /api/professional/support/cases:
+ *   get:
+ *     summary: Get my support cases
+ *     tags: [Professional Support]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: List of support cases.
+ */
+router.get('/support/cases', protect, userSupportController.getMyCases);
+
+/**
+ * @swagger
+ * /api/professional/support/cases/{id}:
+ *   get:
+ *     summary: Get case details and chat history
+ *     tags: [Professional Support]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Detailed case information with notes.
+ */
+router.get('/support/cases/:id', protect, userSupportController.getCaseDetails);
+
+/**
+ * @swagger
+ * /api/professional/support/cases/{id}/reply:
+ *   post:
+ *     summary: Reply to a support case
+ *     tags: [Professional Support]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [content]
+ *             properties:
+ *               content:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Reply added successfully.
+ */
+router.post(
+  '/support/cases/:id/reply',
+  protect,
+  userSupportController.addReply,
+);
+
 export default router;

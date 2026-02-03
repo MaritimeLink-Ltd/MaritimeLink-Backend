@@ -443,4 +443,130 @@ router.patch('/sessions/:id', sessionController.updateSession);
  */
 router.delete('/sessions/:id', sessionController.deleteSession);
 
+// --- User Support Routes ---
+import * as userSupportController from '../controllers/userSupportController.js';
+
+/**
+ * @swagger
+ * /api/recruiter/support/cases:
+ *   post:
+ *     summary: Create a new support case
+ *     tags: [Recruiter Support]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [subject, description, category]
+ *             properties:
+ *               subject:
+ *                 type: string
+ *                 example: "Account Verification Issue"
+ *               description:
+ *                 type: string
+ *                 example: "I uploaded my ID but..."
+ *               category:
+ *                 type: string
+ *                 example: "Account"
+ *               priority:
+ *                 type: string
+ *                 enum: [HIGH, MEDIUM, LOW]
+ *     responses:
+ *       201:
+ *         description: Support case created successfully.
+ */
+router.post(
+  '/support/cases',
+  protectRecruiter,
+  userSupportController.createCase,
+);
+
+/**
+ * @swagger
+ * /api/recruiter/support/cases:
+ *   get:
+ *     summary: Get my support cases
+ *     tags: [Recruiter Support]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: List of support cases.
+ */
+router.get(
+  '/support/cases',
+  protectRecruiter,
+  userSupportController.getMyCases,
+);
+
+/**
+ * @swagger
+ * /api/recruiter/support/cases/{id}:
+ *   get:
+ *     summary: Get case details and chat history
+ *     tags: [Recruiter Support]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Case UUID or ID (e.g. SC-1234)
+ *     responses:
+ *       200:
+ *         description: Detailed case information with notes.
+ */
+router.get(
+  '/support/cases/:id',
+  protectRecruiter,
+  userSupportController.getCaseDetails,
+);
+
+/**
+ * @swagger
+ * /api/recruiter/support/cases/{id}/reply:
+ *   post:
+ *     summary: Reply to a support case
+ *     tags: [Recruiter Support]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [content]
+ *             properties:
+ *               content:
+ *                 type: string
+ *                 example: "Here is the additional info..."
+ *     responses:
+ *       201:
+ *         description: Reply added successfully.
+ */
+router.post(
+  '/support/cases/:id/reply',
+  protectRecruiter,
+  userSupportController.addReply,
+);
+
 export default router;
