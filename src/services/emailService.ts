@@ -2,13 +2,20 @@ import nodemailer from 'nodemailer';
 import { env } from '../config/env.js';
 
 const transporter = nodemailer.createTransport({
-  host: env.SMTP_HOST,
-  port: env.SMTP_PORT,
-  secure: env.SMTP_PORT === 465,
+  service: 'gmail',
   auth: {
     user: env.SMTP_USER,
     pass: env.SMTP_PASS,
   },
+});
+
+// Verify connection configuration on startup
+transporter.verify((error) => {
+  if (error) {
+    console.error('❌ SMTP Connection Error:', error.message);
+  } else {
+    console.log('✅ SMTP Server is ready to send emails');
+  }
 });
 
 export const sendOTPEmail = async (to: string, otp: string) => {
