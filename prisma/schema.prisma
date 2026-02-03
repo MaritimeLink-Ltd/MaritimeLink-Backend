@@ -306,6 +306,9 @@ model Admin {
 
   jobs             Job[]
   courses          Course[]
+  
+  assignedCases    SupportCase[] @relation("AssignedCases")
+  caseNotes        CaseNote[]
 
    @@map("admins")
 }
@@ -536,4 +539,95 @@ model ProfessionalDocument {
   updatedAt       DateTime         @updatedAt
 
   @@map("professional_documents")
+}
+
+enum ActionStatus {
+  SUCCESS
+  FAILED
+  WARNING
+}
+
+enum ActorType {
+  ADMIN
+  RECRUITER
+  PROFESSIONAL
+  SYSTEM
+}
+
+model ActivityLog {
+  id          String      @id @default(uuid())
+  action      String
+  actorId     String
+  actorType   ActorType
+  targetId    String?
+  targetType  String?
+  ipAddress   String?
+  userAgent   String?
+  status      ActionStatus
+  metadata    Json?
+  
+  createdAt   DateTime    @default(now())
+
+  @@map("activity_logs")
+  @@index([createdAt])
+  @@index([actorId])
+  @@index([action])
+}
+
+enum CasePriority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum CaseStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+model SupportCase {
+  id            String       @id @default(uuid()) // Internal UUID
+  caseId        String       @unique              // Human readable ID e.g. SC-1024
+  subject       String
+  description   String       @db.Text
+  priority      CasePriority @default(MEDIUM)
+  status        CaseStatus   @default(OPEN)
+  category      String
+  
+  userId        String?
+  userType      ActorType?   // RECRUITER or PROFESSIONAL
+  
+  assignedToId  String?
+  assignedTo    Admin?       @relation("AssignedCases", fields: [assignedToId], references: [id])
+  
+  notes         CaseNote[]
+  
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@map("support_cases")
+  @@index([status])
+  @@index([priority])
+  @@index([userId])
+}
+
+model CaseNote {
+  id            String       @id @default(uuid())
+  caseId        String
+  supportCase   SupportCase  @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  
+  adminId       String?
+  admin         Admin?       @relation(fields: [adminId], references: [id])
+  
+  // For user replies
+  authorId      String?      // Can be same as userId of the case
+  
+  content       String       @db.Text
+  isInternal    Boolean      @default(true)
+  
+  createdAt     DateTime     @default(now())
+
+  @@map("case_notes")
 }
