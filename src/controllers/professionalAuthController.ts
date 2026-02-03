@@ -17,6 +17,8 @@ import {
 } from '../validations/professionalValidation.js';
 import { changePasswordSchema } from '../validations/passwordValidation.js';
 import { CustomRequest } from '../types/index.js';
+import { logActivity } from '../services/activityLogger.js';
+import { ActorType, ActionStatus } from '../generated/client/index.js';
 
 /**
  * Step 1: Registration
@@ -65,6 +67,15 @@ export const register = catchAsync(
     });
 
     await sendOTPEmail(email, otpCode);
+
+    await logActivity({
+      action: 'REGISTER',
+      actorId: professional.id,
+      actorType: ActorType.PROFESSIONAL,
+      status: ActionStatus.SUCCESS,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
 
     res.status(201).json({
       status: 'success',
@@ -218,6 +229,15 @@ export const login = catchAsync(
 
     const token = jwt.sign({ id: professional.id }, env.JWT_SECRET, {
       expiresIn: '7d',
+    });
+
+    await logActivity({
+      action: 'LOGIN',
+      actorId: professional.id,
+      actorType: ActorType.PROFESSIONAL,
+      status: ActionStatus.SUCCESS,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
     });
 
     res.status(200).json({

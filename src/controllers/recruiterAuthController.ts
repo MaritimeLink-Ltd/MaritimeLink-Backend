@@ -13,6 +13,8 @@ import {
 import { uploadToSupabase } from '../services/storageService.js';
 import { changePasswordSchema } from '../validations/passwordValidation.js';
 import { CustomRequest } from '../types/index.js';
+import { logActivity } from '../services/activityLogger.js';
+import { ActorType, ActionStatus } from '../generated/client/index.js';
 
 /**
  * Step 1: Registration
@@ -64,6 +66,15 @@ export const register = catchAsync(
     });
 
     await sendOTPEmail(email, otpCode);
+
+    await logActivity({
+      action: 'REGISTER',
+      actorId: recruiter.id,
+      actorType: ActorType.RECRUITER,
+      status: ActionStatus.SUCCESS,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
 
     res.status(201).json({
       status: 'success',
@@ -239,6 +250,15 @@ export const login = catchAsync(
         expiresIn: '7d',
       },
     );
+
+    await logActivity({
+      action: 'LOGIN',
+      actorId: recruiter.id,
+      actorType: ActorType.RECRUITER,
+      status: ActionStatus.SUCCESS,
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
 
     res.status(200).json({
       status: 'success',
