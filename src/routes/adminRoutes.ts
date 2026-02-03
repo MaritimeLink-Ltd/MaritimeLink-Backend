@@ -294,4 +294,260 @@ router.patch(
   adminProfessionalController.updateKYCStatus,
 );
 
+// --- Operations Dashboard Routes ---
+import * as adminOperationsController from '../controllers/adminOperationsController.js';
+
+/**
+ * @swagger
+ * /api/admin/operations/activity:
+ *   get:
+ *     summary: Get system activity logs
+ *     description: Retrieve a paginated list of system activities. Filters can be applied for action type, actor, or status.
+ *     tags: [Admin Operations]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *       - in: query
+ *         name: action
+ *         schema:
+ *           type: string
+ *         description: Filter by action name (e.g., "LOGIN", "JOB_POSTED")
+ *       - in: query
+ *         name: actorType
+ *         schema:
+ *           type: string
+ *           enum: [ADMIN, RECRUITER, PROFESSIONAL, SYSTEM]
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [SUCCESS, FAILED, WARNING]
+ *     responses:
+ *       200:
+ *         description: List of activity logs
+ */
+router.get('/operations/activity', adminOperationsController.getActivityLogs);
+
+/**
+ * @swagger
+ * /api/admin/operations/stats:
+ *   get:
+ *     summary: Get dashboard statistics
+ *     description: Returns aggregated real-time statistics for the Admin Dashboard widgets (Activities, Active Users, Failed Actions, Security Alerts).
+ *     tags: [Admin Operations]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Dashboard statistics
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: success
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     activitiesToday:
+ *                       type: integer
+ *                       example: 142
+ *                     activeUsers:
+ *                       type: integer
+ *                       example: 85
+ *                     failedActions:
+ *                       type: integer
+ *                       example: 5
+ *                     securityAlerts:
+ *                       type: integer
+ *                       example: 2
+ */
+router.get('/operations/stats', adminOperationsController.getSystemStats);
+
+// --- Support Case Routes ---
+
+/**
+ * @swagger
+ * /api/admin/support/cases:
+ *   get:
+ *     summary: List support cases
+ *     description: Retrieve a paginated list of support cases. Can be filtered by status, priority, or user ID.
+ *     tags: [Admin Support]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [OPEN, IN_PROGRESS, RESOLVED, CLOSED]
+ *       - in: query
+ *         name: priority
+ *         schema:
+ *           type: string
+ *           enum: [HIGH, MEDIUM, LOW]
+ *       - in: query
+ *         name: userId
+ *         schema:
+ *           type: string
+ *         description: ID of the user who opened the case
+ *     responses:
+ *       200:
+ *         description: List of support cases
+ */
+router.get('/support/cases', adminOperationsController.getSupportCases);
+
+/**
+ * @swagger
+ * /api/admin/support/cases:
+ *   post:
+ *     summary: Create a support case (Internal/Admin)
+ *     description: Manually create a support case from the admin panel.
+ *     tags: [Admin Support]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - subject
+ *               - description
+ *               - category
+ *             properties:
+ *               subject:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               category:
+ *                 type: string
+ *               priority:
+ *                 type: string
+ *                 enum: [HIGH, MEDIUM, LOW]
+ *               userId:
+ *                 type: string
+ *                 description: ID of the user this case is about (optional)
+ *               userType:
+ *                 type: string
+ *                 enum: [RECRUITER, PROFESSIONAL]
+ *     responses:
+ *       201:
+ *         description: Case created successfully
+ */
+router.post('/support/cases', adminOperationsController.createSupportCase);
+
+/**
+ * @swagger
+ * /api/admin/support/cases/{id}:
+ *   get:
+ *     summary: Get case details
+ *     description: Get full details of a specific case, including internal notes and assignee info.
+ *     tags: [Admin Support]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The UUID or human-readable Case ID (SC-XXXX)
+ *     responses:
+ *       200:
+ *         description: Case details found
+ *       404:
+ *         description: Case not found
+ */
+router.get('/support/cases/:id', adminOperationsController.getCaseById);
+
+/**
+ * @swagger
+ * /api/admin/support/cases/{id}:
+ *   patch:
+ *     summary: Update case status or assignment
+ *     description: Assign a case to an admin, change its status, or update priority.
+ *     tags: [Admin Support]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               status:
+ *                 type: string
+ *                 enum: [OPEN, IN_PROGRESS, RESOLVED, CLOSED]
+ *               priority:
+ *                 type: string
+ *                 enum: [HIGH, MEDIUM, LOW]
+ *               assignedToId:
+ *                 type: string
+ *                 description: Admin ID to assign this case to
+ *     responses:
+ *       200:
+ *         description: Case updated
+ */
+router.patch('/support/cases/:id', adminOperationsController.updateCaseStatus);
+
+/**
+ * @swagger
+ * /api/admin/support/cases/{id}/notes:
+ *   post:
+ *     summary: Add a note to a case
+ *     description: Add an internal note or public comment to a support case.
+ *     tags: [Admin Support]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - content
+ *             properties:
+ *               content:
+ *                 type: string
+ *               isInternal:
+ *                 type: boolean
+ *                 default: true
+ *                 description: If true, visible only to admins
+ *     responses:
+ *       201:
+ *         description: Note added
+ */
+router.post('/support/cases/:id/notes', adminOperationsController.addCaseNote);
+
 export default router;
