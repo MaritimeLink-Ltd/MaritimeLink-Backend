@@ -569,4 +569,92 @@ router.post(
   userSupportController.addReply,
 );
 
+// --- JOB FLOW ROUTES ---
+import * as jobController from '../controllers/jobController.js';
+import * as applicationController from '../controllers/applicationController.js';
+
+/**
+ * @swagger
+ * /api/recruiter/jobs:
+ *   post:
+ *     summary: Create a job post
+ *     tags: [Recruiter Jobs]
+ */
+router.post('/jobs', protectRecruiter, jobController.createJob);
+
+/**
+ * @swagger
+ * /api/recruiter/jobs/my:
+ *   get:
+ *     summary: Get my job posts
+ *     tags: [Recruiter Jobs]
+ */
+router.get('/jobs/my', protectRecruiter, jobController.getMyJobs);
+
+/**
+ * @swagger
+ * /api/recruiter/jobs/{id}:
+ *   get:
+ *     summary: View my job details
+ *     tags: [Recruiter Jobs]
+ */
+router.get('/jobs/:id', protectRecruiter, jobController.getJobById);
+
+/**
+ * @swagger
+ * /api/recruiter/jobs/{id}:
+ *   patch:
+ *     summary: Edit job post
+ *     tags: [Recruiter Jobs]
+ */
+router.patch('/jobs/:id', protectRecruiter, jobController.updateJob);
+
+/**
+ * @swagger
+ * /api/recruiter/jobs/{id}:
+ *   delete:
+ *     summary: Delete job post
+ *     tags: [Recruiter Jobs]
+ */
+router.delete('/jobs/:id', protectRecruiter, jobController.deleteJob);
+
+/**
+ * @swagger
+ * /api/recruiter/jobs/{id}/applicants:
+ *   get:
+ *     summary: View applicants for a job
+ *     tags: [Recruiter Jobs]
+ */
+router.get(
+  '/jobs/:id/applicants',
+  protectRecruiter,
+  applicationController.getJobApplicants,
+);
+
+/**
+ * @swagger
+ * /api/recruiter/applicants/{id}:
+ *   get:
+ *     summary: View applicant details
+ *     tags: [Recruiter Applications]
+ */
+router.get(
+  '/applicants/:id',
+  protectRecruiter,
+  applicationController.getApplicationDetails,
+);
+
+/**
+ * @swagger
+ * /api/recruiter/applicants/{id}/status:
+ *   patch:
+ *     summary: Update application status
+ *     tags: [Recruiter Applications]
+ */
+router.patch(
+  '/applicants/:id/status',
+  protectRecruiter,
+  applicationController.updateApplicationStatus,
+);
+
 export default router;

@@ -556,4 +556,102 @@ router.post(
   userSupportController.addReply,
 );
 
+// --- JOB FLOW ROUTES ---
+import * as jobController from '../controllers/jobController.js';
+import * as applicationController from '../controllers/applicationController.js';
+import * as professionalJobController from '../controllers/professionalJobController.js';
+
+/**
+ * @swagger
+ * /api/professional/jobs:
+ *   get:
+ *     summary: Browse all jobs
+ *     tags: [Professional Jobs]
+ */
+router.get('/jobs', protect, jobController.getJobs);
+
+/**
+ * @swagger
+ * /api/professional/jobs/saved:
+ *   get:
+ *     summary: Get my saved jobs
+ *     tags: [Professional Jobs]
+ */
+router.get('/jobs/saved', protect, professionalJobController.getSavedJobs);
+
+/**
+ * @swagger
+ * /api/professional/jobs/{id}:
+ *   get:
+ *     summary: View job details
+ *     tags: [Professional Jobs]
+ */
+router.get('/jobs/:id', protect, jobController.getJobById);
+
+/**
+ * @swagger
+ * /api/professional/jobs/{id}/save:
+ *   post:
+ *     summary: Toggle save/bookmark job
+ *     tags: [Professional Jobs]
+ */
+router.post('/jobs/:id/save', protect, professionalJobController.toggleSaveJob);
+
+/**
+ * @swagger
+ * /api/professional/jobs/{id}/apply:
+ *   post:
+ *     summary: Apply to a job
+ *     tags: [Professional Jobs]
+ */
+router.post('/jobs/:id/apply', protect, applicationController.applyToJob);
+
+/**
+ * @swagger
+ * /api/professional/jobs/{id}/application-status:
+ *   get:
+ *     summary: Check if applied to job
+ *     tags: [Professional Jobs]
+ */
+router.get(
+  '/jobs/:id/application-status',
+  protect,
+  applicationController.getMyApplicationStatus,
+);
+
+/**
+ * @swagger
+ * /api/professional/applications:
+ *   get:
+ *     summary: Get my applications
+ *     tags: [Professional Applications]
+ */
+router.get('/applications', protect, applicationController.getMyApplications);
+
+/**
+ * @swagger
+ * /api/professional/applications/{id}:
+ *   get:
+ *     summary: Get application details
+ *     tags: [Professional Applications]
+ */
+router.get(
+  '/applications/:id',
+  protect,
+  applicationController.getApplicationDetails,
+);
+
+/**
+ * @swagger
+ * /api/professional/applications/{id}:
+ *   delete:
+ *     summary: Withdraw application
+ *     tags: [Professional Applications]
+ */
+router.delete(
+  '/applications/:id',
+  protect,
+  applicationController.withdrawApplication,
+);
+
 export default router;

@@ -550,4 +550,52 @@ router.patch('/support/cases/:id', adminOperationsController.updateCaseStatus);
  */
 router.post('/support/cases/:id/notes', adminOperationsController.addCaseNote);
 
+// --- JOB MODERATION ROUTES ---
+import * as jobController from '../controllers/jobController.js';
+
+/**
+ * @swagger
+ * /api/admin/jobs:
+ *   get:
+ *     summary: Get all jobs
+ *     tags: [Admin Jobs]
+ */
+router.get('/jobs', jobController.getJobs); // Assuming admin wants filters too
+
+/**
+ * @swagger
+ * /api/admin/jobs/flagged:
+ *   get:
+ *     summary: Get flagged jobs
+ *     tags: [Admin Jobs]
+ */
+router.get('/jobs/flagged', jobController.getFlaggedJobs);
+
+/**
+ * @swagger
+ * /api/admin/jobs/{id}:
+ *   get:
+ *     summary: Get job details
+ *     tags: [Admin Jobs]
+ */
+router.get('/jobs/:id', jobController.getJobById);
+
+/**
+ * @swagger
+ * /api/admin/jobs/{id}/flag:
+ *   patch:
+ *     summary: Toggle job flag
+ *     tags: [Admin Jobs]
+ */
+router.patch('/jobs/:id/flag', jobController.toggleJobFlag);
+
+/**
+ * @swagger
+ * /api/admin/jobs/{id}:
+ *   delete:
+ *     summary: Remove job
+ *     tags: [Admin Jobs]
+ */
+router.delete('/jobs/:id', jobController.deleteJob);
+
 export default router;
