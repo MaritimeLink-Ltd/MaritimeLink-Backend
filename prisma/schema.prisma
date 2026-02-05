@@ -37,6 +37,7 @@ model Professional {
   kyc           ProfessionalKyc?
   documents     ProfessionalDocument[]
   bookings      CourseBooking[]
+  applications  JobApplication[]
 }
 
 enum JobCategory {
@@ -330,10 +331,46 @@ model Job {
 
   savedBy      SavedJob[]
 
+  isFlagged    Boolean     @default(false)
+  
+  applications JobApplication[]
+
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
   @@map("jobs")
+}
+
+enum ApplicationStatus {
+  APPLIED
+  UNDER_REVIEW
+  SHORTLISTED
+  INTERVIEW
+  OFFER
+  REJECTED
+  WITHDRAWN
+}
+
+model JobApplication {
+  id             String            @id @default(uuid())
+  jobId          String
+  job            Job               @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  
+  professionalId String
+  professional   Professional      @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  
+  status         ApplicationStatus @default(APPLIED)
+  coverLetter    String?           @db.Text
+  
+  // Snapshot of resume at time of application (optional, but good practice)
+  resumeSnapshot Json?
+
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  @@unique([jobId, professionalId])
+  @@index([status])
+  @@map("job_applications")
 }
 
 model SavedJob {
