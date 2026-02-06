@@ -18,6 +18,7 @@ import professionalBookingRoutes from './routes/professionalBookingRoutes.js';
 import professionalDashboardRoutes from './routes/professionalDashboardRoutes.js';
 import recruiterDashboardRoutes from './routes/recruiterDashboardRoutes.js';
 import trainerDashboardRoutes from './routes/trainerDashboardRoutes.js';
+import adminDashboardRoutes from './routes/adminDashboardRoutes.js';
 import webhookRoutes from './routes/webhookRoutes.js';
 
 const app = express();
@@ -80,6 +81,7 @@ app.use('/api/professional', professionalBookingRoutes);
 app.use('/api/professional/dashboard', professionalDashboardRoutes);
 app.use('/api/recruiter/dashboard', recruiterDashboardRoutes);
 app.use('/api/trainer/dashboard', trainerDashboardRoutes);
+app.use('/api/admin/dashboard', adminDashboardRoutes);
 
 // 404 handler
 app.use((req: Request, res: Response, next: NextFunction) => {
