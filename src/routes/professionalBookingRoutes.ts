@@ -8,22 +8,44 @@ const router = Router();
  * @swagger
  * tags:
  *   name: Course Bookings
- *   description: Professional course booking and payment management
+ *   description: Endpoints for professionals to browse Stripe products, initiate course checkouts, and manage their bookings.
  */
 
 /**
  * @swagger
  * /api/professional/stripe-prices:
  *   get:
- *     summary: List all active products and prices from Stripe
+ *     summary: List active Stripe products and prices
+ *     description: Retrieve all active products and their corresponding prices directly from the configured Stripe account. Use this to display accurate pricing to users.
  *     tags: [Course Bookings]
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: List of products and prices
+ *         description: A list of products and their prices
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id: { type: string, description: "Stripe Product ID" }
+ *                       name: { type: string }
+ *                       prices:
+ *                         type: array
+ *                         items:
+ *                           type: object
+ *                           properties:
+ *                             id: { type: string, description: "Stripe Price ID" }
+ *                             amount: { type: number }
+ *                             currency: { type: string }
  *       401:
- *         description: Unauthorized
+ *         $ref: '#/components/responses/UnauthorizedError'
  */
 router.get('/stripe-prices', protect, bookingController.getStripePrices);
 
@@ -31,7 +53,8 @@ router.get('/stripe-prices', protect, bookingController.getStripePrices);
  * @swagger
  * /api/professional/courses/{courseId}/checkout:
  *   post:
- *     summary: Create a Stripe checkout session for course booking
+ *     summary: Initiate course checkout session
+ *     description: Create a Stripe Checkout Session for a specific course. This returns a hosted Stripe URL where the user can securely complete their payment.
  *     tags: [Course Bookings]
  *     security:
  *       - bearerAuth: []
@@ -41,7 +64,8 @@ router.get('/stripe-prices', protect, bookingController.getStripePrices);
  *         required: true
  *         schema:
  *           type: string
- *         description: Course ID
+ *           format: uuid
+ *         description: The ID of the course to book
  *     requestBody:
  *       content:
  *         application/json:
@@ -50,28 +74,36 @@ router.get('/stripe-prices', protect, bookingController.getStripePrices);
  *             properties:
  *               priceId:
  *                 type: string
- *                 description: Optional specific Stripe Price ID to use
+ *                 description: |
+ *                   Optional. A specific Stripe Price ID to use for this checkout.
+ *                   If omitted, the default price for the 'Course' product will be used.
  *     responses:
  *       200:
- *         description: Checkout session created
+ *         description: Checkout session created successfully
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 status:
- *                   type: string
+ *                 status: { type: string, example: success }
  *                 data:
  *                   type: object
  *                   properties:
  *                     checkoutUrl:
  *                       type: string
+ *                       format: url
+ *                       description: "The secure Stripe URL to redirect the user to"
+ *                     sessionId:
+ *                       type: string
+ *                       description: "The Stripe Session ID"
  *                     bookingId:
  *                       type: string
+ *                       format: uuid
+ *                       description: "The unique ID of the pending booking in the maritime database"
  *       404:
- *         description: Course not found
+ *         $ref: '#/components/responses/NotFoundError'
  *       401:
- *         description: Unauthorized
+ *         $ref: '#/components/responses/UnauthorizedError'
  */
 router.post(
   '/courses/:courseId/checkout',
@@ -83,15 +115,29 @@ router.post(
  * @swagger
  * /api/professional/bookings:
  *   get:
- *     summary: Get all bookings for the current professional
+ *     summary: View my course bookings
+ *     description: Returns a list of all course bookings made by the currently authenticated professional, including status and payment info.
  *     tags: [Course Bookings]
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: List of bookings
+ *         description: List of personal bookings
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 results: { type: integer }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     bookings:
+ *                       type: array
+ *                       items: { $ref: '#/components/schemas/CourseBooking' }
  *       401:
- *         description: Unauthorized
+ *         $ref: '#/components/responses/UnauthorizedError'
  */
 router.get('/bookings', protect, bookingController.getMyBookings);
 
@@ -99,7 +145,8 @@ router.get('/bookings', protect, bookingController.getMyBookings);
  * @swagger
  * /api/professional/bookings/{bookingId}:
  *   get:
- *     summary: Get a specific booking by ID
+ *     summary: Get detailed booking info
+ *     description: Retrieve full details for a specific booking by its ID.
  *     tags: [Course Bookings]
  *     security:
  *       - bearerAuth: []
@@ -109,15 +156,94 @@ router.get('/bookings', protect, bookingController.getMyBookings);
  *         required: true
  *         schema:
  *           type: string
- *         description: Booking ID
+ *           format: uuid
+ *         description: Booking UUID
  *     responses:
  *       200:
- *         description: Booking details
+ *         description: Booking details retrieved
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     booking: { $ref: '#/components/schemas/CourseBooking' }
  *       404:
- *         description: Booking not found
+ *         $ref: '#/components/responses/NotFoundError'
  *       401:
- *         description: Unauthorized
+ *         $ref: '#/components/responses/UnauthorizedError'
  */
 router.get('/bookings/:bookingId', protect, bookingController.getBookingById);
+
+/**
+ * @swagger
+ * /api/professional/bookings/{bookingId}/cancel:
+ *   post:
+ *     summary: Cancel a course booking
+ *     description: Request cancellation of a confirmed or pending booking. This may trigger a refund process depending on platform policy.
+ *     tags: [Course Bookings]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: bookingId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               reason:
+ *                 type: string
+ *                 example: "Traveling on these dates"
+ *     responses:
+ *       200:
+ *         description: Booking cancelled successfully
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ */
+router.post('/bookings/:bookingId/cancel', protect, async (req, res, next) => {
+  const { cancelBooking } =
+    await import('../controllers/professionalCourseController.js');
+  return cancelBooking(req, res, next);
+});
+
+/**
+ * @swagger
+ * /api/professional/recommended-courses:
+ *   get:
+ *     summary: Get AI-powered course recommendations
+ *     description: Retrieve a curated list of courses based on your nearing expiration dates of certificates in your document wallet.
+ *     tags: [Course Bookings]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Recommended courses list
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     recommendations:
+ *                       type: array
+ *                       items: { $ref: '#/components/schemas/Course' }
+ */
+router.get('/recommended-courses', protect, async (req, res, next) => {
+  const { getRecommendedCourses } =
+    await import('../controllers/professionalCourseController.js');
+  return getRecommendedCourses(req, res, next);
+});
 
 export default router;
