@@ -470,6 +470,7 @@ router.get('/sessions/:id', sessionController.getSession);
  * /api/recruiter/sessions/{id}:
  *   patch:
  *     summary: Update a session
+ *     description: Modify session details such as dates, location, or available seats.
  *     tags: [Course Sessions]
  *     security:
  *       - bearerAuth: []
@@ -477,8 +478,7 @@ router.get('/sessions/:id', sessionController.getSession);
  *       - in: path
  *         name: id
  *         required: true
- *         schema:
- *           type: string
+ *         schema: { type: string }
  *     requestBody:
  *       required: true
  *       content:
@@ -496,6 +496,16 @@ router.get('/sessions/:id', sessionController.getSession);
  *     responses:
  *       200:
  *         description: Session updated successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     session: { $ref: '#/components/schemas/CourseSession' }
  */
 router.patch('/sessions/:id', sessionController.updateSession);
 
@@ -928,9 +938,30 @@ router.patch(
  * /api/recruiter/courses/{courseId}/bookings:
  *   get:
  *     summary: Get all bookings for a specific course
+ *     description: Retrieve all professional bookings for a single training course that you own.
  *     tags: [Trainer Bookings]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: courseId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: List of course bookings.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     bookings:
+ *                       type: array
+ *                       items: { $ref: '#/components/schemas/CourseBooking' }
  */
 router.get(
   '/courses/:courseId/bookings',
@@ -947,7 +978,26 @@ router.get(
  * /api/recruiter/trainer/bookings:
  *   get:
  *     summary: Get all bookings across all trainer courses
+ *     description: Retrieve all bookings for all courses managed by the currently logged-in trainer.
  *     tags: [Trainer Bookings]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of trainer bookings.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 results: { type: integer, example: 50 }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     bookings:
+ *                       type: array
+ *                       items: { $ref: '#/components/schemas/CourseBooking' }
  */
 router.get('/trainer/bookings', protectRecruiter, async (req, res, next) => {
   const { getAllTrainerBookings } =
@@ -960,7 +1010,28 @@ router.get('/trainer/bookings', protectRecruiter, async (req, res, next) => {
  * /api/recruiter/trainer/bookings/{bookingId}:
  *   get:
  *     summary: Get specific booking details
+ *     description: Retrieve detailed information for a specific course booking.
  *     tags: [Trainer Bookings]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: bookingId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Booking details retrieved successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     booking: { $ref: '#/components/schemas/CourseBooking' }
  */
 router.get(
   '/trainer/bookings/:bookingId',
@@ -977,7 +1048,37 @@ router.get(
  * /api/recruiter/trainer/bookings/{bookingId}/status:
  *   patch:
  *     summary: Update booking status
+ *     description: Confirm or cancel a student's course booking.
  *     tags: [Trainer Bookings]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: bookingId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [status]
+ *             properties:
+ *               status: { type: string, enum: [CONFIRMED, CANCELLED] }
+ *     responses:
+ *       200:
+ *         description: Booking status updated successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     booking: { $ref: '#/components/schemas/CourseBooking' }
  */
 router.patch(
   '/trainer/bookings/:bookingId/status',
@@ -994,7 +1095,27 @@ router.patch(
  * /api/recruiter/trainer/bookings/{bookingId}/message:
  *   post:
  *     summary: Send message to trainee
+ *     description: Send an automated or manual message notification to a professional who booked a course.
  *     tags: [Trainer Bookings]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: bookingId
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [message]
+ *             properties:
+ *               message: { type: string, example: "Please bring your original ID for the class tomorrow." }
+ *     responses:
+ *       200:
+ *         description: Message sent successfully.
  */
 router.post(
   '/trainer/bookings/:bookingId/message',
@@ -1011,7 +1132,25 @@ router.post(
  * /api/recruiter/trainer/bookings/{bookingId}/certificate:
  *   post:
  *     summary: Issue course completion certificate
+ *     description: Mark a booking as COMPLETED and issue a certificate link or record.
  *     tags: [Trainer Bookings]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: bookingId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Certificate issued successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 message: { type: string, example: "Certificate issued" }
  */
 router.post(
   '/trainer/bookings/:bookingId/certificate',

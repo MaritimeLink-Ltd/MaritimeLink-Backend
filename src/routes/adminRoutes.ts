@@ -409,30 +409,35 @@ router.get('/operations/stats', adminOperationsController.getSystemStats);
  *     parameters:
  *       - in: query
  *         name: page
- *         schema:
- *           type: integer
+ *         schema: { type: integer, default: 1 }
  *       - in: query
  *         name: limit
- *         schema:
- *           type: integer
+ *         schema: { type: integer, default: 10 }
  *       - in: query
  *         name: status
- *         schema:
- *           type: string
- *           enum: [OPEN, IN_PROGRESS, RESOLVED, CLOSED]
+ *         schema: { type: string, enum: [OPEN, IN_PROGRESS, RESOLVED, CLOSED] }
  *       - in: query
  *         name: priority
- *         schema:
- *           type: string
- *           enum: [HIGH, MEDIUM, LOW]
+ *         schema: { type: string, enum: [HIGH, MEDIUM, LOW] }
  *       - in: query
  *         name: userId
- *         schema:
- *           type: string
- *         description: ID of the user who opened the case
+ *         schema: { type: string }
  *     responses:
  *       200:
- *         description: List of support cases
+ *         description: List of support cases.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 results: { type: integer, example: 10 }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     cases:
+ *                       type: array
+ *                       items: { $ref: '#/components/schemas/SupportCase' }
  */
 router.get('/support/cases', adminOperationsController.getSupportCases);
 
@@ -451,29 +456,27 @@ router.get('/support/cases', adminOperationsController.getSupportCases);
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - subject
- *               - description
- *               - category
+ *             required: [subject, description, category]
  *             properties:
- *               subject:
- *                 type: string
- *               description:
- *                 type: string
- *               category:
- *                 type: string
- *               priority:
- *                 type: string
- *                 enum: [HIGH, MEDIUM, LOW]
- *               userId:
- *                 type: string
- *                 description: ID of the user this case is about (optional)
- *               userType:
- *                 type: string
- *                 enum: [RECRUITER, PROFESSIONAL]
+ *               subject: { type: string, example: "Suspicious Activity" }
+ *               description: { type: string, example: "Flagging recruiter for possible scam..." }
+ *               category: { type: string, example: "SECURITY" }
+ *               priority: { type: string, enum: [HIGH, MEDIUM, LOW], default: MEDIUM }
+ *               userId: { type: string, format: uuid }
+ *               userType: { type: string, enum: [RECRUITER, PROFESSIONAL] }
  *     responses:
  *       201:
- *         description: Case created successfully
+ *         description: Case created successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     case: { $ref: '#/components/schemas/SupportCase' }
  */
 router.post('/support/cases', adminOperationsController.createSupportCase);
 
@@ -482,7 +485,7 @@ router.post('/support/cases', adminOperationsController.createSupportCase);
  * /api/admin/support/cases/{id}:
  *   get:
  *     summary: Get case details
- *     description: Get full details of a specific case, including internal notes and assignee info.
+ *     description: Get full details of a specific case, including internal notes and conversation history.
  *     tags: [Admin Support]
  *     security:
  *       - bearerAuth: []
@@ -490,14 +493,25 @@ router.post('/support/cases', adminOperationsController.createSupportCase);
  *       - in: path
  *         name: id
  *         required: true
- *         schema:
- *           type: string
- *         description: The UUID or human-readable Case ID (SC-XXXX)
+ *         schema: { type: string }
  *     responses:
  *       200:
- *         description: Case details found
+ *         description: Case details found.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     case: { $ref: '#/components/schemas/SupportCase' }
+ *                     notes:
+ *                       type: array
+ *                       items: { $ref: '#/components/schemas/SupportNote' }
  *       404:
- *         description: Case not found
+ *         $ref: '#/components/responses/NotFoundError'
  */
 router.get('/support/cases/:id', adminOperationsController.getCaseById);
 
@@ -514,24 +528,29 @@ router.get('/support/cases/:id', adminOperationsController.getCaseById);
  *       - in: path
  *         name: id
  *         required: true
+ *         schema: { type: string }
  *     requestBody:
  *       content:
  *         application/json:
  *           schema:
  *             type: object
  *             properties:
- *               status:
- *                 type: string
- *                 enum: [OPEN, IN_PROGRESS, RESOLVED, CLOSED]
- *               priority:
- *                 type: string
- *                 enum: [HIGH, MEDIUM, LOW]
- *               assignedToId:
- *                 type: string
- *                 description: Admin ID to assign this case to
+ *               status: { type: string, enum: [OPEN, IN_PROGRESS, RESOLVED, CLOSED] }
+ *               priority: { type: string, enum: [HIGH, MEDIUM, LOW] }
+ *               assignedToId: { type: string, format: uuid }
  *     responses:
  *       200:
- *         description: Case updated
+ *         description: Case updated successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     case: { $ref: '#/components/schemas/SupportCase' }
  */
 router.patch('/support/cases/:id', adminOperationsController.updateCaseStatus);
 
@@ -548,24 +567,30 @@ router.patch('/support/cases/:id', adminOperationsController.updateCaseStatus);
  *       - in: path
  *         name: id
  *         required: true
+ *         schema: { type: string }
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - content
+ *             required: [content]
  *             properties:
- *               content:
- *                 type: string
- *               isInternal:
- *                 type: boolean
- *                 default: true
- *                 description: If true, visible only to admins
+ *               content: { type: string, example: "Found evidence of TOS violation." }
+ *               isInternal: { type: boolean, default: true }
  *     responses:
  *       201:
- *         description: Note added
+ *         description: Note added successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     note: { $ref: '#/components/schemas/SupportNote' }
  */
 router.post('/support/cases/:id/notes', adminOperationsController.addCaseNote);
 
@@ -577,7 +602,26 @@ import * as jobController from '../controllers/jobController.js';
  * /api/admin/jobs:
  *   get:
  *     summary: Get all jobs
+ *     description: Retrieve a paginated list of all job postings on the platform.
  *     tags: [Admin Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of jobs.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 results: { type: integer, example: 20 }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     jobs:
+ *                       type: array
+ *                       items: { $ref: '#/components/schemas/Job' }
  */
 router.get('/jobs', jobController.getJobs); // Assuming admin wants filters too
 
@@ -586,7 +630,25 @@ router.get('/jobs', jobController.getJobs); // Assuming admin wants filters too
  * /api/admin/jobs/flagged:
  *   get:
  *     summary: Get flagged jobs
+ *     description: Retrieve all jobs that have been flagged for review.
  *     tags: [Admin Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of flagged jobs.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     jobs:
+ *                       type: array
+ *                       items: { $ref: '#/components/schemas/Job' }
  */
 router.get('/jobs/flagged', jobController.getFlaggedJobs);
 
@@ -595,7 +657,30 @@ router.get('/jobs/flagged', jobController.getFlaggedJobs);
  * /api/admin/jobs/{id}:
  *   get:
  *     summary: Get job details
+ *     description: Retrieve full details of a specific job posting.
  *     tags: [Admin Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Job details found.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     job: { $ref: '#/components/schemas/Job' }
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
  */
 router.get('/jobs/:id', jobController.getJobById);
 
@@ -604,7 +689,28 @@ router.get('/jobs/:id', jobController.getJobById);
  * /api/admin/jobs/{id}/flag:
  *   patch:
  *     summary: Toggle job flag
+ *     description: Mark a job as flagged or remove the flag.
  *     tags: [Admin Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Job flag status toggled.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     job: { $ref: '#/components/schemas/Job' }
  */
 router.patch('/jobs/:id/flag', jobController.toggleJobFlag);
 
@@ -613,7 +719,20 @@ router.patch('/jobs/:id/flag', jobController.toggleJobFlag);
  * /api/admin/jobs/{id}:
  *   delete:
  *     summary: Remove job
+ *     description: Permanently delete a job posting from the system.
  *     tags: [Admin Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       204:
+ *         description: Job deleted successfully.
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
  */
 router.delete('/jobs/:id', jobController.deleteJob);
 
@@ -624,7 +743,25 @@ router.delete('/jobs/:id', jobController.deleteJob);
  * /api/admin/courses/flagged:
  *   get:
  *     summary: Get all flagged courses
+ *     description: Retrieve all training courses that have been flagged for moderation.
  *     tags: [Admin Courses]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of flagged courses.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     courses:
+ *                       type: array
+ *                       items: { $ref: '#/components/schemas/Course' }
  */
 router.get('/courses/flagged', protectAdmin, async (req, res, next) => {
   const { getFlaggedCourses } =
@@ -637,7 +774,26 @@ router.get('/courses/flagged', protectAdmin, async (req, res, next) => {
  * /api/admin/bookings:
  *   get:
  *     summary: Get all bookings on platform
+ *     description: Retrieve a global list of all course bookings across all trainers and professionals.
  *     tags: [Admin Courses]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of all bookings.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 results: { type: integer, example: 100 }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     bookings:
+ *                       type: array
+ *                       items: { $ref: '#/components/schemas/CourseBooking' }
  */
 router.get('/bookings', protectAdmin, async (req, res, next) => {
   const { getAllBookings } =
@@ -650,7 +806,30 @@ router.get('/bookings', protectAdmin, async (req, res, next) => {
  * /api/admin/bookings/{bookingId}:
  *   get:
  *     summary: Get specific booking details
+ *     description: Retrieve detailed information for a specific course booking.
  *     tags: [Admin Courses]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: bookingId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Booking details found.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     booking: { $ref: '#/components/schemas/CourseBooking' }
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
  */
 router.get('/bookings/:bookingId', protectAdmin, async (req, res, next) => {
   const { getAdminBookingById } =
@@ -663,7 +842,30 @@ router.get('/bookings/:bookingId', protectAdmin, async (req, res, next) => {
  * /api/admin/courses/{courseId}/bookings:
  *   get:
  *     summary: Get all bookings for any course
+ *     description: Retrieve all bookings associated with a specific course ID.
  *     tags: [Admin Courses]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: courseId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: List of bookings for the course.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     bookings:
+ *                       type: array
+ *                       items: { $ref: '#/components/schemas/CourseBooking' }
  */
 router.get(
   '/courses/:courseId/bookings',
@@ -680,7 +882,25 @@ router.get(
  * /api/admin/revenue:
  *   get:
  *     summary: Get platform revenue overview
+ *     description: Retrieve aggregated financial analytics including total revenue, platform fees, and payouts.
  *     tags: [Admin Revenue]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Revenue statistics retrieved successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     totalGross: { type: number, example: 50000.00 }
+ *                     platformFees: { type: number, example: 5000.00 }
+ *                     trainerPayouts: { type: number, example: 45000.00 }
  */
 router.get('/revenue', protectAdmin, async (req, res, next) => {
   const { getPlatformRevenue } =
@@ -693,7 +913,25 @@ router.get('/revenue', protectAdmin, async (req, res, next) => {
  * /api/admin/payouts/{providerId}:
  *   post:
  *     summary: Process payout to training provider
+ *     description: Manually trigger or record a payout to a trainer's connected Stripe account.
  *     tags: [Admin Revenue]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: providerId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Payout processed successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 message: { type: string, example: "Payout initiated" }
  */
 router.post('/payouts/:providerId', protectAdmin, async (req, res, next) => {
   const { processPayout } =
