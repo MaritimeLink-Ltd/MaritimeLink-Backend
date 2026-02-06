@@ -608,7 +608,38 @@ import * as professionalJobController from '../controllers/professionalJobContro
  * /api/professional/jobs:
  *   get:
  *     summary: Browse all jobs
+ *     description: Retrieve a paginated list of all active maritime job postings.
  *     tags: [Professional Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 10 }
+ *       - in: query
+ *         name: category
+ *         schema: { type: string, enum: [OFFICER, RATINGS_AND_CREW, CATERING_AND_MEDICAL] }
+ *     responses:
+ *       200:
+ *         description: List of available jobs
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 results: { type: integer }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     jobs:
+ *                       type: array
+ *                       items: { $ref: '#/components/schemas/Job' }
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
  */
 router.get('/jobs', protect, jobController.getJobs);
 
@@ -626,7 +657,32 @@ router.get('/jobs/saved', protect, professionalJobController.getSavedJobs);
  * /api/professional/jobs/{id}:
  *   get:
  *     summary: View job details
+ *     description: Retrieve full details for a specific maritime job posting.
  *     tags: [Professional Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Full job details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     job: { $ref: '#/components/schemas/Job' }
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
  */
 router.get('/jobs/:id', protect, jobController.getJobById);
 
@@ -644,7 +700,39 @@ router.post('/jobs/:id/save', protect, professionalJobController.toggleSaveJob);
  * /api/professional/jobs/{id}/apply:
  *   post:
  *     summary: Apply to a job
+ *     description: Submit an application for a maritime job posting.
  *     tags: [Professional Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               coverLetter: { type: string, example: "I am interested in this position..." }
+ *     responses:
+ *       201:
+ *         description: Application submitted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     application: { $ref: '#/components/schemas/JobApplication' }
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       400:
+ *         description: Already applied or validation error
  */
 router.post('/jobs/:id/apply', protect, applicationController.applyToJob);
 
@@ -666,7 +754,28 @@ router.get(
  * /api/professional/applications:
  *   get:
  *     summary: Get my applications
+ *     description: Retrieve all job applications submitted by the logged-in professional.
  *     tags: [Professional Applications]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of submitted applications
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 results: { type: integer, example: 3 }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     applications:
+ *                       type: array
+ *                       items: { $ref: '#/components/schemas/JobApplication' }
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
  */
 router.get('/applications', protect, applicationController.getMyApplications);
 

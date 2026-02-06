@@ -569,6 +569,27 @@ const options: swaggerJsdoc.Options = {
             createdAt: { type: 'string', format: 'date-time' },
           },
         },
+        JobApplication: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            jobId: { type: 'string', format: 'uuid' },
+            professionalId: { type: 'string', format: 'uuid' },
+            status: {
+              type: 'string',
+              enum: [
+                'PENDING',
+                'REVIEWING',
+                'SHORTLISTED',
+                'ACCEPTED',
+                'REJECTED',
+              ],
+            },
+            appliedAt: { type: 'string', format: 'date-time' },
+            resumeUrl: { type: 'string', format: 'url', nullable: true },
+            coverLetter: { type: 'string', nullable: true },
+          },
+        },
       },
     },
   },

@@ -654,7 +654,39 @@ import * as applicationController from '../controllers/applicationController.js'
  * /api/recruiter/jobs:
  *   post:
  *     summary: Create a job post
+ *     description: Posted jobs are visible to maritime professionals.
  *     tags: [Recruiter Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [title, location, category, contractType, salary, description]
+ *             properties:
+ *               title: { type: string, example: "Second Officer" }
+ *               location: { type: string, example: "Rotterdam, Netherlands" }
+ *               category: { type: string, enum: [OFFICER, RATINGS_AND_CREW, CATERING_AND_MEDICAL], example: "OFFICER" }
+ *               contractType: { type: string, enum: [TEMPORARY, CONTRACT, PERMANENT], example: "CONTRACT" }
+ *               salary: { type: string, example: "$5000 / month" }
+ *               description: { type: string, example: "Experience in tankers required..." }
+ *     responses:
+ *       201:
+ *         description: Job created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     job: { $ref: '#/components/schemas/Job' }
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
  */
 router.post('/jobs', protectRecruiter, jobController.createJob);
 
@@ -663,7 +695,28 @@ router.post('/jobs', protectRecruiter, jobController.createJob);
  * /api/recruiter/jobs/my:
  *   get:
  *     summary: Get my job posts
+ *     description: Retrieve all jobs posted by the logged-in recruiter.
  *     tags: [Recruiter Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of jobs posted by recruiter
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 results: { type: integer, example: 5 }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     jobs:
+ *                       type: array
+ *                       items: { $ref: '#/components/schemas/Job' }
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
  */
 router.get('/jobs/my', protectRecruiter, jobController.getMyJobs);
 
@@ -699,7 +752,36 @@ router.delete('/jobs/:id', protectRecruiter, jobController.deleteJob);
  * /api/recruiter/jobs/{id}/applicants:
  *   get:
  *     summary: View applicants for a job
+ *     description: Retrieve all professional applications for a specific job post.
  *     tags: [Recruiter Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *         description: Job UUID
+ *     responses:
+ *       200:
+ *         description: List of applications for the job
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 results: { type: integer, example: 12 }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     applicants:
+ *                       type: array
+ *                       items: { $ref: '#/components/schemas/JobApplication' }
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
  */
 router.get(
   '/jobs/:id/applicants',
@@ -712,7 +794,34 @@ router.get(
  * /api/recruiter/applicants/{id}:
  *   get:
  *     summary: View applicant details
+ *     description: Retrieve detailed information for a specific job application, including professional profile.
  *     tags: [Recruiter Applications]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *         description: Application UUID
+ *     responses:
+ *       200:
+ *         description: Applicant details retrieved
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     application: { $ref: '#/components/schemas/JobApplication' }
+ *                     professional: { $ref: '#/components/schemas/Professional' }
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
  */
 router.get(
   '/applicants/:id',
@@ -725,7 +834,38 @@ router.get(
  * /api/recruiter/applicants/{id}/status:
  *   patch:
  *     summary: Update application status
+ *     description: Recruiter can change applicant status to REVIEWING, SHORTLISTED, ACCEPTED, or REJECTED.
  *     tags: [Recruiter Applications]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [status]
+ *             properties:
+ *               status:
+ *                 type: string
+ *                 enum: [REVIEWING, SHORTLISTED, ACCEPTED, REJECTED]
+ *     responses:
+ *       200:
+ *         description: Status updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 message: { type: string, example: "Application status updated to SHORTLISTED" }
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
  */
 router.patch(
   '/applicants/:id/status',
