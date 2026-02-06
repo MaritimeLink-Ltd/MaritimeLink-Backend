@@ -255,4 +255,19 @@ export const stripeService = {
   async getCheckoutSession(sessionId: string) {
     return stripe.checkout.sessions.retrieve(sessionId);
   },
+
+  /**
+   * Refund a payment
+   */
+  async refundPayment(paymentIntentId: string) {
+    try {
+      const refund = await stripe.refunds.create({
+        payment_intent: paymentIntentId,
+      });
+      return refund;
+    } catch (error) {
+      console.error('Stripe refund error:', error);
+      throw new Error('Failed to process refund');
+    }
+  },
 };

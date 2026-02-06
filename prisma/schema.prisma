@@ -84,6 +84,19 @@ enum PaymentStatus {
   REFUNDED
 }
 
+enum CourseType {
+  INTERNAL  // Posted by training providers on platform
+  EXTERNAL  // Manually added by admins, redirects to external URL
+}
+
+enum CourseStatus {
+  DRAFT      // Not published yet
+  ACTIVE     // Published and accepting bookings
+  FULL       // Capacity reached
+  COMPLETED  // Course finished
+  CANCELLED  // Course cancelled
+}
+
 model Recruiter {
   id               String          @id @default(uuid())
   email            String          @unique
@@ -397,6 +410,18 @@ model Course {
   stripeProductId String?
   stripePriceId   String?
   
+  // New fields for enhanced functionality
+  courseType          CourseType   @default(INTERNAL)
+  externalUrl         String?      // For EXTERNAL courses
+  status              CourseStatus @default(ACTIVE)
+  isFlagged           Boolean      @default(false)
+  flagReason          String?
+  capacity            Int?         // Total course capacity
+  enrolledCount       Int          @default(0)
+  certificationProvided String?    // Certificate type offered
+  curriculum          String?      @db.Text
+  requirements        String?      @db.Text
+  
   recruiterId  String?
   recruiter    Recruiter?  @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
   
@@ -453,6 +478,10 @@ model CourseBooking {
   
   amountPaid            Decimal        @db.Decimal(10, 2)
   currency              String         @default("GBP")
+  
+  // Revenue tracking (12% platform, 88% trainer)
+  platformFee           Decimal?       @db.Decimal(10, 2)
+  trainerPayout         Decimal?       @db.Decimal(10, 2)
   
   bookedAt              DateTime       @default(now())
   paidAt                DateTime?
