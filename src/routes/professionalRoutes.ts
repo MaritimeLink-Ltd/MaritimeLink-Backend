@@ -12,7 +12,8 @@ const upload = multer({ storage: multer.memoryStorage() });
  * @swagger
  * /api/professional/register:
  *   post:
- *     summary: Step 1 - Register a new professional
+ *     summary: Step 1 - Register Professional
+ *     description: Initialize registration for a maritime professional. Sends a 6-digit OTP to the professional's email.
  *     tags: [Professional]
  *     requestBody:
  *       required: true
@@ -22,20 +23,25 @@ const upload = multer({ storage: multer.memoryStorage() });
  *             type: object
  *             required: [fullname, email, password]
  *             properties:
- *               fullname: { type: string }
- *               email: { type: string, format: email }
- *               password: { type: string, minLength: 6 }
+ *               fullname: { type: string, example: "John Doe" }
+ *               email: { type: string, format: email, example: "john.doe@example.com" }
+ *               password: { type: string, format: password, example: "Password123!" }
  *     responses:
  *       201:
- *         description: Registration successful, OTP sent.
+ *         description: Professional account created. OTP sent.
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
  *                 status: { type: string, example: success }
- *                 message: { type: string }
- *                 data: { type: object, properties: { professionalId: { type: string } } }
+ *                 message: { type: string, example: "Registration successful. OTP sent to your email." }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     professionalId: { type: string, format: uuid }
+ *       400:
+ *         $ref: '#/components/responses/ValidationError'
  */
 router.post('/register', authController.register);
 
@@ -43,7 +49,8 @@ router.post('/register', authController.register);
  * @swagger
  * /api/professional/verify-otp:
  *   post:
- *     summary: Step 2 - Verify OTP code
+ *     summary: Step 2 - Verify Email with OTP
+ *     description: Validate the OTP code. Successful verification is required before profile completion.
  *     tags: [Professional]
  *     requestBody:
  *       required: true
@@ -53,13 +60,13 @@ router.post('/register', authController.register);
  *             type: object
  *             required: [professionalId, code]
  *             properties:
- *               professionalId: { type: string }
- *               code: { type: string, minLength: 6, maxLength: 6 }
+ *               professionalId: { type: string, format: uuid }
+ *               code: { type: string, example: "123456" }
  *     responses:
  *       200:
- *         description: OTP verified successfully.
+ *         description: Email verified successfully
  *       400:
- *         description: Invalid or expired OTP.
+ *         description: Invalid or expired OTP
  */
 router.post('/verify-otp', authController.verifyOTP);
 
@@ -67,7 +74,8 @@ router.post('/verify-otp', authController.verifyOTP);
  * @swagger
  * /api/professional/upload-id:
  *   post:
- *     summary: Step 3 - Upload ID/Passport image
+ *     summary: Step 3 - Upload Identity Image
+ *     description: Upload a temporary ID/Passport photo for document verification.
  *     tags: [Professional]
  *     requestBody:
  *       required: true
@@ -80,14 +88,14 @@ router.post('/verify-otp', authController.verifyOTP);
  *               id_passport: { type: string, format: binary }
  *     responses:
  *       200:
- *         description: ID uploaded successfully.
+ *         description: ID uploaded successfully
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
  *                 status: { type: string, example: success }
- *                 data: { type: object, properties: { url: { type: string } } }
+ *                 data: { type: object, properties: { url: { type: string, format: url } } }
  */
 router.post(
   '/upload-id',
@@ -99,7 +107,8 @@ router.post(
  * @swagger
  * /api/professional/complete-profile:
  *   post:
- *     summary: Step 4 - Complete profile
+ *     summary: Step 4 - Complete Professional Profile
+ *     description: Finalize the profile by adding profession and bio. This activates the account for full platform access.
  *     tags: [Professional]
  *     requestBody:
  *       required: true
@@ -109,13 +118,15 @@ router.post(
  *             type: object
  *             required: [professionalId, profession, idPassportUrl]
  *             properties:
- *               professionalId: { type: string }
- *               profession: { type: string, enum: [OFFICER, RATINGS_AND_CREW, CATERING_AND_MEDICAL] }
- *               idPassportUrl: { type: string }
+ *               professionalId: { type: string, format: uuid }
+ *               profession:
+ *                 type: string
+ *                 enum: [OFFICER, RATINGS_AND_CREW, CATERING_AND_MEDICAL]
+ *               idPassportUrl: { type: string, format: url }
  *               bio: { type: string }
  *     responses:
  *       200:
- *         description: Profile completed. Returns JWT token.
+ *         description: Profile completed. User is now logged in.
  *         content:
  *           application/json:
  *             schema:
@@ -123,6 +134,10 @@ router.post(
  *               properties:
  *                 status: { type: string, example: success }
  *                 token: { type: string }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     user: { $ref: '#/components/schemas/Professional' }
  */
 router.post('/complete-profile', authController.completeProfile);
 
@@ -130,7 +145,8 @@ router.post('/complete-profile', authController.completeProfile);
  * @swagger
  * /api/professional/login:
  *   post:
- *     summary: Log in as a professional
+ *     summary: Professional Login
+ *     description: Authenticate and receive a JWT. Only verified professionals can login.
  *     tags: [Professional]
  *     requestBody:
  *       required: true
@@ -140,21 +156,26 @@ router.post('/complete-profile', authController.completeProfile);
  *             type: object
  *             required: [email, password]
  *             properties:
- *               email: { type: string }
- *               password: { type: string }
+ *               email: { type: string, format: email, example: "john.doe@example.com" }
+ *               password: { type: string, format: password }
  *     responses:
  *       200:
- *         description: Login successful.
+ *         description: Login successful
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 status: { type: string }
+ *                 status: { type: string, example: success }
  *                 token: { type: string }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     user: { $ref: '#/components/schemas/Professional' }
+ *       401:
+ *         description: Invalid credentials or unverified account
  */
 router.post('/login', authController.login);
-
 /**
  * @swagger
  * /api/professional/resend-otp:
@@ -169,14 +190,21 @@ router.post('/login', authController.login);
  *             type: object
  *             required: [email]
  *             properties:
- *               email: { type: string, format: email }
+ *               email: { type: string, format: email, example: "john.doe@example.com" }
  *     responses:
  *       200:
  *         description: OTP resent successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 message: { type: string, example: "OTP resent to your email." }
  *       400:
- *         description: Invalid request or already verified.
+ *         $ref: '#/components/responses/ValidationError'
  *       404:
- *         description: User not found.
+ *         $ref: '#/components/responses/NotFoundError'
  */
 router.post('/resend-otp', authController.resendOTP);
 
@@ -194,12 +222,19 @@ router.post('/resend-otp', authController.resendOTP);
  *             type: object
  *             required: [email]
  *             properties:
- *               email: { type: string, format: email }
+ *               email: { type: string, format: email, example: "john.doe@example.com" }
  *     responses:
  *       200:
  *         description: Reset link sent to email.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 message: { type: string, example: "Password reset link sent to your email." }
  *       404:
- *         description: User not found.
+ *         $ref: '#/components/responses/NotFoundError'
  */
 router.post('/forgot-password', authController.forgotPassword);
 
@@ -224,12 +259,19 @@ router.post('/forgot-password', authController.forgotPassword);
  *             type: object
  *             required: [password]
  *             properties:
- *               password: { type: string, minLength: 6 }
+ *               password: { type: string, minLength: 6, example: "NewPassword123!" }
  *     responses:
  *       200:
  *         description: Password reset successful.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 message: { type: string, example: "Your password has been reset successfully." }
  *       400:
- *         description: Token invalid or expired.
+ *         $ref: '#/components/responses/ValidationError'
  */
 router.patch('/reset-password/:token', authController.resetPassword);
 
