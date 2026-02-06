@@ -16,6 +16,8 @@ import courseRoutes from './routes/courseRoutes.js';
 import conversationRoutes from './routes/conversationRoutes.js';
 import professionalBookingRoutes from './routes/professionalBookingRoutes.js';
 import professionalDashboardRoutes from './routes/professionalDashboardRoutes.js';
+import recruiterDashboardRoutes from './routes/recruiterDashboardRoutes.js';
+import trainerDashboardRoutes from './routes/trainerDashboardRoutes.js';
 import webhookRoutes from './routes/webhookRoutes.js';
 
 const app = express();
@@ -76,6 +78,8 @@ app.use('/api/professional', professionalBookingRoutes);
 
 // Dashboard routes
 app.use('/api/professional/dashboard', professionalDashboardRoutes);
+app.use('/api/recruiter/dashboard', recruiterDashboardRoutes);
+app.use('/api/trainer/dashboard', trainerDashboardRoutes);
 
 // 404 handler
 app.use((req: Request, res: Response, next: NextFunction) => {
