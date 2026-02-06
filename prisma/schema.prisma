@@ -600,11 +600,31 @@ model ProfessionalDocument {
   issueDate       DateTime?
   expiryDate      DateTime?
   fileUrl         String
+  mimeType        String?          // Helper regarding file type for Gemini
+  
+  // OCR & Verification
+  ocrData         Json?            // Extracted data from Gemini
+  ocrStatus       OCRStatus        @default(PENDING)
+  verificationStatus VerificationStatus @default(PENDING)
   
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
 
   @@map("professional_documents")
+}
+
+enum OCRStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum VerificationStatus {
+  PENDING
+  VERIFIED
+  REJECTED
+  MISMATCH
 }
 
 enum ActionStatus {
