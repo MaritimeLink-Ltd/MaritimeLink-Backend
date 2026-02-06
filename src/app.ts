@@ -15,6 +15,7 @@ import jobRoutes from './routes/jobRoutes.js';
 import courseRoutes from './routes/courseRoutes.js';
 import conversationRoutes from './routes/conversationRoutes.js';
 import professionalBookingRoutes from './routes/professionalBookingRoutes.js';
+import professionalDashboardRoutes from './routes/professionalDashboardRoutes.js';
 import webhookRoutes from './routes/webhookRoutes.js';
 
 const app = express();
@@ -72,6 +73,9 @@ app.use('/api/conversations', conversationRoutes);
 
 // Booking routes
 app.use('/api/professional', professionalBookingRoutes);
+
+// Dashboard routes
+app.use('/api/professional/dashboard', professionalDashboardRoutes);
 
 // 404 handler
 app.use((req: Request, res: Response, next: NextFunction) => {

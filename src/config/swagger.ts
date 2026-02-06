@@ -590,6 +590,37 @@ const options: swaggerJsdoc.Options = {
             coverLetter: { type: 'string', nullable: true },
           },
         },
+        Alert: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            professionalId: { type: 'string', format: 'uuid' },
+            type: { type: 'string', example: 'CERTIFICATE_EXPIRY' },
+            title: { type: 'string', example: 'Certificate Expiring Soon' },
+            message: {
+              type: 'string',
+              example: 'Your STCW Basic Safety certificate expires in 30 days.',
+            },
+            isRead: { type: 'boolean', example: false },
+            readAt: { type: 'string', format: 'date-time', nullable: true },
+            metadata: { type: 'object' },
+            createdAt: { type: 'string', format: 'date-time' },
+          },
+        },
+        ActivityLog: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            action: { type: 'string', example: 'DOCUMENT_UPLOADED' },
+            actorId: { type: 'string', format: 'uuid' },
+            actorType: {
+              type: 'string',
+              enum: ['ADMIN', 'RECRUITER', 'PROFESSIONAL', 'SYSTEM'],
+            },
+            status: { type: 'string', enum: ['SUCCESS', 'FAILED', 'WARNING'] },
+            createdAt: { type: 'string', format: 'date-time' },
+          },
+        },
       },
     },
   },
