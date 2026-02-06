@@ -26,12 +26,103 @@ const options: swaggerJsdoc.Options = {
         description: 'Local development server',
       },
     ],
+    tags: [
+      {
+        name: 'Professional',
+        description: 'Endpoints for maritime professionals',
+      },
+      {
+        name: 'Recruiter',
+        description: 'Endpoints for recruiters and training agents',
+      },
+      {
+        name: 'Professional KYC',
+        description: 'KYC verification for professionals',
+      },
+      { name: 'Recruiter KYC', description: 'KYC verification for recruiters' },
+      { name: 'Courses', description: 'Course management and discovery' },
+      {
+        name: 'Course Sessions',
+        description: 'Management of specific course dates/slots',
+      },
+      {
+        name: 'Course Bookings',
+        description: 'Registration and payments for courses',
+      },
+      {
+        name: 'Trainer Bookings',
+        description: 'Trainer-side booking management',
+      },
+      {
+        name: 'Trainer Revenue',
+        description: 'Revenue and analytics for trainers',
+      },
+      { name: 'Admin', description: 'Platform administration and moderation' },
+      {
+        name: 'Admin Operations',
+        description: 'System monitoring and activity logs',
+      },
+      { name: 'Admin Support', description: 'Managing global support tickets' },
+      { name: 'Admin Jobs', description: 'Job moderation and management' },
+      {
+        name: 'Admin Courses',
+        description: 'Course moderation and global bookings',
+      },
+      {
+        name: 'Admin Revenue',
+        description: 'Platform-wide financial analytics',
+      },
+      { name: 'Jobs', description: 'Job posting and search' },
+      {
+        name: 'Professional Documents',
+        description: 'Professional document wallet',
+      },
+      {
+        name: 'Professional Support',
+        description: 'Support cases for professionals',
+      },
+      {
+        name: 'Professional Jobs',
+        description: 'Job discovery and applications for professionals',
+      },
+      {
+        name: 'Professional Applications',
+        description: 'Management of job applications',
+      },
+      { name: 'Support', description: 'General user support' },
+    ],
     components: {
       securitySchemes: {
         bearerAuth: {
           type: 'http',
           scheme: 'bearer',
           bearerFormat: 'JWT',
+        },
+      },
+      responses: {
+        UnauthorizedError: {
+          description: 'Access token is missing or invalid',
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/Error' },
+            },
+          },
+        },
+        NotFoundError: {
+          description: 'The specified resource was not found',
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/Error' },
+            },
+          },
+        },
+        ValidationError: {
+          description: 'Validation failed',
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/Error' },
+            },
+          },
         },
       },
       schemas: {
@@ -425,6 +516,57 @@ const options: swaggerJsdoc.Options = {
             },
             createdAt: { type: 'string', format: 'date-time' },
             updatedAt: { type: 'string', format: 'date-time' },
+          },
+        },
+        CourseBooking: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            professionalId: { type: 'string', format: 'uuid' },
+            courseId: { type: 'string', format: 'uuid' },
+            sessionId: { type: 'string', format: 'uuid', nullable: true },
+            bookingStatus: {
+              type: 'string',
+              enum: ['PENDING', 'CONFIRMED', 'CANCELLED', 'COMPLETED'],
+            },
+            paymentStatus: {
+              type: 'string',
+              enum: ['PENDING', 'SUCCEEDED', 'FAILED', 'REFUNDED'],
+            },
+            amountPaid: { type: 'number' },
+            currency: { type: 'string' },
+            bookedAt: { type: 'string', format: 'date-time' },
+            paidAt: { type: 'string', format: 'date-time', nullable: true },
+          },
+        },
+        SupportCase: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            ticketId: { type: 'string', example: 'SC-1234' },
+            subject: { type: 'string' },
+            description: { type: 'string' },
+            category: { type: 'string' },
+            status: {
+              type: 'string',
+              enum: ['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'],
+            },
+            priority: {
+              type: 'string',
+              enum: ['LOW', 'MEDIUM', 'HIGH'],
+            },
+            createdAt: { type: 'string', format: 'date-time' },
+            updatedAt: { type: 'string', format: 'date-time' },
+          },
+        },
+        SupportNote: {
+          type: 'object',
+          properties: {
+            id: { type: 'string', format: 'uuid' },
+            caseId: { type: 'string', format: 'uuid' },
+            senderType: { type: 'string', enum: ['USER', 'ADMIN'] },
+            content: { type: 'string' },
+            createdAt: { type: 'string', format: 'date-time' },
           },
         },
       },
