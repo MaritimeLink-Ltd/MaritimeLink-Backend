@@ -496,7 +496,8 @@ import * as userSupportController from '../controllers/userSupportController.js'
  * @swagger
  * /api/professional/support/cases:
  *   post:
- *     summary: Create a new support case
+ *     summary: Step 1 - Create support case
+ *     description: Submit a new support request or inquiry.
  *     tags: [Professional Support]
  *     security:
  *       - bearerAuth: []
@@ -508,18 +509,28 @@ import * as userSupportController from '../controllers/userSupportController.js'
  *             type: object
  *             required: [subject, description, category]
  *             properties:
- *               subject:
- *                 type: string
- *               description:
- *                 type: string
- *               category:
- *                 type: string
+ *               subject: { type: string, example: "Booking Issue" }
+ *               description: { type: string, example: "I cannot complete my payment for..." }
+ *               category: { type: string, example: "PAYMENTS" }
  *               priority:
  *                 type: string
  *                 enum: [HIGH, MEDIUM, LOW]
+ *                 default: MEDIUM
  *     responses:
  *       201:
  *         description: Support case created successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     case: { $ref: '#/components/schemas/SupportCase' }
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
  */
 router.post('/support/cases', protect, userSupportController.createCase);
 
@@ -528,21 +539,35 @@ router.post('/support/cases', protect, userSupportController.createCase);
  * /api/professional/support/cases:
  *   get:
  *     summary: Get my support cases
+ *     description: Retrieve a paginated list of support cases submitted by the professional.
  *     tags: [Professional Support]
  *     security:
  *       - bearerAuth: []
  *     parameters:
  *       - in: query
  *         name: page
- *         schema:
- *           type: integer
+ *         schema: { type: integer, default: 1 }
  *       - in: query
  *         name: limit
- *         schema:
- *           type: integer
+ *         schema: { type: integer, default: 10 }
  *     responses:
  *       200:
  *         description: List of support cases.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 results: { type: integer, example: 2 }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     cases:
+ *                       type: array
+ *                       items: { $ref: '#/components/schemas/SupportCase' }
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
  */
 router.get('/support/cases', protect, userSupportController.getMyCases);
 
@@ -551,6 +576,7 @@ router.get('/support/cases', protect, userSupportController.getMyCases);
  * /api/professional/support/cases/{id}:
  *   get:
  *     summary: Get case details and chat history
+ *     description: Retrieve full details for a specific support case and its conversation history.
  *     tags: [Professional Support]
  *     security:
  *       - bearerAuth: []
@@ -558,11 +584,27 @@ router.get('/support/cases', protect, userSupportController.getMyCases);
  *       - in: path
  *         name: id
  *         required: true
- *         schema:
- *           type: string
+ *         schema: { type: string }
  *     responses:
  *       200:
  *         description: Detailed case information with notes.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     case: { $ref: '#/components/schemas/SupportCase' }
+ *                     notes:
+ *                       type: array
+ *                       items: { $ref: '#/components/schemas/SupportNote' }
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
  */
 router.get('/support/cases/:id', protect, userSupportController.getCaseDetails);
 
@@ -571,6 +613,7 @@ router.get('/support/cases/:id', protect, userSupportController.getCaseDetails);
  * /api/professional/support/cases/{id}/reply:
  *   post:
  *     summary: Reply to a support case
+ *     description: Send a new message to an active support case.
  *     tags: [Professional Support]
  *     security:
  *       - bearerAuth: []
@@ -578,6 +621,7 @@ router.get('/support/cases/:id', protect, userSupportController.getCaseDetails);
  *       - in: path
  *         name: id
  *         required: true
+ *         schema: { type: string }
  *     requestBody:
  *       required: true
  *       content:
@@ -586,11 +630,24 @@ router.get('/support/cases/:id', protect, userSupportController.getCaseDetails);
  *             type: object
  *             required: [content]
  *             properties:
- *               content:
- *                 type: string
+ *               content: { type: string, example: "Yes, I have already checked..." }
  *     responses:
  *       201:
  *         description: Reply added successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     note: { $ref: '#/components/schemas/SupportNote' }
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
  */
 router.post(
   '/support/cases/:id/reply',

@@ -19,6 +19,7 @@ router.use(protect);
  * /api/professional/resume:
  *   post:
  *     summary: Create or update professional resume
+ *     description: Submit full resume details including skills, education, and experience.
  *     tags: [Resume]
  *     security:
  *       - bearerAuth: []
@@ -31,8 +32,18 @@ router.use(protect);
  *     responses:
  *       200:
  *         description: Resume updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     resume: { $ref: '#/components/schemas/Resume' }
  *       401:
- *         description: Unauthorized
+ *         $ref: '#/components/responses/UnauthorizedError'
  */
 router.post('/', resumeController.upsertResume);
 
@@ -41,14 +52,27 @@ router.post('/', resumeController.upsertResume);
  * /api/professional/resume:
  *   get:
  *     summary: Get current professional's resume
+ *     description: Retrieve the full resume details for the logged-in professional.
  *     tags: [Resume]
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: Resume data
+ *         description: Resume data retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     resume: { $ref: '#/components/schemas/Resume' }
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
  *       404:
- *         description: Resume not found
+ *         $ref: '#/components/responses/NotFoundError'
  */
 router.get('/', resumeController.getResume);
 
@@ -57,6 +81,7 @@ router.get('/', resumeController.getResume);
  * /api/professional/resume:
  *   put:
  *     summary: Update professional resume
+ *     description: Update existing resume data.
  *     tags: [Resume]
  *     security:
  *       - bearerAuth: []
@@ -69,8 +94,18 @@ router.get('/', resumeController.getResume);
  *     responses:
  *       200:
  *         description: Resume updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     resume: { $ref: '#/components/schemas/Resume' }
  *       401:
- *         description: Unauthorized
+ *         $ref: '#/components/responses/UnauthorizedError'
  */
 router.put('/', resumeController.upsertResume);
 
@@ -79,16 +114,17 @@ router.put('/', resumeController.upsertResume);
  * /api/professional/resume:
  *   delete:
  *     summary: Delete professional resume
+ *     description: Remove the professional's resume from the system.
  *     tags: [Resume]
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       204:
  *         description: Resume deleted successfully
- *       404:
- *         description: Resume not found
  *       401:
- *         description: Unauthorized
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
  */
 router.delete('/', resumeController.deleteResume);
 
