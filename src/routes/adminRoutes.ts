@@ -18,6 +18,7 @@ const router = Router();
  * /api/admin/login:
  *   post:
  *     summary: Login for Admin
+ *     description: Authenticate an administrator and receive a platform-wide JWT.
  *     tags: [Admin]
  *     requestBody:
  *       required: true
@@ -32,13 +33,23 @@ const router = Router();
  *               email:
  *                 type: string
  *                 format: email
+ *                 example: "admin@maritime.com"
  *               password:
  *                 type: string
+ *                 format: password
+ *                 example: "AdminSecret123!"
  *     responses:
  *       200:
  *         description: Login successful
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 token: { type: string }
  *       401:
- *         description: Invalid credentials
+ *         $ref: '#/components/responses/UnauthorizedError'
  */
 router.post('/login', adminAuthController.login);
 
@@ -60,11 +71,19 @@ router.post('/login', adminAuthController.login);
  *               email:
  *                 type: string
  *                 format: email
+ *                 example: "admin@maritime.com"
  *     responses:
  *       200:
  *         description: Reset email sent
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 message: { type: string, example: "Password reset link sent to your email." }
  *       404:
- *         description: Admin not found
+ *         $ref: '#/components/responses/NotFoundError'
  */
 router.post('/forgot-password', adminAuthController.forgotPassword);
 
@@ -597,5 +616,89 @@ router.patch('/jobs/:id/flag', jobController.toggleJobFlag);
  *     tags: [Admin Jobs]
  */
 router.delete('/jobs/:id', jobController.deleteJob);
+
+// ==================== ADMIN COURSE MODERATION ====================
+
+/**
+ * @swagger
+ * /api/admin/courses/flagged:
+ *   get:
+ *     summary: Get all flagged courses
+ *     tags: [Admin Courses]
+ */
+router.get('/courses/flagged', protectAdmin, async (req, res, next) => {
+  const { getFlaggedCourses } =
+    await import('../controllers/adminCourseController.js');
+  return getFlaggedCourses(req, res, next);
+});
+
+/**
+ * @swagger
+ * /api/admin/bookings:
+ *   get:
+ *     summary: Get all bookings on platform
+ *     tags: [Admin Courses]
+ */
+router.get('/bookings', protectAdmin, async (req, res, next) => {
+  const { getAllBookings } =
+    await import('../controllers/adminCourseController.js');
+  return getAllBookings(req, res, next);
+});
+
+/**
+ * @swagger
+ * /api/admin/bookings/{bookingId}:
+ *   get:
+ *     summary: Get specific booking details
+ *     tags: [Admin Courses]
+ */
+router.get('/bookings/:bookingId', protectAdmin, async (req, res, next) => {
+  const { getAdminBookingById } =
+    await import('../controllers/adminCourseController.js');
+  return getAdminBookingById(req, res, next);
+});
+
+/**
+ * @swagger
+ * /api/admin/courses/{courseId}/bookings:
+ *   get:
+ *     summary: Get all bookings for any course
+ *     tags: [Admin Courses]
+ */
+router.get(
+  '/courses/:courseId/bookings',
+  protectAdmin,
+  async (req, res, next) => {
+    const { getAdminCourseBookings } =
+      await import('../controllers/adminCourseController.js');
+    return getAdminCourseBookings(req, res, next);
+  },
+);
+
+/**
+ * @swagger
+ * /api/admin/revenue:
+ *   get:
+ *     summary: Get platform revenue overview
+ *     tags: [Admin Revenue]
+ */
+router.get('/revenue', protectAdmin, async (req, res, next) => {
+  const { getPlatformRevenue } =
+    await import('../controllers/adminCourseController.js');
+  return getPlatformRevenue(req, res, next);
+});
+
+/**
+ * @swagger
+ * /api/admin/payouts/{providerId}:
+ *   post:
+ *     summary: Process payout to training provider
+ *     tags: [Admin Revenue]
+ */
+router.post('/payouts/:providerId', protectAdmin, async (req, res, next) => {
+  const { processPayout } =
+    await import('../controllers/adminCourseController.js');
+  return processPayout(req, res, next);
+});
 
 export default router;
