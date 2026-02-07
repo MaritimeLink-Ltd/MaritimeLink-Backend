@@ -621,6 +621,17 @@ const options: swaggerJsdoc.Options = {
             createdAt: { type: 'string', format: 'date-time' },
           },
         },
+        OCRData: {
+          type: 'object',
+          properties: {
+            name: { type: 'string', nullable: true },
+            number: { type: 'string', nullable: true },
+            issuingCountry: { type: 'string', nullable: true },
+            issueDate: { type: 'string', format: 'date', nullable: true },
+            expiryDate: { type: 'string', format: 'date', nullable: true },
+            rawText: { type: 'string', nullable: true },
+          },
+        },
       },
     },
   },

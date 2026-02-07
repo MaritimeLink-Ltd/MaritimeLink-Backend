@@ -331,7 +331,19 @@ router.patch(
  *               document: { type: string, format: binary }
  *     responses:
  *       200:
- *         description: Document uploaded successfully.
+ *         description: Document uploaded successfully. Returns extraction results.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     url: { type: string, format: url }
+ *                     ocrData: { $ref: '#/components/schemas/OCRData' }
+ *                     isTypeValidated: { type: boolean }
  */
 router.post(
   '/kyc/upload-document',
