@@ -3,6 +3,10 @@ import { prisma, Prisma } from '../config/prisma.js';
 import { AppError } from '../utils/AppError.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { uploadToSupabase } from '../services/storageService.js';
+import {
+  analyzeDocument,
+  validateDocumentType,
+} from '../services/geminiService.js';
 import { env } from '../config/env.js';
 import {
   uploadDocumentSchema,
@@ -44,23 +48,61 @@ export const uploadDocument = catchAsync(
       env.SUPABASE_DOCUMENT_WALLET_BUCKET,
     );
 
-    // Create DB Record
+    // 4. Gemini OCR Analysis (Parallelize if possible, but here we need results for DB)
+    let ocrData = null;
+
+    try {
+      if (req.file.buffer) {
+        const result = await analyzeDocument(
+          req.file.buffer,
+          req.file.mimetype,
+        );
+        if (result) {
+          ocrData = result;
+        }
+      }
+    } catch (error) {
+      console.error('OCR Analysis failed:', error);
+    }
+
+    // 5. Cross-check Document Type (Optional but recommended)
+    try {
+      if (req.file.buffer && category) {
+        await validateDocumentType(
+          req.file.buffer,
+          req.file.mimetype,
+          category,
+        );
+      }
+    } catch (error) {
+      console.error('Document type validation failed:', error);
+    }
+
+    // Use OCR data if user provided data is missing
+    const finalName = name || ocrData?.name || 'Untitled Document';
+    const finalNumber = number || ocrData?.number;
+    const finalIssuingCountry = issuingCountry || ocrData?.issuingCountry;
+    const finalIssueDate = issueDate || ocrData?.issueDate;
+    const finalExpiryDate = expiryDate || ocrData?.expiryDate;
+
+    // 6. Create DB Record
     const document = await prisma.professionalDocument.create({
       data: {
         professionalId,
         category,
-        name,
-        number,
-        issuingCountry,
-        issueDate: issueDate ? new Date(issueDate) : null,
-        expiryDate: expiryDate ? new Date(expiryDate) : null,
+        name: finalName,
+        number: finalNumber,
+        issuingCountry: finalIssuingCountry,
+        issueDate: finalIssueDate ? new Date(finalIssueDate) : null,
+        expiryDate: finalExpiryDate ? new Date(finalExpiryDate) : null,
         fileUrl: publicUrl,
+        mimeType: req.file.mimetype,
       },
     });
 
     res.status(201).json({
       status: 'success',
-      data: { document },
+      data: { document, ocrData },
     });
   },
 );

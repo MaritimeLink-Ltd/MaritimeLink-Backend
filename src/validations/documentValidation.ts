@@ -12,7 +12,7 @@ const DocumentCategoryEnum = z.enum([
 
 export const uploadDocumentSchema = z.object({
   category: DocumentCategoryEnum,
-  name: z.string().min(1, 'Document name is required'),
+  name: z.string().optional(),
   number: z.string().optional(),
   issuingCountry: z.string().optional(),
   issueDate: z.string().datetime().optional().or(z.literal('')),

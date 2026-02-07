@@ -4,6 +4,10 @@ import { env } from '../config/env.js';
 import { AppError } from '../utils/AppError.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { uploadToSupabase } from '../services/storageService.js';
+import {
+  analyzeDocument,
+  validateDocumentType,
+} from '../services/geminiService.js';
 import { submitKYCSchema } from '../validations/kycValidation.js';
 
 /**
@@ -31,10 +35,38 @@ export const uploadKYCDocument = catchAsync(
       env.SUPABASE_PROFESSIONAL_KYC_DOCS_BUCKET,
     );
 
+    // Gemini OCR Analysis
+    let ocrData = null;
+    try {
+      if (file.buffer) {
+        ocrData = await analyzeDocument(file.buffer, file.mimetype);
+      }
+    } catch (error) {
+      console.error('Professional KYC OCR analysis failed:', error);
+    }
+
+    // Validate if the document is actually a valid KYC document (General check)
+    let isTypeValidated = true;
+    try {
+      if (file.buffer) {
+        isTypeValidated = await validateDocumentType(
+          file.buffer,
+          file.mimetype,
+          'Identity Document',
+        );
+      }
+    } catch (error) {
+      console.error('Professional KYC document type validation failed:', error);
+    }
+
     res.status(200).json({
       status: 'success',
       message: 'Document uploaded successfully.',
-      data: { url: publicUrl },
+      data: {
+        url: publicUrl,
+        ocrData,
+        isTypeValidated,
+      },
     });
   },
 );
