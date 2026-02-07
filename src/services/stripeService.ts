@@ -52,7 +52,7 @@ export const stripeService = {
     const courseProduct = products.data.find((p) => p.name === 'Course');
 
     if (!courseProduct) {
-      throw new Error("Product named 'Course' not found in Stripe dashboard.");
+      throw new Error('Product named \'Course\' not found in Stripe dashboard.');
     }
 
     const prices = await stripe.prices.list({
