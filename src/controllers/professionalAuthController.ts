@@ -143,7 +143,9 @@ export const uploadID = catchAsync(
     res.status(200).json({
       status: 'success',
       message: 'ID uploaded successfully.',
-      data: { url: publicUrl },
+      data: {
+        url: publicUrl,
+      },
     });
   },
 );
