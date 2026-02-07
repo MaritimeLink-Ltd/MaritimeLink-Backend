@@ -141,6 +141,29 @@ router.use(protectAdmin);
  *     responses:
  *       200:
  *         description: List of recruiters
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 results: { type: integer, example: 1 }
+ *                 total: { type: integer, example: 1 }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     recruiters:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id: { type: string, format: uuid }
+ *                           email: { type: string, format: email }
+ *                           role: { type: string }
+ *                           organizationName: { type: string }
+ *                           status: { type: string, enum: [PENDING, APPROVED, REJECTED] }
+ *                           isVerified: { type: boolean }
+ *                           createdAt: { type: string, format: date-time }
  */
 router.get('/recruiters', adminRecruiterController.getRecruiters);
 
@@ -155,6 +178,20 @@ router.get('/recruiters', adminRecruiterController.getRecruiters);
  *     responses:
  *       200:
  *         description: Stats data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     total: { type: integer, example: 100 }
+ *                     pending: { type: integer, example: 10 }
+ *                     approved: { type: integer, example: 80 }
+ *                     rejected: { type: integer, example: 10 }
+ *                     verified: { type: integer, example: 90 }
  */
 router.get('/recruiters/stats', adminRecruiterController.getRecruiterStats);
 
@@ -175,6 +212,16 @@ router.get('/recruiters/stats', adminRecruiterController.getRecruiterStats);
  *     responses:
  *       200:
  *         description: Recruiter data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     recruiter: { $ref: '#/components/schemas/Recruiter' }
  */
 router.get('/recruiters/:id', adminRecruiterController.getRecruiterById);
 
@@ -207,6 +254,17 @@ router.get('/recruiters/:id', adminRecruiterController.getRecruiterById);
  *     responses:
  *       200:
  *         description: Status updated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 message: { type: string, example: "Recruiter login status updated to APPROVED" }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     recruiter: { $ref: '#/components/schemas/Recruiter' }
  */
 router.patch(
   '/recruiters/:id/status',
@@ -224,6 +282,28 @@ router.patch(
  *     responses:
  *       200:
  *         description: List of pending KYCs
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 results: { type: integer, example: 5 }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     kycs:
+ *                       type: array
+ *                       items:
+ *                         allOf:
+ *                           - $ref: '#/components/schemas/RecruiterKyc'
+ *                           - type: object
+ *                             properties:
+ *                               recruiter:
+ *                                 type: object
+ *                                 properties:
+ *                                   email: { type: string }
+ *                                   organizationName: { type: string }
  */
 router.get('/kyc/pending', adminRecruiterController.getPendingKYCs);
 
@@ -257,6 +337,17 @@ router.get('/kyc/pending', adminRecruiterController.getPendingKYCs);
  *     responses:
  *       200:
  *         description: KYC status updated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 message: { type: string, example: "KYC status updated to APPROVED" }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     kyc: { $ref: '#/components/schemas/RecruiterKyc' }
  */
 router.patch('/kyc/:id/status', adminRecruiterController.updateKYCStatus);
 
@@ -271,6 +362,28 @@ router.patch('/kyc/:id/status', adminRecruiterController.updateKYCStatus);
  *     responses:
  *       200:
  *         description: List of pending professional KYCs
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 results: { type: integer, example: 5 }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     kycs:
+ *                       type: array
+ *                       items:
+ *                         allOf:
+ *                           - $ref: '#/components/schemas/ProfessionalKyc'
+ *                           - type: object
+ *                             properties:
+ *                               professional:
+ *                                 type: object
+ *                                 properties:
+ *                                   email: { type: string }
+ *                                   fullname: { type: string }
  */
 router.get(
   '/professional-kyc/pending',
@@ -307,6 +420,17 @@ router.get(
  *     responses:
  *       200:
  *         description: Professional KYC status updated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 message: { type: string, example: "KYC status updated to APPROVED" }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     kyc: { $ref: '#/components/schemas/ProfessionalKyc' }
  */
 router.patch(
   '/professional-kyc/:id/status',
