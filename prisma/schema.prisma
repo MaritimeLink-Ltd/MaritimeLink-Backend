@@ -39,6 +39,7 @@ model Professional {
   bookings      CourseBooking[]
   applications  JobApplication[]
   alerts        Alert[]
+  invitations   JobInvitation[]
 }
 
 enum JobCategory {
@@ -83,6 +84,12 @@ enum BookingStatus {
   CONFIRMED
   CANCELLED
   COMPLETED
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
 }
 
 enum PaymentStatus {
@@ -357,6 +364,7 @@ model Job {
   expiryDate   DateTime?
   
   applications JobApplication[]
+  invitations  JobInvitation[]
 
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
@@ -748,4 +756,19 @@ model Alert {
   @@index([professionalId])
   @@index([isRead])
   @@index([createdAt])
+}
+
+model JobInvitation {
+  id             String       @id @default(uuid())
+  jobId          String
+  job            Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  professionalId String
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  recruiterId    String
+  status         InvitationStatus @default(PENDING)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([jobId, professionalId])
+  @@map("job_invitations")
 }
