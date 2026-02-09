@@ -4,9 +4,6 @@ import { catchAsync } from '../utils/catchAsync.js';
 import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
 
-/**
- * Get all professionals with pending KYC
- */
 export const getPendingKYCs = catchAsync(
   async (req: CustomRequest, res: Response) => {
     const kycs = await prisma.professionalKyc.findMany({

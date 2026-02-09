@@ -4,9 +4,6 @@ import { catchAsync } from '../utils/catchAsync.js';
 import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
 
-/**
- * Get all flagged courses
- */
 export const getFlaggedCourses = catchAsync(
   async (req: CustomRequest, res: Response) => {
     const courses = await prisma.course.findMany({

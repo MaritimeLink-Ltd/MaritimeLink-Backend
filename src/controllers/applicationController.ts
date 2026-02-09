@@ -10,9 +10,6 @@ import {
   Prisma,
 } from '../generated/client/index.js';
 
-/**
- * Apply to a Job
- */
 export const applyToJob = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const { id: jobId } = req.params;
