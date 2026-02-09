@@ -3,6 +3,7 @@ import multer from 'multer';
 import * as recruiterController from '../controllers/recruiterAuthController.js';
 import * as kycController from '../controllers/kycController.js';
 import * as sessionController from '../controllers/courseSessionController.js';
+import * as candidateController from '../controllers/recruiterCandidateController.js';
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
 import { protectRecruiter } from '../middlewares/recruiterAuthMiddleware.js';
@@ -857,6 +858,80 @@ router.get(
   '/jobs/:id/applicants',
   protectRecruiter,
   applicationController.getJobApplicants,
+);
+
+/**
+ * @swagger
+ * /api/recruiter/jobs/{id}/matches:
+ *   get:
+ *     summary: Get matching candidates for a job
+ *     description: Retrieve ranked list of professionals whose profile and resume match the job requirements.
+ *     tags: [Recruiter Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: List of matching candidates
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 results: { type: integer }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     candidates:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id: { type: string, format: uuid }
+ *                           fullname: { type: string }
+ *                           rank: { type: string }
+ *                           availability: { type: string }
+ *                           compliance: { type: string }
+ *                           matchPercentage: { type: integer }
+ *                           matchCriteria: { type: array, items: { type: string } }
+ */
+router.get(
+  '/jobs/:id/matches',
+  protectRecruiter,
+  candidateController.getMatchingCandidates,
+);
+
+/**
+ * @swagger
+ * /api/recruiter/jobs/{id}/invite/{professionalId}:
+ *   post:
+ *     summary: Invite a professional to apply
+ *     description: Send an invitation to a matching professional. Creates an alert for the professional.
+ *     tags: [Recruiter Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *       - in: path
+ *         name: professionalId
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       201:
+ *         description: Invitation sent successfully
+ */
+router.post(
+  '/jobs/:id/invite/:professionalId',
+  protectRecruiter,
+  candidateController.inviteProfessional,
 );
 
 /**

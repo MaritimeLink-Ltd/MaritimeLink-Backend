@@ -49,7 +49,19 @@ export const applyToJob = catchAsync(
       },
     });
 
-    // 5. Log Activity
+    // 5. Mark Invitation as ACCEPTED if it exists
+    await prisma.jobInvitation.updateMany({
+      where: {
+        jobId,
+        professionalId: userId,
+        status: 'PENDING',
+      },
+      data: {
+        status: 'ACCEPTED',
+      },
+    });
+
+    // 6. Log Activity
     await logActivity({
       action: 'JOB_APPLY',
       actorId: userId,
