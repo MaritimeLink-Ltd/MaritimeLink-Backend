@@ -8,9 +8,6 @@ import {
   updateCourseSchema,
 } from '../validations/jobValidation.js';
 
-/**
- * Create a new course post
- */
 export const createCourse = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const validatedData = createCourseSchema.parse(req.body);

@@ -4,9 +4,6 @@ import { catchAsync } from '../utils/catchAsync.js';
 import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
 
-/**
- * Toggle Save/Unsave Job
- */
 export const toggleSaveJob = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const { id: jobId } = req.params;
@@ -65,9 +62,6 @@ export const toggleSaveJob = catchAsync(
   },
 );
 
-/**
- * Get all saved jobs for current professional
- */
 export const getSavedJobs = catchAsync(
   async (req: CustomRequest, res: Response) => {
     const userId = req.user?.id;

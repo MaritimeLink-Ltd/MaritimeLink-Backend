@@ -9,9 +9,6 @@ import {
   sendMessageSchema,
 } from '../validations/chatValidation.js';
 
-/**
- * Get all conversations for the authenticated user
- */
 export const getConversations = catchAsync(
   async (req: CustomRequest, res: Response) => {
     const userId = req.user!.id;
@@ -59,9 +56,6 @@ export const getConversations = catchAsync(
   },
 );
 
-/**
- * Create or get an existing conversation
- */
 export const createConversation = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const validated = createConversationSchema.parse(req.body);
