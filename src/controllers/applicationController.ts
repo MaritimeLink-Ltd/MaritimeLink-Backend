@@ -13,16 +13,28 @@ import {
 export const applyToJob = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const { id: jobId } = req.params;
-    const { coverLetter } = req.body;
+    const { coverLetter, cvUrl } = req.body;
     const userId = req.user?.id;
 
     if (!userId) return next(new AppError('Unauthorized', 401));
 
-    // 1. Check if Job exists
+    // 1. Fetch Professional to get potentially stored CV/Cover Letter
+    const professional = await prisma.professional.findUnique({
+      where: { id: userId },
+      select: { cvUrl: true, lastCoverLetter: true },
+    });
+
+    if (!professional) return next(new AppError('Professional not found', 404));
+
+    // 2. Determine final values (prioritize req.body, fallback to profile)
+    const finalCoverLetter = coverLetter || professional.lastCoverLetter;
+    const finalCvUrl = cvUrl || professional.cvUrl;
+
+    // 3. Check if Job exists
     const job = await prisma.job.findUnique({ where: { id: jobId } });
     if (!job) return next(new AppError('Job not found', 404));
 
-    // 2. Check if already applied
+    // 4. Check if already applied
     const existingApplication = await prisma.jobApplication.findUnique({
       where: {
         jobId_professionalId: {
@@ -36,20 +48,29 @@ export const applyToJob = catchAsync(
       return next(new AppError('You have already applied to this job', 400));
     }
 
-    // 3. Get Resume Snapshot (Optional: Fetch profile/resume data to snapshot)
-    // For now, we just proceed. Ideally we'd fetch `prisma.professionalResume.findUnique...`
-
-    // 4. Create Application
+    // 5. Create Application
     const application = await prisma.jobApplication.create({
       data: {
         jobId,
         professionalId: userId,
-        coverLetter,
+        coverLetter: finalCoverLetter,
+        cvUrl: finalCvUrl,
         status: ApplicationStatus.APPLIED,
       },
     });
 
-    // 5. Mark Invitation as ACCEPTED if it exists
+    // 6. Update Professional profile for future reuse if new data provided
+    if (coverLetter || cvUrl) {
+      await prisma.professional.update({
+        where: { id: userId },
+        data: {
+          lastCoverLetter: coverLetter || undefined,
+          cvUrl: cvUrl || undefined,
+        },
+      });
+    }
+
+    // 7. Mark Invitation as ACCEPTED if it exists
     await prisma.jobInvitation.updateMany({
       where: {
         jobId,
@@ -61,7 +82,7 @@ export const applyToJob = catchAsync(
       },
     });
 
-    // 6. Log Activity
+    // 8. Log Activity
     await logActivity({
       action: 'JOB_APPLY',
       actorId: userId,
@@ -170,6 +191,8 @@ export const getApplicationDetails = catchAsync(
             fullname: true,
             email: true,
             profession: true,
+            cvUrl: true,
+            lastCoverLetter: true,
             resume: { select: { summary: true, skills: true } }, // Basic info
           },
         },
@@ -298,6 +321,7 @@ export const getJobApplicants = catchAsync(
             email: true,
             profession: true,
             idPassportUrl: true, // For avatar
+            cvUrl: true,
             resume: { select: { summary: true, overallSize: true } },
           },
         },
