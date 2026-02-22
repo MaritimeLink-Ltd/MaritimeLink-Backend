@@ -27,6 +27,9 @@ model Professional {
   
   passwordResetToken   String?
   passwordResetExpires DateTime?
+  
+  cvUrl                String?
+  lastCoverLetter      String?   @db.Text
 
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -392,6 +395,7 @@ model JobApplication {
   
   status         ApplicationStatus @default(APPLIED)
   coverLetter    String?           @db.Text
+  cvUrl          String?
   
   // Snapshot of resume at time of application (optional, but good practice)
   resumeSnapshot Json?
@@ -604,6 +608,7 @@ enum DocumentCategory {
   ACADEMIC_QUALIFICATIONS
   MISC_COMPANY_LETTERS
   RECENT_APPRAISALS
+  CV_RESUME
 }
 
 model ProfessionalDocument {
