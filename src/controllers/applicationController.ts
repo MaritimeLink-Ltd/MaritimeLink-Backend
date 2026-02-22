@@ -199,7 +199,15 @@ export const getApplicationDetails = catchAsync(
             cvUrl: true,
             lastCoverLetter: true,
             idPassportUrl: true,
-            kyc: { select: { status: true } },
+            kyc: {
+              select: {
+                status: true,
+                documentType: true,
+                documentNumber: true,
+                expiryDate: true,
+              },
+            },
+            documents: true,
             resume: {
               include: {
                 skills: true,

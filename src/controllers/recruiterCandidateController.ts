@@ -110,6 +110,7 @@ export const getMatchingCandidates = catchAsync(
         matchPercentage: Math.min(matchScore, 100),
         matchCriteria,
         cvUrl: prof.cvUrl,
+        documents: prof.documents,
       };
     });
 
