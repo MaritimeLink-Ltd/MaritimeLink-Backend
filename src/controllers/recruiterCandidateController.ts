@@ -7,6 +7,7 @@ import {
 import { catchAsync } from '../utils/catchAsync.js';
 import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
+import { calculateTotalSeaTime } from '../utils/experienceUtils.js';
 
 /**
  * Get matching candidates for a specific job
@@ -94,10 +95,16 @@ export const getMatchingCandidates = catchAsync(
         return dateB - dateA;
       })[0];
 
+      // Experience calculation
+      const { years } = calculateTotalSeaTime(prof.resume?.seaService || []);
+
       return {
         id: prof.id,
         fullname: prof.fullname,
         rank: latestExp?.role || prof.resume?.subcategory || 'N/A',
+        avatarUrl: prof.idPassportUrl,
+        location: prof.resume?.country || prof.kyc?.issueCountry || 'Global',
+        totalYearsExperience: years,
         availability: latestExp?.vesselName || 'Available Now',
         compliance,
         matchPercentage: Math.min(matchScore, 100),

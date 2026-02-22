@@ -8,7 +8,12 @@ import {
   ApplicationStatus,
   ActorType,
   Prisma,
+  RecruiterStatus,
 } from '../generated/client/index.js';
+import {
+  calculateTotalSeaTime,
+  getExperienceSummary,
+} from '../utils/experienceUtils.js';
 
 export const applyToJob = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
@@ -193,7 +198,14 @@ export const getApplicationDetails = catchAsync(
             profession: true,
             cvUrl: true,
             lastCoverLetter: true,
-            resume: { select: { summary: true, skills: true } }, // Basic info
+            idPassportUrl: true,
+            kyc: { select: { status: true } },
+            resume: {
+              include: {
+                skills: true,
+                seaService: true,
+              },
+            },
           },
         },
       },
@@ -201,12 +213,22 @@ export const getApplicationDetails = catchAsync(
 
     if (!application) return next(new AppError('Application not found', 404));
 
-    // Access Control can be refined here if strict checks needed beyond Auth Middleware
-    // E.g., if Recruiter, verify they own the job.
+    // Calculate derived UI data
+    const seaService = application.professional.resume?.seaService || [];
+    const experienceSummary = getExperienceSummary(seaService);
+    const isVerified =
+      application.professional.kyc?.status === RecruiterStatus.APPROVED;
 
     res.status(200).json({
       status: 'success',
-      data: { application },
+      data: {
+        application,
+        derived: {
+          experienceSummary,
+          isVerified,
+          totalSeaTime: calculateTotalSeaTime(seaService),
+        },
+      },
     });
   },
 );
@@ -322,17 +344,39 @@ export const getJobApplicants = catchAsync(
             profession: true,
             idPassportUrl: true, // For avatar
             cvUrl: true,
-            resume: { select: { summary: true, overallSize: true } },
+            kyc: { select: { status: true } },
+            resume: {
+              include: {
+                seaService: true,
+              },
+            },
           },
         },
       },
       orderBy: { createdAt: 'desc' },
     });
 
+    const enhancedApplicants = applicants.map((app) => {
+      const seaService = app.professional.resume?.seaService || [];
+      const { years } = calculateTotalSeaTime(seaService);
+      const isVerified =
+        app.professional.kyc?.status === RecruiterStatus.APPROVED;
+
+      return {
+        ...app,
+        professional: {
+          ...app.professional,
+          totalYearsExperience: years,
+          isVerified,
+          location: app.professional.resume?.country || 'Global',
+        },
+      };
+    });
+
     res.status(200).json({
       status: 'success',
-      results: applicants.length,
-      data: { applicants },
+      results: enhancedApplicants.length,
+      data: { applicants: enhancedApplicants },
     });
   },
 );
