@@ -378,6 +378,111 @@ router.post(
  *                     document: { $ref: '#/components/schemas/ProfessionalDocument' }
  *                     ocrData: { $ref: '#/components/schemas/OCRData' }
  */
+/**
+ * @swagger
+ * /api/professional/upload-cv:
+ *   post:
+ *     summary: Upload CV/Resume file
+ *     description: Upload a PDF/Image of the professional's resume. Updates the profile cvUrl.
+ *     tags: [Professional]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [document]
+ *             properties:
+ *               document: { type: string, format: binary }
+ *     responses:
+ *       201:
+ *         description: CV uploaded successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     url: { type: string, format: url }
+ */
+router.post(
+  '/upload-cv',
+  protect,
+  upload.single('document'),
+  documentController.uploadResume,
+);
+
+/**
+ * @swagger
+ * /api/professional/resumes:
+ *   get:
+ *     summary: Get all uploaded resumes
+ *     description: Retrieve a list of all resumes uploaded by the professional, sorted by most recent.
+ *     tags: [Professional]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of resumes retrieved.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 results: { type: integer }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     resumes:
+ *                       type: array
+ *                       items: { $ref: '#/components/schemas/ProfessionalDocument' }
+ */
+router.get('/resumes', protect, documentController.getMyResumes);
+
+/**
+ * @swagger
+ * /api/professional/documents/upload:
+ *   post:
+ *     summary: KYC Step 1 - Upload Identity Document
+ *     tags: [Professional Documents]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [document, category, name]
+ *             properties:
+ *               document: { type: string, format: binary }
+ *               category:
+ *                 type: string
+ *                 enum: [LICENSES_ENDORSEMENTS, MEDICAL_CERTIFICATES, TRAVEL_DOCUMENTS, SEAMANS_BOOK, ACADEMIC_QUALIFICATIONS, MISC_COMPANY_LETTERS, RECENT_APPRAISALS]
+ *               name: { type: string }
+ *               number: { type: string }
+ *               issuingCountry: { type: string }
+ *               issueDate: { type: string, format: date-time }
+ *               expiryDate: { type: string, format: date-time }
+ *     responses:
+ *       201:
+ *         description: Document uploaded successfully. Returns extraction results.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     document: { $ref: '#/components/schemas/ProfessionalDocument' }
+ *                     ocrData: { $ref: '#/components/schemas/OCRData' }
+ */
 router.post(
   '/documents/upload',
   protect,

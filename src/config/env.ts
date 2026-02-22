@@ -34,6 +34,7 @@ const envSchema = z.object({
     .string()
     .default('professional-kyc-selfies'),
   SUPABASE_DOCUMENT_WALLET_BUCKET: z.string().default('document-wallet'),
+  SUPABASE_RESUME_BUCKET: z.string().default('resumes'),
   FRONTEND_URL: z.string().url().default('http://localhost:5173'),
   BACKEND_URL: z.string().url().optional(),
   STRIPE_PUBLISHABLE_KEY: z.string().min(1),
