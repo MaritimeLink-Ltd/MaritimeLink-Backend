@@ -30,7 +30,7 @@ describe('Professional Resume API', () => {
 
   it('should create a new resume with all fields', async () => {
     const resumeData = {
-      category: 'Deck',
+      category: 'OFFICER',
       subcategory: 'Captain',
       address: '123 Harbor Lane',
       city: 'Seaville',
@@ -66,7 +66,7 @@ describe('Professional Resume API', () => {
       .set('Authorization', `Bearer ${token}`);
 
     expect(response.status).toBe(200);
-    expect(response.body.data.resume.category).toBe('Deck');
+    expect(response.body.data.resume.category).toBe('OFFICER');
     expect(response.body.data.resume.skills).toHaveLength(1);
     expect(response.body.data.resume.skills[0].skillName).toBe('Navigation');
     expect(response.body.data.resume.seaService).toHaveLength(1);
@@ -77,7 +77,7 @@ describe('Professional Resume API', () => {
 
   it('should update the resume (upsert logic)', async () => {
     const updatedData = {
-      category: 'Bridge',
+      category: 'OFFICER',
       skills: [
         { skillName: 'Navigation', rating: 9 },
         { skillName: 'Safety', rating: 8 },
@@ -95,7 +95,7 @@ describe('Professional Resume API', () => {
       .get('/api/professional/resume')
       .set('Authorization', `Bearer ${token}`);
 
-    expect(checkResponse.body.data.resume.category).toBe('Bridge');
+    expect(checkResponse.body.data.resume.category).toBe('OFFICER');
     expect(checkResponse.body.data.resume.skills).toHaveLength(2);
     // Previous list-based items should be replaced by new ones as per implementation
     expect(checkResponse.body.data.resume.seaService).toHaveLength(0);
