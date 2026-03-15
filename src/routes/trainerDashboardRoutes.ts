@@ -18,7 +18,7 @@ router.use(protectRecruiter);
  * @swagger
  * /api/trainer/dashboard/stats:
  *   get:
- *     summary: Get trainer dashboard statistics
+ *     summary: Step 1 - Get Trainer Dashboard Statistics
  *     description: Retrieve key metrics like active courses, new bookings, and demand signals.
  *     tags: [Trainer Dashboard]
  *     security:
@@ -49,7 +49,7 @@ router.get('/stats', trainerDashboardController.getTrainingDashboardStats);
  * @swagger
  * /api/trainer/dashboard/action-items:
  *   get:
- *     summary: Get trainer action required items
+ *     summary: Step 2 - Get Trainer Action Required Items
  *     description: Fetches alerts and tasks needing immediate attention for training providers.
  *     tags: [Trainer Dashboard]
  *     security:
@@ -78,7 +78,7 @@ router.get('/action-items', trainerDashboardController.getTrainingActionItems);
  * @swagger
  * /api/trainer/dashboard/courses:
  *   get:
- *     summary: Get trainer's course overview
+ *     summary: Step 3 - Get Trainer's Course Overview
  *     description: Lists all active courses with their capacity status and booking numbers.
  *     tags: [Trainer Dashboard]
  *     security:
