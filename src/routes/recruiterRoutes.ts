@@ -451,32 +451,6 @@ router.post(
 
 /**
  * @swagger
- * /api/recruiter/kyc/upload-selfie:
- *   post:
- *     summary: KYC Step 3 - Upload Selfie
- *     tags: [Recruiter KYC]
- *     requestBody:
- *       required: true
- *       content:
- *         multipart/form-data:
- *           schema:
- *             type: object
- *             required: [recruiterId, selfie]
- *             properties:
- *               recruiterId: { type: string }
- *               selfie: { type: string, format: binary }
- *     responses:
- *       200:
- *         description: Selfie uploaded and linked successfully.
- */
-router.post(
-  '/kyc/upload-selfie',
-  upload.single('selfie'),
-  kycController.uploadKYCSelfie,
-);
-
-/**
- * @swagger
  * /api/recruiter/kyc/submit:
  *   post:
  *     summary: KYC Step 2 - Submit Personal Details & Document URL
@@ -503,6 +477,32 @@ router.post(
  *         description: KYC details submitted. Please upload a selfie next.
  */
 router.post('/kyc/submit', kycController.submitKYC);
+
+/**
+ * @swagger
+ * /api/recruiter/kyc/upload-selfie:
+ *   post:
+ *     summary: KYC Step 3 - Upload Selfie
+ *     tags: [Recruiter KYC]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [recruiterId, selfie]
+ *             properties:
+ *               recruiterId: { type: string }
+ *               selfie: { type: string, format: binary }
+ *     responses:
+ *       200:
+ *         description: Selfie uploaded and linked successfully.
+ */
+router.post(
+  '/kyc/upload-selfie',
+  upload.single('selfie'),
+  kycController.uploadKYCSelfie,
+);
 
 /**
  * @swagger
