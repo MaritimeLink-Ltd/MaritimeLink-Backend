@@ -14,6 +14,8 @@ import { uploadToSupabase } from '../services/storageService.js';
 import {
   registerSchema,
   completeProfileSchema,
+  setProfessionSchema,
+  setRoleSchema,
 } from '../validations/professionalValidation.js';
 import { changePasswordSchema } from '../validations/passwordValidation.js';
 import { CustomRequest } from '../types/index.js';
@@ -26,7 +28,7 @@ import { ActorType, ActionStatus } from '../generated/client/index.js';
 export const register = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const validatedData = registerSchema.parse(req.body);
-    const { fullname, email, password } = validatedData;
+    const { firstName, middleName, lastName, email, password } = validatedData;
 
     const existingUser = await prisma.professional.findUnique({
       where: { email },
@@ -48,10 +50,14 @@ export const register = catchAsync(
 
     const professional = await prisma.professional.create({
       data: {
-        fullname,
+        firstName,
+        middleName,
+        lastName,
+        fullname: `${firstName} ${middleName ? middleName + ' ' : ''}${lastName}`,
         email,
         password: hashedPassword,
         isVerified: false,
+        registrationStep: 1,
       },
     });
 
@@ -108,6 +114,7 @@ export const verifyOTP = catchAsync(
       where: { id: professionalId },
       data: {
         isVerified: true,
+        registrationStep: 2,
         otpCode: null,
         otpExpiresAt: null,
       },
@@ -115,48 +122,122 @@ export const verifyOTP = catchAsync(
 
     res.status(200).json({
       status: 'success',
-      message:
-        'Account verified successfully. Please upload your ID to proceed.',
+      message: 'Account verified successfully. Please select your profession.',
+      data: { registrationStep: 2 },
     });
   },
 );
 
 /**
- * Step 3: Upload ID (Multipart)
+ * Step 3: Select Profession
  */
-export const uploadID = catchAsync(
+export const setProfession = catchAsync(async (req: Request, res: Response) => {
+  const validatedData = setProfessionSchema.parse(req.body);
+  const { professionalId, profession } = validatedData;
+
+  await prisma.professional.update({
+    where: { id: professionalId },
+    data: {
+      profession,
+      registrationStep: 3,
+    },
+  });
+
+  res.status(200).json({
+    status: 'success',
+    message: 'Profession set successfully. Please upload your profile photo.',
+    data: { registrationStep: 3 },
+  });
+});
+
+/**
+ * Step 4: Upload Profile Photo
+ */
+export const uploadProfilePhoto = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
+    const { professionalId } = req.body;
     const file = req.file;
 
     if (!file) {
-      return next(new AppError('Please upload an ID or Passport image', 400));
+      return next(new AppError('Please upload a profile photo', 400));
     }
 
-    // Sanitize filename to avoid "Invalid key" errors in Supabase (no spaces or special chars)
+    if (!professionalId) {
+      return next(new AppError('Professional ID is required', 400));
+    }
+
     const sanitizedOriginalName = file.originalname.replace(
       /[^a-zA-Z0-9.]/g,
       '_',
     );
-    const fileName = `temp-ids/${Date.now()}-${sanitizedOriginalName}`;
+    const fileName = `profile-photos/${professionalId}-${Date.now()}-${sanitizedOriginalName}`;
     const publicUrl = await uploadToSupabase(file, fileName);
+
+    await prisma.professional.update({
+      where: { id: professionalId },
+      data: {
+        profilePhotoUrl: publicUrl,
+        registrationStep: 4,
+      },
+    });
 
     res.status(200).json({
       status: 'success',
-      message: 'ID uploaded successfully.',
+      message: 'Profile photo uploaded successfully. Please select your role.',
       data: {
         url: publicUrl,
+        registrationStep: 4,
       },
     });
   },
 );
 
 /**
- * Step 4: Complete Profile
+ * Step 5: Select Role (Subcategory)
+ */
+export const setRole = catchAsync(async (req: Request, res: Response) => {
+  const validatedData = setRoleSchema.parse(req.body);
+  const { professionalId, subcategory } = validatedData;
+
+  const professional = await prisma.professional.update({
+    where: { id: professionalId },
+    data: {
+      subcategory,
+      registrationStep: 5,
+    },
+  });
+
+  const token = jwt.sign({ id: professional.id }, env.JWT_SECRET, {
+    expiresIn: '7d',
+  });
+
+  res.status(200).json({
+    status: 'success',
+    message: 'Role set successfully. Registration complete.',
+    token,
+    data: {
+      user: {
+        id: professional.id,
+        firstName: professional.firstName,
+        lastName: professional.lastName,
+        email: professional.email,
+        profession: professional.profession,
+        subcategory: professional.subcategory,
+        profilePhotoUrl: professional.profilePhotoUrl,
+      },
+      registrationStep: 5,
+    },
+  });
+});
+
+/**
+ * Step 6: Complete Profile (Legacy/Catch-all)
  */
 export const completeProfile = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const validatedData = completeProfileSchema.parse(req.body);
     const { professionalId, profession, idPassportUrl, bio } = validatedData;
+    // ... rest of logic if needed or just redirect to granular steps
 
     const professional = await prisma.professional.findUnique({
       where: { id: professionalId },

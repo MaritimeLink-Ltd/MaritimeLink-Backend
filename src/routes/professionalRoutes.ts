@@ -21,9 +21,11 @@ const upload = multer({ storage: multer.memoryStorage() });
  *         application/json:
  *           schema:
  *             type: object
- *             required: [fullname, email, password]
+ *             required: [firstName, lastName, email, password]
  *             properties:
- *               fullname: { type: string, example: "John Doe" }
+ *               firstName: { type: string, example: "John" }
+ *               middleName: { type: string, example: "Quincy" }
+ *               lastName: { type: string, example: "Doe" }
  *               email: { type: string, format: email, example: "john.doe@example.com" }
  *               password: { type: string, format: password, example: "Password123!" }
  *     responses:
@@ -50,7 +52,7 @@ router.post('/register', authController.register);
  * /api/professional/verify-otp:
  *   post:
  *     summary: Step 2 - Verify Email with OTP
- *     description: Validate the OTP code. Successful verification is required before profile completion.
+ *     description: Validate the OTP code. Advance to profession selection.
  *     tags: [Professional]
  *     requestBody:
  *       required: true
@@ -65,6 +67,14 @@ router.post('/register', authController.register);
  *     responses:
  *       200:
  *         description: Email verified successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 message: { type: string, example: "Account verified successfully. Please select your profession." }
+ *                 data: { type: object, properties: { registrationStep: { type: integer, example: 2 } } }
  *       400:
  *         description: Invalid or expired OTP
  */
@@ -72,10 +82,42 @@ router.post('/verify-otp', authController.verifyOTP);
 
 /**
  * @swagger
- * /api/professional/upload-id:
+ * /api/professional/profession:
+ *   patch:
+ *     summary: Step 3 - Select Profession
+ *     description: Set the professional's category (OFFICER, RATINGS_AND_CREW, etc.).
+ *     tags: [Professional]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [professionalId, profession]
+ *             properties:
+ *               professionalId: { type: string, format: uuid }
+ *               profession:
+ *                 type: string
+ *                 enum: [OFFICER, RATINGS_AND_CREW, CATERING_AND_MEDICAL]
+ *     responses:
+ *       200:
+ *         description: Profession set successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data: { type: object, properties: { registrationStep: { type: integer, example: 3 } } }
+ */
+router.patch('/profession', authController.setProfession);
+
+/**
+ * @swagger
+ * /api/professional/upload-photo:
  *   post:
- *     summary: Step 3 - Upload Identity Image
- *     description: Upload a temporary ID/Passport photo for document verification.
+ *     summary: Step 4 - Upload Profile Photo
+ *     description: Upload a profile photo for the professional.
  *     tags: [Professional]
  *     requestBody:
  *       required: true
@@ -83,31 +125,71 @@ router.post('/verify-otp', authController.verifyOTP);
  *         multipart/form-data:
  *           schema:
  *             type: object
- *             required: [id_passport]
+ *             required: [professionalId, photo]
  *             properties:
- *               id_passport: { type: string, format: binary }
+ *               professionalId: { type: string, format: uuid }
+ *               photo: { type: string, format: binary }
  *     responses:
  *       200:
- *         description: ID uploaded successfully
+ *         description: Photo uploaded successfully
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
  *                 status: { type: string, example: success }
- *                 data: { type: object, properties: { url: { type: string, format: url } } }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     url: { type: string, format: url }
+ *                     registrationStep: { type: integer, example: 4 }
  */
 router.post(
-  '/upload-id',
-  upload.single('id_passport'),
-  authController.uploadID,
+  '/upload-photo',
+  upload.single('photo'),
+  authController.uploadProfilePhoto,
 );
+
+/**
+ * @swagger
+ * /api/professional/role:
+ *   patch:
+ *     summary: Step 5 - Select Role (Subcategory)
+ *     description: Set the specific role (e.g., Deck Officer). Registration complete, JWT issued.
+ *     tags: [Professional]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [professionalId, subcategory]
+ *             properties:
+ *               professionalId: { type: string, format: uuid }
+ *               subcategory: { type: string, example: "Deck Officer" }
+ *     responses:
+ *       200:
+ *         description: Role set. Registration complete.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 token: { type: string }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     user: { $ref: '#/components/schemas/Professional' }
+ *                     registrationStep: { type: integer, example: 5 }
+ */
+router.patch('/role', authController.setRole);
 
 /**
  * @swagger
  * /api/professional/complete-profile:
  *   post:
- *     summary: Step 4 - Complete Professional Profile
+ *     summary: Step 6 - Complete Professional Profile (Legacy/Catch-all)
  *     description: Finalize the profile by adding profession and bio. This activates the account for full platform access.
  *     tags: [Professional]
  *     requestBody:

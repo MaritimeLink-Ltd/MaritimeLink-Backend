@@ -54,9 +54,6 @@ app.disable('x-powered-by');
 // Swagger Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-// Professional routes
-app.use('/api/professional', professionalRoutes);
-
 // Recruiter routes
 app.use('/api/recruiter', recruiterRoutes);
 
@@ -65,6 +62,9 @@ app.use('/api/auth', authRoutes);
 
 // Resume routes
 app.use('/api/professional/resume', professionalResumeRoutes);
+
+// Professional routes
+app.use('/api/professional', professionalRoutes);
 
 // Admin routes
 app.use('/api/admin', adminRoutes);
