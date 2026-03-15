@@ -16,12 +16,20 @@ import { CustomRequest } from '../types/index.js';
 import { logActivity } from '../services/activityLogger.js';
 import { ActorType, ActionStatus } from '../generated/client/index.js';
 
+import {
+  agentRegisterSchema,
+  setPersonalInfoSchema,
+  setCompanyDetailsSchema,
+  setComplianceSchema,
+} from '../validations/recruiterValidation.js';
+
 /**
- * Step 1: Registration
+ * Step 1: Registration (Agent Sign Up)
  */
 export const register = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
-    const { email, password, role } = req.body;
+    const validatedData = agentRegisterSchema.parse(req.body);
+    const { email, password, role } = validatedData;
 
     if (!email || !password || !role) {
       return next(new AppError('Please provide email, password and role', 400));
@@ -79,13 +87,16 @@ export const register = catchAsync(
     res.status(201).json({
       status: 'success',
       message: 'Registration successful. OTP sent to your email.',
-      data: { recruiterId: recruiter.id },
+      data: {
+        recruiterId: recruiter.id,
+        registrationStep: 1,
+      },
     });
   },
 );
 
 /**
- * Step 2: Verification
+ * Step 2: Verification (Email)
  */
 export const verifyOTP = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
@@ -109,18 +120,163 @@ export const verifyOTP = catchAsync(
         isVerified: true,
         otpCode: null,
         otpExpiresAt: null,
+        registrationStep: 2,
       },
     });
 
     res.status(200).json({
       status: 'success',
-      message: 'Email verified successfully. Please upload your ID documents.',
+      message: 'Email verified successfully. Please tell us about yourself.',
+      data: { registrationStep: 2 },
     });
   },
 );
 
 /**
- * Step 3: Upload ID (Multipart)
+ * Step 3: Tell Us About Yourself
+ */
+export const setPersonalInfo = catchAsync(
+  async (req: Request, res: Response) => {
+    const validatedData = setPersonalInfoSchema.parse(req.body);
+    const {
+      recruiterId,
+      firstName,
+      middleName,
+      lastName,
+      phoneCode,
+      phoneNumber,
+      personalRole,
+      otherRole,
+    } = validatedData;
+
+    // Generate Phone OTP
+    const phoneOtpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const phoneOtpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    await prisma.recruiter.update({
+      where: { id: recruiterId },
+      data: {
+        firstName,
+        middleName,
+        lastName,
+        phoneCode,
+        phoneNumber,
+        personalRole,
+        otherRole,
+        phoneOtpCode,
+        phoneOtpExpiresAt,
+        registrationStep: 3,
+      },
+    });
+
+    // In a real app, we would send SMS here. For now, we return it or just log it.
+    console.log(`Phone OTP for ${phoneNumber}: ${phoneOtpCode}`);
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Personal info saved. OTP sent to your phone.',
+      data: { registrationStep: 3 },
+    });
+  },
+);
+
+/**
+ * Step 4: Verify Phone
+ */
+export const verifyPhone = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const { recruiterId, code } = req.body;
+
+    const recruiter = await prisma.recruiter.findFirst({
+      where: {
+        id: recruiterId,
+        phoneOtpCode: code,
+        phoneOtpExpiresAt: { gt: new Date() },
+      },
+    });
+
+    if (!recruiter) {
+      return next(new AppError('Invalid or expired phone OTP', 400));
+    }
+
+    await prisma.recruiter.update({
+      where: { id: recruiterId },
+      data: {
+        phoneVerified: true,
+        phoneOtpCode: null,
+        phoneOtpExpiresAt: null,
+        registrationStep: 4,
+      },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Phone verified successfully. Please provide company details.',
+      data: { registrationStep: 4 },
+    });
+  },
+);
+
+/**
+ * Step 5: Company Details
+ */
+export const setCompanyDetails = catchAsync(
+  async (req: Request, res: Response) => {
+    const validatedData = setCompanyDetailsSchema.parse(req.body);
+    const { recruiterId, ...companyData } = validatedData;
+
+    await prisma.recruiter.update({
+      where: { id: recruiterId },
+      data: {
+        ...companyData,
+        registrationStep: 5,
+      },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Company details saved. Please complete compliance declaration.',
+      data: { registrationStep: 5 },
+    });
+  },
+);
+
+/**
+ * Step 6: Compliance & Trust
+ */
+export const setCompliance = catchAsync(async (req: Request, res: Response) => {
+  const validatedData = setComplianceSchema.parse(req.body);
+  const { recruiterId, isAuthorized, agreedToTerms, howDidYouHear } =
+    validatedData;
+
+  const recruiter = await prisma.recruiter.update({
+    where: { id: recruiterId },
+    data: {
+      isAuthorized,
+      agreedToTerms,
+      howDidYouHear,
+      registrationStep: 6,
+      status: 'PENDING',
+    },
+  });
+
+  // Issue token upon completion
+  const token = jwt.sign(
+    { id: recruiter.id, role: recruiter.role },
+    env.JWT_SECRET,
+    { expiresIn: '7d' },
+  );
+
+  res.status(200).json({
+    status: 'success',
+    message: 'Registration complete. Your account is under review.',
+    token,
+    data: { registrationStep: 6 },
+  });
+});
+
+/**
+ * Step 3: Upload ID (Multipart) - Legacy support for existing routes
  */
 export const uploadID = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
@@ -154,7 +310,7 @@ export const uploadID = catchAsync(
 );
 
 /**
- * Step 4: Complete Profile
+ * Step 4: Complete Profile - Legacy support for existing routes
  */
 export const completeProfile = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
@@ -170,18 +326,6 @@ export const completeProfile = catchAsync(
     if (!recruiterId) {
       return next(
         new AppError('recruiterId is required to complete the profile', 400),
-      );
-    }
-
-    if (
-      !organizationName ||
-      !address ||
-      !website ||
-      !orgEmail ||
-      !idPassportUrl
-    ) {
-      return next(
-        new AppError('Please provide all required organizational details', 400),
       );
     }
 

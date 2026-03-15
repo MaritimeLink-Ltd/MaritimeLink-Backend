@@ -53,7 +53,7 @@ router.post('/register', recruiterController.register);
  * /api/recruiter/verify-otp:
  *   post:
  *     summary: Step 2 - Verify Email with OTP
- *     description: Validate the 6-digit code sent to the recruiter's email. Successful verification allows proceeding to ID upload.
+ *     description: Validate the 6-digit code sent to the recruiter's email.
  *     tags: [Recruiter]
  *     requestBody:
  *       required: true
@@ -67,7 +67,14 @@ router.post('/register', recruiterController.register);
  *               code: { type: string, example: "123456" }
  *     responses:
  *       200:
- *         description: Email verified successfully
+ *         description: Email verified successfully. Proceed to personal info.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: "success" }
+ *                 data: { type: object, properties: { registrationStep: { type: integer, example: 2 } } }
  *       400:
  *         description: Invalid or expired OTP
  */
@@ -75,36 +82,146 @@ router.post('/verify-otp', recruiterController.verifyOTP);
 
 /**
  * @swagger
- * /api/recruiter/upload-id:
- *   post:
- *     summary: Step 3 - Upload Identity Documents
- *     description: Upload a scanned copy of an ID or Passport. File is securely stored in a private recruiter bucket.
+ * /api/recruiter/personal-info:
+ *   patch:
+ *     summary: Step 3 - Tell Us About Yourself
+ *     description: Provide personal details and phone number. This triggers a phone OTP.
  *     tags: [Recruiter]
  *     requestBody:
  *       required: true
  *       content:
- *         multipart/form-data:
+ *         application/json:
  *           schema:
  *             type: object
- *             required: [id_passport]
+ *             required: [recruiterId, firstName, lastName, phoneCode, phoneNumber, personalRole]
  *             properties:
- *               id_passport:
- *                 type: string
- *                 format: binary
- *                 description: "Image or PDF of the ID document"
+ *               recruiterId: { type: string, format: uuid }
+ *               firstName: { type: string, example: "Asim" }
+ *               middleName: { type: string, example: "Abbas" }
+ *               lastName: { type: string, example: "Khan" }
+ *               phoneCode: { type: string, example: "+92" }
+ *               phoneNumber: { type: string, example: "3076517703" }
+ *               personalRole: { type: string, example: "Crewing Coordinator" }
+ *               otherRole: { type: string }
  *     responses:
  *       200:
- *         description: ID uploaded. Returns the temporary URL.
+ *         description: Personal info saved. Phone OTP sent.
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 status: { type: string, example: success }
- *                 data:
- *                   type: object
- *                   properties:
- *                     url: { type: string, format: url }
+ *                 status: { type: string, example: "success" }
+ *                 data: { type: object, properties: { registrationStep: { type: integer, example: 3 } } }
+ */
+router.patch('/personal-info', recruiterController.setPersonalInfo);
+
+/**
+ * @swagger
+ * /api/recruiter/verify-phone:
+ *   post:
+ *     summary: Step 4 - Verify Phone with OTP
+ *     description: Validate the 6-digit code sent to the recruiter's phone.
+ *     tags: [Recruiter]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [recruiterId, code]
+ *             properties:
+ *               recruiterId: { type: string, format: uuid }
+ *               code: { type: string, example: "123456" }
+ *     responses:
+ *       200:
+ *         description: Phone verified successfully. Proceed to company details.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: "success" }
+ *                 data: { type: object, properties: { registrationStep: { type: integer, example: 4 } } }
+ */
+router.post('/verify-phone', recruiterController.verifyPhone);
+
+/**
+ * @swagger
+ * /api/recruiter/company-details:
+ *   patch:
+ *     summary: Step 5 - Company Details
+ *     description: Provide full organizational details.
+ *     tags: [Recruiter]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [recruiterId, organizationName, address, companyCity, companyState, companyZip, companyCountry]
+ *             properties:
+ *               recruiterId: { type: string, format: uuid }
+ *               organizationName: { type: string, example: "Devsinc" }
+ *               address: { type: string, example: "Sultan khel Isa khel Mainwali" }
+ *               companyCity: { type: string, example: "Mianwali" }
+ *               companyState: { type: string, example: "Punjab" }
+ *               companyZip: { type: string, example: "42410" }
+ *               companyCountry: { type: string, example: "Pakistan" }
+ *               website: { type: string, format: url, example: "https://emedcrack.com/" }
+ *               companyLinkedIn: { type: string, format: url, example: "https://emedcrack.com/" }
+ *     responses:
+ *       200:
+ *         description: Company details saved. Proceed to compliance.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: "success" }
+ *                 data: { type: object, properties: { registrationStep: { type: integer, example: 5 } } }
+ */
+router.patch('/company-details', recruiterController.setCompanyDetails);
+
+/**
+ * @swagger
+ * /api/recruiter/compliance:
+ *   patch:
+ *     summary: Step 6 - Compliance & Trust Declaration
+ *     description: Finalize registration with legal declarations and referral info.
+ *     tags: [Recruiter]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [recruiterId, isAuthorized, agreedToTerms, howDidYouHear]
+ *             properties:
+ *               recruiterId: { type: string, format: uuid }
+ *               isAuthorized: { type: boolean, example: true }
+ *               agreedToTerms: { type: boolean, example: true }
+ *               howDidYouHear: { type: string, example: "Referral" }
+ *     responses:
+ *       200:
+ *         description: Registration complete. Account under review.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: "success" }
+ *                 token: { type: string }
+ *                 data: { type: object, properties: { registrationStep: { type: integer, example: 6 } } }
+ */
+router.patch('/compliance', recruiterController.setCompliance);
+
+/**
+ * @swagger
+ * /api/recruiter/upload-id:
+ *   post:
+ *     summary: Legacy Upload ID (Internal Use)
+ *     tags: [Recruiter]
  */
 router.post(
   '/upload-id',
@@ -116,28 +233,8 @@ router.post(
  * @swagger
  * /api/recruiter/complete-profile:
  *   post:
- *     summary: Step 4 - Submit Organizational Profile
- *     description: Provide full company details and link the uploaded ID. This moves the recruiter to PENDING status for admin review.
+ *     summary: Legacy Complete Profile (Internal Use)
  *     tags: [Recruiter]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required: [recruiterId, organizationName, address, website, orgEmail, idPassportUrl]
- *             properties:
- *               recruiterId: { type: string, format: uuid }
- *               organizationName: { type: string, example: "Global Shipping Ltd" }
- *               address: { type: string, example: "123 Port Side, London" }
- *               website: { type: string, format: url, example: "https://globalship.com" }
- *               orgEmail: { type: string, format: email, example: "contact@globalship.com" }
- *               idPassportUrl: { type: string, format: url }
- *     responses:
- *       200:
- *         description: Profile submitted. Awaiting admin approval.
- *       401:
- *         description: Verification incomplete
  */
 router.post('/complete-profile', recruiterController.completeProfile);
 
