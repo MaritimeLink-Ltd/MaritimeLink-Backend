@@ -18,7 +18,7 @@ router.use(protectAdmin);
  * @swagger
  * /api/admin/dashboard/stats:
  *   get:
- *     summary: Get main admin dashboard stats
+ *     summary: Step 2 - Get Main Admin Dashboard Stats
  *     description: Retrieve key metrics for the top cards, including pending approvals, flagged issues, and expiring compliance.
  *     tags: [Admin Dashboard]
  *     security:
@@ -46,7 +46,7 @@ router.get('/stats', adminDashboardController.getAdminDashboardStats);
  * @swagger
  * /api/admin/dashboard/activity:
  *   get:
- *     summary: Get platform activity overview
+ *     summary: Step 3 - Get Platform Activity Overview
  *     description: Retrieve real-time overview of system events like jobs, courses, and user breakdown.
  *     tags: [Admin Dashboard]
  *     security:
@@ -76,7 +76,7 @@ router.get('/activity', adminDashboardController.getPlatformActivity);
  * @swagger
  * /api/admin/dashboard/revenue:
  *   get:
- *     summary: Get revenue and financial overview
+ *     summary: Step 4 - Get Revenue and Financial Overview
  *     description: Retrieve all financial metrics including total revenue, growth, and user type breakdown.
  *     tags: [Admin Dashboard]
  *     security:
@@ -116,7 +116,7 @@ router.get('/revenue', adminDashboardController.getRevenueOverview);
  * @swagger
  * /api/admin/dashboard/queues:
  *   get:
- *     summary: Get admin action queues
+ *     summary: Step 5 - Get Admin Action Queues
  *     description: Fetches review queues (recruiters, KYC) and system-wide alerts.
  *     tags: [Admin Dashboard]
  *     security:
