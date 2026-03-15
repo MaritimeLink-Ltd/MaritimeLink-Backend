@@ -123,9 +123,19 @@ enum CourseStatus {
 
 model Recruiter {
   id               String          @id @default(uuid())
+  firstName         String?
+  middleName        String?
+  lastName          String?
   email            String          @unique
   password         String
   role             RecruiterRole
+  
+  phoneCode         String?
+  phoneNumber       String?
+  phoneVerified    Boolean         @default(false)
+  phoneOtpCode      String?
+  phoneOtpExpiresAt DateTime?
+
   isVerified      Boolean         @default(false)
   otpCode         String?
   otpExpiresAt    DateTime?
@@ -133,10 +143,25 @@ model Recruiter {
   passwordResetToken   String?
   passwordResetExpires DateTime?
 
-  // Organizational Details (Step 4)
+  personalRole     String?         // From "Tell Us About Yourself" step
+  otherRole        String?         // If "Other" role is selected
+  
+  registrationStep Int             @default(1)
+
+  // Compliance & Trust (Step 6)
+  isAuthorized     Boolean         @default(false)
+  agreedToTerms    Boolean         @default(false)
+  howDidYouHear    String?
+
+  // Organizational Details (Step 5)
   organizationName String?
   address          String?
+  companyCity      String?
+  companyState     String?
+  companyZip       String?
+  companyCountry   String?
   website          String?
+  companyLinkedIn  String?
   orgEmail         String?
   idPassportUrl    String?
   
