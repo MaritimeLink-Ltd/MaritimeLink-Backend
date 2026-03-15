@@ -15,9 +15,9 @@ datasource db {
 
 model Professional {
   id            String    @id @default(uuid())
-  firstName     String
+  firstName     String?
   middleName    String?
-  lastName      String
+  lastName      String?
   fullname      String?   // Keeping as optional for backward compatibility
   email         String    @unique
   password      String
