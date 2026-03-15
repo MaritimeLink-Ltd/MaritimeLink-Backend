@@ -248,6 +248,7 @@ model ProfessionalLicense {
   country          String?
   issueDate        DateTime?
   expiryDate       DateTime?
+  isEndorsement    Boolean?           @default(false)
 
   @@map("professional_licenses")
 }
@@ -277,6 +278,8 @@ model ProfessionalEducation {
   resume           ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
   qualificationName String
   institution      String?
+  city             String?
+  country          String?
   grade            String?
   startDate        DateTime?
   endDate          DateTime?
@@ -302,8 +305,11 @@ model ProfessionalMedicalCertificate {
   resumeId         String
   resume           ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
   name             String
-  certificateNumber String?
+  certificateNumber String? // Legacy field, keeping for compatibility
+  documentNumber   String?
   issuingCountry   String?
+  city             String?
+  institutionCountry String?
   issueDate        DateTime?
   expiryDate       DateTime?
 
@@ -317,6 +323,8 @@ model ProfessionalTravelDocument {
   name             String
   documentNumber   String?
   issuingCountry   String?
+  city             String?
+  institutionCountry String?
   issueDate        DateTime?
   expiryDate       DateTime?
 
@@ -342,6 +350,7 @@ model ProfessionalReferee {
   resume           ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
   name             String
   position         String?
+  companyName      String?
   countryCode      String?
   phoneNumber      String?
   email            String?
