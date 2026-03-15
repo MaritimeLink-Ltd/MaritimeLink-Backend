@@ -17,7 +17,7 @@ const router = Router();
  * @swagger
  * /api/admin/login:
  *   post:
- *     summary: Login for Admin
+ *     summary: Step 1 - Admin Login
  *     description: Authenticate an administrator and receive a platform-wide JWT.
  *     tags: [Admin]
  *     requestBody:
