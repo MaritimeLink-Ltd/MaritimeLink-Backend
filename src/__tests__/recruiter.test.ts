@@ -1,0 +1,214 @@
+import request from 'supertest';
+import app from '../app.js';
+import { prisma } from '../config/prisma.js';
+
+describe('Recruiter & Trainer Flow E2E Tests', () => {
+  let recruiterId: string;
+  let trainerId: string;
+  let recruiterToken: string;
+  let trainerToken: string;
+
+  const testRecruiterEmail = `rec_${Date.now()}@example.com`;
+  const testTrainerEmail = `train_${Date.now()}@example.com`;
+  const testPassword = 'Password123!';
+
+  afterAll(async () => {
+    // Cleanup
+    if (recruiterId)
+      await prisma.recruiter
+        .delete({ where: { id: recruiterId } })
+        .catch(() => {});
+    if (trainerId)
+      await prisma.recruiter
+        .delete({ where: { id: trainerId } })
+        .catch(() => {});
+    await prisma.$disconnect();
+  });
+
+  describe('Recruiter Registration Flow (Steps 1-6)', () => {
+    it('Step 1: should register a new recruiter (Agent)', async () => {
+      const res = await request(app).post('/api/recruiter/register').send({
+        email: testRecruiterEmail,
+        password: testPassword,
+        confirmPassword: testPassword,
+        role: 'RECRUITMENT_AGENT',
+      });
+
+      expect(res.status).toBe(201);
+      recruiterId = res.body.data.recruiterId;
+      expect(recruiterId).toBeDefined();
+    });
+
+    it('Step 2: should verify email OTP', async () => {
+      await prisma.recruiter.update({
+        where: { id: recruiterId },
+        data: { otpCode: '123456', otpExpiresAt: new Date(Date.now() + 10000) },
+      });
+
+      const res = await request(app)
+        .post('/api/recruiter/verify-otp')
+        .send({ recruiterId, code: '123456' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.registrationStep).toBe(2);
+    });
+
+    it('Step 3: should save personal info', async () => {
+      const res = await request(app)
+        .patch('/api/recruiter/personal-info')
+        .send({
+          recruiterId,
+          firstName: 'Harris',
+          lastName: 'Abbas',
+          phoneCode: '+92',
+          phoneNumber: '3076517700',
+          personalRole: 'Recruitment Manager',
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.registrationStep).toBe(3);
+    });
+
+    it('Step 4: should verify phone OTP', async () => {
+      await prisma.recruiter.update({
+        where: { id: recruiterId },
+        data: {
+          phoneOtpCode: '123456',
+          phoneOtpExpiresAt: new Date(Date.now() + 10000),
+        },
+      });
+
+      const res = await request(app)
+        .post('/api/recruiter/verify-phone')
+        .send({ recruiterId, code: '123456' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.registrationStep).toBe(4);
+    });
+
+    it('Step 5: should save company details', async () => {
+      const res = await request(app)
+        .patch('/api/recruiter/company-details')
+        .send({
+          recruiterId,
+          organizationName: 'Global Maritime',
+          address: 'Ocean View St, London',
+          companyCity: 'London',
+          companyState: 'London',
+          companyZip: 'EC1A 1BB',
+          companyCountry: 'UK',
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.registrationStep).toBe(5);
+    });
+
+    it('Step 6: should complete registration and issue token', async () => {
+      const res = await request(app).patch('/api/recruiter/compliance').send({
+        recruiterId,
+        isAuthorized: true,
+        agreedToTerms: true,
+        howDidYouHear: 'LinkedIn',
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.token).toBeDefined();
+      recruiterToken = res.body.token;
+    });
+  });
+
+  describe('Trainer Registration Flow (Minimal Steps)', () => {
+    it('should register a new trainer provider', async () => {
+      const res = await request(app).post('/api/recruiter/register').send({
+        email: testTrainerEmail,
+        password: testPassword,
+        confirmPassword: testPassword,
+        role: 'TRAINING_AGENT',
+      });
+
+      expect(res.status).toBe(201);
+      trainerId = res.body.data.recruiterId;
+
+      // Advance trainer to completion for dashboard testing
+      await prisma.recruiter.update({
+        where: { id: trainerId },
+        data: { isVerified: true, status: 'APPROVED', registrationStep: 6 },
+      });
+
+      // Login as trainer
+      const loginRes = await request(app)
+        .post('/api/recruiter/login')
+        .send({ email: testTrainerEmail, password: testPassword });
+
+      trainerToken = loginRes.body.token;
+      expect(trainerToken).toBeDefined();
+    });
+  });
+
+  describe('Dashboard Stats Verification', () => {
+    it('should retrieve recruiter dashboard statistics', async () => {
+      // Recruiter must be approved to access dashboard
+      await prisma.recruiter.update({
+        where: { id: recruiterId },
+        data: { status: 'APPROVED' },
+      });
+
+      const res = await request(app)
+        .get('/api/recruiter/dashboard/stats')
+        .set('Authorization', `Bearer ${recruiterToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.stats).toHaveProperty('activeJobsCount');
+    });
+
+    it('should retrieve trainer dashboard statistics', async () => {
+      const res = await request(app)
+        .get('/api/trainer/dashboard/stats')
+        .set('Authorization', `Bearer ${trainerToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.stats).toHaveProperty('activeCoursesCount');
+    });
+  });
+
+  describe('KYC Process', () => {
+    it('KYC Step 1: should upload identity document', async () => {
+      const res = await request(app)
+        .post('/api/recruiter/kyc/upload-document')
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .attach('document', Buffer.from('fake-doc'), 'passport.pdf');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.url).toBeDefined();
+    });
+
+    it('KYC Step 2: should submit personal details and doc URL', async () => {
+      const res = await request(app)
+        .post('/api/recruiter/kyc/submit')
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .send({
+          recruiterId,
+          firstName: 'Harris',
+          lastName: 'Abbas',
+          dateOfBirth: '1995-01-01',
+          documentType: 'PASSPORT',
+          documentNumber: 'A1234567',
+          expiryDate: '2030-01-01',
+          issueCountry: 'UK',
+          documentUrl: 'http://example.com/passport.pdf',
+        });
+
+      expect(res.status).toBe(200);
+    });
+
+    it('KYC Step 3: should upload selfie', async () => {
+      const res = await request(app)
+        .post('/api/recruiter/kyc/upload-selfie')
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .field('recruiterId', recruiterId)
+        .attach('selfie', Buffer.from('fake-selfie'), 'selfie.jpg');
+
+      expect(res.status).toBe(200);
+    });
+  });
+});
