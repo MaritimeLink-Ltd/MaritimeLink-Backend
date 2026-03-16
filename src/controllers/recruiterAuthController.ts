@@ -8,6 +8,7 @@ import { AppError } from '../utils/AppError.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import {
   sendOTPEmail,
+  sendPhoneOTPEmail,
   sendPasswordResetEmail,
 } from '../services/emailService.js';
 import { uploadToSupabase } from '../services/storageService.js';
@@ -171,6 +172,21 @@ export const setPersonalInfo = catchAsync(
 
     // In a real app, we would send SMS here. For now, we return it or just log it.
     console.log(`Phone OTP for ${phoneNumber}: ${phoneOtpCode}`);
+
+    // Fetch recruiter email to send OTP via email as requested
+    const recruiter = await prisma.recruiter.findUnique({
+      where: { id: recruiterId },
+      select: { email: true },
+    });
+
+    if (recruiter?.email) {
+      try {
+        await sendPhoneOTPEmail(recruiter.email, phoneOtpCode);
+      } catch (error) {
+        console.error('Failed to send phone OTP email:', error);
+        // We don't throw here to avoid breaking the registration flow
+      }
+    }
 
     res.status(200).json({
       status: 'success',
