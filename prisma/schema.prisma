@@ -72,6 +72,7 @@ enum JobStatus {
   ACTIVE
   FILLED
   EXPIRED
+  REMOVED
 }
 
 enum RecruiterRole {
@@ -155,6 +156,7 @@ enum CourseStatus {
   FULL       // Capacity reached
   COMPLETED  // Course finished
   CANCELLED  // Course cancelled
+  REMOVED    // Removed by admin
 }
 
 model Recruiter {
@@ -520,6 +522,7 @@ model Job {
 
   isFlagged    Boolean     @default(false)
   status       JobStatus   @default(ACTIVE)
+  riskLevel    KycRiskLevel @default(LOW)
   expiryDate   DateTime?
   
   applications JobApplication[]
@@ -601,6 +604,7 @@ model Course {
   externalUrl         String?      // For EXTERNAL courses
   status              CourseStatus @default(ACTIVE)
   isFlagged           Boolean      @default(false)
+  riskLevel           KycRiskLevel @default(LOW)
   flagReason          String?
   capacity            Int?         // Total course capacity
   enrolledCount       Int          @default(0)

@@ -3,6 +3,7 @@ import * as adminAuthController from '../controllers/adminAuthController.js';
 import * as adminRecruiterController from '../controllers/adminRecruiterController.js';
 import * as adminProfessionalController from '../controllers/adminProfessionalController.js';
 import * as adminCompanyController from '../controllers/adminCompanyController.js';
+import * as adminMarketplaceController from '../controllers/adminMarketplaceController.js';
 import { protectAdmin } from '../middlewares/adminAuthMiddleware.js';
 
 const router = Router();
@@ -298,6 +299,50 @@ router.post('/kyc-submissions/:id/notes', adminKycController.addKycNote);
  *         description: KYC statistics
  */
 router.get('/kyc/stats', adminKycController.getKYCStats);
+
+// --- MARKETPLACE MANAGEMENT ROUTES ---
+
+/**
+ * @swagger
+ * /api/admin/marketplace/stats:
+ *   get:
+ *     summary: Get Marketplace dashboard statistics (Jobs & Courses)
+ *     tags: [Admin Marketplace]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get(
+  '/marketplace/stats',
+  adminMarketplaceController.getMarketplaceStats,
+);
+
+/**
+ * @swagger
+ * /api/admin/marketplace/oversight:
+ *   get:
+ *     summary: Get marketplace oversight (Counts per company/provider)
+ *     tags: [Admin Marketplace]
+ *     parameters:
+ *       - in: query
+ *         name: type
+ *         schema: { enum: [JOBS, COURSES] }
+ */
+router.get(
+  '/marketplace/oversight',
+  adminMarketplaceController.getMarketplaceOversight,
+);
+
+/**
+ * @swagger
+ * /api/admin/marketplace/listings:
+ *   get:
+ *     summary: Get official MaritimeLink Listings (Internal)
+ *     tags: [Admin Marketplace]
+ */
+router.get(
+  '/marketplace/listings',
+  adminMarketplaceController.getMaritimeLinkListings,
+);
 
 /**
  * @swagger
