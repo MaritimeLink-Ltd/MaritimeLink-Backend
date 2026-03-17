@@ -437,6 +437,7 @@ model JobApplication {
   status         ApplicationStatus @default(APPLIED)
   coverLetter    String?           @db.Text
   cvUrl          String?
+  attachedDocuments ProfessionalDocument[] @relation("ApplicationDocuments")
   
   // Snapshot of resume at time of application (optional, but good practice)
   resumeSnapshot Json?
@@ -677,6 +678,8 @@ model ProfessionalDocument {
   
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
+
+  jobApplications JobApplication[] @relation("ApplicationDocuments")
 
   @@map("professional_documents")
 }

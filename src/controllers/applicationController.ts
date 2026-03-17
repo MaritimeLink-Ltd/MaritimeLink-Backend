@@ -18,7 +18,7 @@ import {
 export const applyToJob = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const { id: jobId } = req.params;
-    const { coverLetter, cvUrl } = req.body;
+    const { coverLetter, cvUrl, documentIds } = req.body;
     const userId = req.user?.id;
 
     if (!userId) return next(new AppError('Unauthorized', 401));
@@ -61,6 +61,13 @@ export const applyToJob = catchAsync(
         coverLetter: finalCoverLetter,
         cvUrl: finalCvUrl,
         status: ApplicationStatus.APPLIED,
+        ...(documentIds &&
+          Array.isArray(documentIds) &&
+          documentIds.length > 0 && {
+            attachedDocuments: {
+              connect: documentIds.map((id: string) => ({ id })),
+            },
+          }),
       },
     });
 
@@ -190,6 +197,7 @@ export const getApplicationDetails = catchAsync(
       where: { id },
       include: {
         job: true,
+        attachedDocuments: true,
         professional: {
           select: {
             id: true,
@@ -344,6 +352,7 @@ export const getJobApplicants = catchAsync(
     const applicants = await prisma.jobApplication.findMany({
       where,
       include: {
+        attachedDocuments: true,
         professional: {
           select: {
             id: true,
