@@ -163,6 +163,7 @@ model Recruiter {
   website          String?
   companyLinkedIn  String?
   orgEmail         String?
+  companyLogo      String?         // Added for Company Preview feature
   idPassportUrl    String?
   
   status           RecruiterStatus @default(PENDING)
