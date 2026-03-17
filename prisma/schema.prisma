@@ -203,6 +203,9 @@ model Recruiter {
   orgEmail         String?
   companyLogo      String?         // Added for Company Preview feature
   idPassportUrl    String?
+
+  stripeAccountId        String?
+  stripeOnboardingComplete Boolean @default(false)
   
   status           RecruiterStatus @default(PENDING)
   tier             UserTier        @default(FREE)

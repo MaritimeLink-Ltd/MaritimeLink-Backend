@@ -4,6 +4,7 @@ import * as adminRecruiterController from '../controllers/adminRecruiterControll
 import * as adminProfessionalController from '../controllers/adminProfessionalController.js';
 import * as adminCompanyController from '../controllers/adminCompanyController.js';
 import * as adminMarketplaceController from '../controllers/adminMarketplaceController.js';
+import * as adminTrainerPayoutController from '../controllers/adminTrainerPayoutController.js';
 import { protectAdmin } from '../middlewares/adminAuthMiddleware.js';
 
 const router = Router();
@@ -342,6 +343,34 @@ router.get(
 router.get(
   '/marketplace/listings',
   adminMarketplaceController.getMaritimeLinkListings,
+);
+
+// --- TRAINER PAYOUT & STRIPE CONNECT ROUTES ---
+
+/**
+ * @swagger
+ * /api/admin/trainers/{id}/initiate-stripe:
+ *   post:
+ *     summary: Initiate Stripe Connect onboarding for a trainer
+ *     tags: [Admin Payouts]
+ */
+router.post(
+  '/trainers/:id/initiate-stripe',
+  adminTrainerPayoutController.initiateTrainerStripe,
+);
+
+/**
+ * @swagger
+ * /api/admin/trainers/payout-stats:
+ *   get:
+ *     summary: Get consolidated trainer payout statistics
+ *     tags: [Admin Payouts]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get(
+  '/trainers/payout-stats',
+  adminTrainerPayoutController.getTrainerPayoutStats,
 );
 
 /**

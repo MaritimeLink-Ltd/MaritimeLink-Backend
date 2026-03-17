@@ -21,7 +21,15 @@ export const createCheckoutSession = catchAsync(
     // Get course details
     const course = await prisma.course.findUnique({
       where: { id: courseId },
-      include: { sessions: true },
+      include: {
+        sessions: true,
+        recruiter: {
+          select: {
+            stripeAccountId: true,
+            stripeOnboardingComplete: true,
+          },
+        },
+      },
     });
 
     if (!course) {
@@ -71,17 +79,36 @@ export const createCheckoutSession = catchAsync(
       );
     }
 
-    // Create Stripe checkout session
-    const checkout = await stripeService.createCheckoutSession({
-      courseId,
-      professionalId,
-      amount: Number(course.price),
-      currency: course.currency,
-      courseTitle: course.title,
-      priceId,
-      sessionIds,
-      documentIds,
-    });
+    let checkout;
+
+    // Use Split Payment if trainer has Stripe Connect set up
+    if (
+      course.recruiter?.stripeAccountId &&
+      course.recruiter?.stripeOnboardingComplete
+    ) {
+      checkout = await stripeService.createConnectCheckoutSession({
+        courseId,
+        professionalId,
+        amount: Number(course.price),
+        currency: course.currency,
+        courseTitle: course.title,
+        trainerStripeId: course.recruiter.stripeAccountId,
+        // sessionIds,
+        // documentIds,
+      });
+    } else {
+      // Standard platform payment
+      checkout = await stripeService.createCheckoutSession({
+        courseId,
+        professionalId,
+        amount: Number(course.price),
+        currency: course.currency,
+        courseTitle: course.title,
+        priceId,
+        sessionIds,
+        documentIds,
+      });
+    }
 
     res.status(200).json({
       status: 'success',

@@ -167,6 +167,110 @@ export const stripeService = {
   },
 
   /**
+   * Create a Stripe Checkout Session for course payment with SPLIT PAYMENT (Connect)
+   */
+  async createConnectCheckoutSession(
+    params: CreateCheckoutSessionParams & {
+      trainerStripeId: string;
+      commissionRate?: number;
+    },
+  ) {
+    const {
+      courseId,
+      professionalId,
+      amount,
+      currency,
+      courseTitle,
+      trainerStripeId,
+      commissionRate = 12, // Default to 12%
+    } = params;
+
+    const commissionAmount = Math.round(amount * (commissionRate / 100) * 100); // in cents
+
+    const booking = await prisma.courseBooking.create({
+      data: {
+        professionalId,
+        courseId,
+        amountPaid: amount,
+        currency,
+        bookingStatus: 'PENDING',
+        paymentStatus: 'PENDING',
+        platformFee: amount * (commissionRate / 100),
+        trainerPayout: amount * (1 - commissionRate / 100),
+      },
+    });
+
+    const checkoutSession = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price_data: {
+            currency: currency.toLowerCase(),
+            product_data: {
+              name: courseTitle,
+            },
+            unit_amount: Math.round(amount * 100),
+          },
+          quantity: 1,
+        },
+      ],
+      mode: 'payment',
+      payment_intent_data: {
+        application_fee_amount: commissionAmount,
+        transfer_data: {
+          destination: trainerStripeId,
+        },
+      },
+      success_url: `${env.FRONTEND_URL}/bookings/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${env.FRONTEND_URL}/courses/${courseId}?canceled=true`,
+      client_reference_id: booking.id,
+      metadata: {
+        bookingId: booking.id,
+      },
+    });
+
+    await prisma.courseBooking.update({
+      where: { id: booking.id },
+      data: { stripeSessionId: checkoutSession.id },
+    });
+
+    return {
+      checkoutUrl: checkoutSession.url,
+      sessionId: checkoutSession.id,
+      bookingId: booking.id,
+    };
+  },
+
+  /**
+   * Create a Stripe Express account for a trainer
+   */
+  async createExpressAccount(email: string, recruiterId: string) {
+    const account = await stripe.accounts.create({
+      type: 'express',
+      email,
+      capabilities: {
+        card_payments: { requested: true },
+        transfers: { requested: true },
+      },
+      metadata: { recruiterId },
+    });
+
+    return account;
+  },
+
+  /**
+   * Create an account link for onboarding
+   */
+  async createAccountLink(stripeAccountId: string) {
+    return stripe.accountLinks.create({
+      account: stripeAccountId,
+      refresh_url: `${env.FRONTEND_URL}/recruiter/payouts/reauth`,
+      return_url: `${env.FRONTEND_URL}/recruiter/payouts/success`,
+      type: 'account_onboarding',
+    });
+  },
+
+  /**
    * Handle Stripe webhook events
    */
   async handleWebhook(signature: string, rawBody: Buffer) {
@@ -188,14 +292,12 @@ export const stripeService = {
         );
         break;
 
-      case 'payment_intent.succeeded':
-        await this.handlePaymentSuccess(
-          event.data.object as Stripe.PaymentIntent,
-        );
+      case 'account.updated':
+        await this.handleAccountUpdate(event.data.object as Stripe.Account);
         break;
 
-      case 'payment_intent.payment_failed':
-        await this.handlePaymentFailed(
+      case 'payment_intent.succeeded':
+        await this.handlePaymentSuccess(
           event.data.object as Stripe.PaymentIntent,
         );
         break;
@@ -205,6 +307,21 @@ export const stripeService = {
     }
 
     return { received: true };
+  },
+
+  /**
+   * Handle account updates (Onboarding completion)
+   */
+  async handleAccountUpdate(account: Stripe.Account) {
+    if (account.details_submitted) {
+      const recruiterId = account.metadata?.recruiterId;
+      if (recruiterId) {
+        await prisma.recruiter.update({
+          where: { id: recruiterId },
+          data: { stripeOnboardingComplete: true },
+        });
+      }
+    }
   },
 
   /**
@@ -228,7 +345,6 @@ export const stripeService = {
       },
     });
 
-    // TODO: Send confirmation email to professional
     console.log(`Booking ${bookingId} confirmed`);
   },
 
@@ -236,7 +352,7 @@ export const stripeService = {
    * Handle successful payment intent
    */
   async handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
-    const booking = await prisma.courseBooking.findUnique({
+    const booking = await prisma.courseBooking.findFirst({
       where: { stripePaymentIntentId: paymentIntent.id },
     });
 
@@ -256,7 +372,7 @@ export const stripeService = {
    * Handle failed payment intent
    */
   async handlePaymentFailed(paymentIntent: Stripe.PaymentIntent) {
-    const booking = await prisma.courseBooking.findUnique({
+    const booking = await prisma.courseBooking.findFirst({
       where: { stripePaymentIntentId: paymentIntent.id },
     });
 
