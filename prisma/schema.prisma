@@ -464,9 +464,9 @@ model SavedJob {
 model Course {
   id           String      @id @default(uuid())
   title        String
-  location     String
+  location     String?
   category     String
-  contractType String
+  contractType String?
   description  String      @db.Text
   price        Decimal     @db.Decimal(10, 2)
   currency     String      @default("GBP")
@@ -475,6 +475,9 @@ model Course {
   
   // New fields for enhanced functionality
   courseType          CourseType   @default(INTERNAL)
+  trainingType        String?      // Refresher, Upgrade, Initial, Other
+  issuingAuthority    String?
+  duration            String?
   externalUrl         String?      // For EXTERNAL courses
   status              CourseStatus @default(ACTIVE)
   isFlagged           Boolean      @default(false)
@@ -505,14 +508,15 @@ model CourseSession {
   courseId         String
   course           Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
   
-  startDate        DateTime
-  endDate          DateTime
-  startTime        String
-  endTime          String
-  location         String
-  instructor       String
-  totalSeats       Int
-  availableSeats   Int
+  startDate          DateTime
+  endDate            DateTime
+  startTime          String?
+  endTime            String?
+  location           String
+  instructor         String?
+  totalSeats         Int
+  availableSeats     Int
+  enrollmentDeadline DateTime?
 
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt

@@ -11,12 +11,15 @@ export const createJobSchema = z.object({
 
 export const createCourseSchema = z.object({
   title: z.string().min(3).max(100),
-  location: z.string().min(2).max(100),
+  location: z.string().min(2).max(100).optional(),
   category: z.string().min(2).max(50),
-  contractType: z.string().min(2).max(50),
+  contractType: z.string().min(2).max(50).optional(),
   description: z.string().min(10),
   price: z.number().min(0),
   // New fields
+  trainingType: z.string().optional(),
+  issuingAuthority: z.string().optional(),
+  duration: z.string().optional(),
   courseType: z.enum(['INTERNAL', 'EXTERNAL']).optional().default('INTERNAL'),
   externalUrl: z.string().url().optional(),
   status: z
