@@ -99,6 +99,12 @@ enum UserTier {
   PRO
 }
 
+enum KycRiskLevel {
+  LOW
+  MEDIUM
+  HIGH
+}
+
 enum CompanyMemberRole {
   ADMIN
   RECRUITER
@@ -490,6 +496,7 @@ model Admin {
   
   assignedCases    SupportCase[] @relation("AssignedCases")
   caseNotes        CaseNote[]
+  kycNotes         KycNote[]
 
    @@map("admins")
 }
@@ -744,9 +751,16 @@ model RecruiterKyc {
   selfieUrl        String?
   
   status           RecruiterStatus @default(PENDING)
+  riskLevel        KycRiskLevel    @default(LOW)
+  ocrConfidence    Float?
+  mismatchDetected Boolean         @default(false)
+  mismatchDetails  String?
+  reviewStep       Int             @default(3) // 1: Account, 2: Uploaded, 3: Review, 4: Cleared
   
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
+
+  notes            KycNote[]
 
   @@map("recruiter_kyc")
 }
@@ -767,11 +781,35 @@ model ProfessionalKyc {
   selfieUrl        String?
   
   status           RecruiterStatus @default(PENDING)
+  riskLevel        KycRiskLevel    @default(LOW)
+  ocrConfidence    Float?
+  mismatchDetected Boolean         @default(false)
+  mismatchDetails  String?
+  reviewStep       Int             @default(3)
   
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 
+  notes            KycNote[]
+
   @@map("professional_kyc")
+}
+
+model KycNote {
+  id               String           @id @default(uuid())
+  content          String           @db.Text
+  adminId          String
+  admin            Admin            @relation(fields: [adminId], references: [id])
+  
+  professionalKycId String?
+  professionalKyc   ProfessionalKyc? @relation(fields: [professionalKycId], references: [id], onDelete: Cascade)
+  
+  recruiterKycId    String?
+  recruiterKyc      RecruiterKyc?    @relation(fields: [recruiterKycId], references: [id], onDelete: Cascade)
+  
+  createdAt        DateTime         @default(now())
+
+  @@map("kyc_notes")
 }
 
 enum DocumentCategory {

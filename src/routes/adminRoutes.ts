@@ -235,17 +235,19 @@ router.get(
  * @swagger
  * /api/admin/kyc-submissions:
  *   get:
- *     summary: Get all KYC submissions across the platform
- *     tags: [Admin]
+ *     summary: Get all KYC submissions across the platform (Compliance)
+ *     tags: [Admin Compliance]
  *     security:
  *       - bearerAuth: []
  *     parameters:
  *       - in: query
  *         name: status
- *         schema: { type: string }
  *       - in: query
  *         name: userType
- *         schema: { type: string, enum: [PROFESSIONAL, RECRUITER] }
+ *         schema: { enum: [PROFESSIONAL, RECRUITER, TRAINING_PROVIDER] }
+ *       - in: query
+ *         name: riskLevel
+ *         schema: { enum: [LOW, MEDIUM, HIGH] }
  *     responses:
  *       200:
  *         description: List of KYC submissions
@@ -255,10 +257,40 @@ router.get('/kyc-submissions', adminKycController.getAllKYCSubmissions);
 
 /**
  * @swagger
+ * /api/admin/kyc-submissions/{id}:
+ *   get:
+ *     summary: Get detailed KYC information (Timeline, OCR, Notes)
+ *     tags: [Admin Compliance]
+ */
+router.get('/kyc-submissions/:id', adminKycController.getKycDetails);
+
+/**
+ * @swagger
+ * /api/admin/kyc-submissions/{id}/status:
+ *   patch:
+ *     summary: Update KYC Verification Status (Approve/Reject)
+ *     tags: [Admin Compliance]
+ */
+router.patch(
+  '/kyc-submissions/:id/status',
+  adminKycController.updateKycVerification,
+);
+
+/**
+ * @swagger
+ * /api/admin/kyc-submissions/{id}/notes:
+ *   post:
+ *     summary: Add an internal admin note to a KYC record
+ *     tags: [Admin Compliance]
+ */
+router.post('/kyc-submissions/:id/notes', adminKycController.addKycNote);
+
+/**
+ * @swagger
  * /api/admin/kyc/stats:
  *   get:
- *     summary: Get consolidated KYC stats
- *     tags: [Admin]
+ *     summary: Get consolidated KYC stats (Pending, High Risk, Verified)
+ *     tags: [Admin Compliance]
  *     security:
  *       - bearerAuth: []
  *     responses:
