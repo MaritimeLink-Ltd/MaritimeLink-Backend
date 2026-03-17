@@ -99,6 +99,18 @@ enum UserTier {
   PRO
 }
 
+enum CompanyMemberRole {
+  ADMIN
+  RECRUITER
+  VIEWER
+}
+
+enum MergeRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum KYCDocumentType {
   PASSPORT
   DRIVING_LICENSE
@@ -195,6 +207,82 @@ model Recruiter {
   jobs             Job[]
   courses          Course[]
   conversations    Conversation[]
+
+  companyId        String?
+  company          Company?        @relation(fields: [companyId], references: [id])
+  companyMember    CompanyMember?
+}
+
+model Company {
+  id               String          @id @default(uuid())
+  name             String
+  domain           String?         @unique
+  type             RecruiterRole
+  logoUrl          String?
+  
+  // Contact & Location
+  address          String?
+  city             String?
+  state            String?
+  zip              String?
+  country          String?
+  website          String?
+  email            String?
+  linkedIn         String?
+  
+  isClaimed        Boolean         @default(false)
+  isVerified       Boolean         @default(false)
+  tier             UserTier        @default(FREE)
+  claimDate        DateTime?
+  
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  lastActive       DateTime        @default(now())
+
+  members          CompanyMember[]
+  recruiters       Recruiter[]
+  jobs             Job[]
+  courses          Course[]
+  
+  mergeRequestsSource CompanyMergeRequest[] @relation("SourceCompany")
+  mergeRequestsTarget CompanyMergeRequest[] @relation("TargetCompany")
+
+  @@map("companies")
+}
+
+model CompanyMember {
+  id               String          @id @default(uuid())
+  companyId        String
+  company          Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  
+  recruiterId      String          @unique
+  recruiter        Recruiter       @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
+  
+  role             CompanyMemberRole @default(RECRUITER)
+  status           String            @default("ACTIVE") // ACTIVE, PENDING
+  
+  joinedAt         DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@unique([companyId, recruiterId])
+  @@map("company_members")
+}
+
+model CompanyMergeRequest {
+  id               String             @id @default(uuid())
+  sourceCompanyId  String
+  sourceCompany    Company            @relation("SourceCompany", fields: [sourceCompanyId], references: [id])
+  targetCompanyId  String
+  targetCompany    Company            @relation("TargetCompany", fields: [targetCompanyId], references: [id])
+  
+  requestedById    String
+  status           MergeRequestStatus @default(PENDING)
+  reason           String?            @db.Text
+  
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  @@map("company_merge_requests")
 }
 
 enum MessageSender {
@@ -430,6 +518,9 @@ model Job {
   applications JobApplication[]
   invitations  JobInvitation[]
 
+  companyId    String?
+  company      Company?    @relation(fields: [companyId], references: [id])
+
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
@@ -522,6 +613,9 @@ model Course {
   sessions     CourseSession[]
   bookings     CourseBooking[]
   savedBy      SavedCourse[]
+
+  companyId    String?
+  company      Company?    @relation(fields: [companyId], references: [id])
 
   @@map("courses")
 }

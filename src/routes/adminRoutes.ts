@@ -2,6 +2,7 @@ import { Router } from 'express';
 import * as adminAuthController from '../controllers/adminAuthController.js';
 import * as adminRecruiterController from '../controllers/adminRecruiterController.js';
 import * as adminProfessionalController from '../controllers/adminProfessionalController.js';
+import * as adminCompanyController from '../controllers/adminCompanyController.js';
 import { protectAdmin } from '../middlewares/adminAuthMiddleware.js';
 
 const router = Router();
@@ -1031,6 +1032,98 @@ router.get('/bookings/:bookingId', protectAdmin, async (req, res, next) => {
     await import('../controllers/adminCourseController.js');
   return getAdminBookingById(req, res, next);
 });
+
+// --- COMPANY MANAGEMENT ROUTES ---
+
+/**
+ * @swagger
+ * /api/admin/companies:
+ *   get:
+ *     summary: Get all companies (overview)
+ *     tags: [Admin Companies]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: type
+ *         schema: { type: string, enum: [RECRUITMENT_AGENT, TRAINING_AGENT] }
+ *       - in: query
+ *         name: status
+ *         schema: { type: string, enum: [CLAIMED, UNCLAIMED] }
+ *     responses:
+ *       200:
+ *         description: List of companies and stats.
+ */
+router.get('/companies', adminCompanyController.getCompaniesOverview);
+
+/**
+ * @swagger
+ * /api/admin/companies/merge-requests:
+ *   get:
+ *     summary: Get all pending company merge requests
+ *     tags: [Admin Companies]
+ *     responses:
+ *       200:
+ *         description: List of merge requests.
+ */
+router.get(
+  '/companies/merge-requests',
+  adminCompanyController.getMergeRequests,
+);
+
+/**
+ * @swagger
+ * /api/admin/companies/{id}:
+ *   get:
+ *     summary: Get company details with team and activity
+ *     tags: [Admin Companies]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *     responses:
+ *       200:
+ *         description: Company details.
+ */
+router.get('/companies/:id', adminCompanyController.getCompanyById);
+
+/**
+ * @swagger
+ * /api/admin/companies/{id}:
+ *   patch:
+ *     summary: Update company (Verify/Claim/Tier)
+ *     tags: [Admin Companies]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *     responses:
+ *       200:
+ *         description: Company updated.
+ */
+router.patch('/companies/:id', adminCompanyController.updateCompany);
+
+/**
+ * @swagger
+ * /api/admin/companies/{id}/members/{memberId}:
+ *   delete:
+ *     summary: Remove a team member from a company
+ *     tags: [Admin Companies]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *       - in: path
+ *         name: memberId
+ *         required: true
+ *     responses:
+ *       204:
+ *         description: Member removed.
+ */
+router.delete(
+  '/companies/:id/members/:memberId',
+  adminCompanyController.removeTeamMember,
+);
 
 /**
  * @swagger

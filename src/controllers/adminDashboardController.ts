@@ -59,6 +59,12 @@ export const getAdminDashboardStats = catchAsync(
       where: { expiryDate: { lte: thirtyDaysFromNow, gte: now } },
     });
 
+    // 4. Company stats
+    const companyCount = await prisma.company.count();
+    const unclaimedCompanyCount = await prisma.company.count({
+      where: { isClaimed: false },
+    });
+
     res.status(200).json({
       status: 'success',
       data: {
@@ -75,6 +81,10 @@ export const getAdminDashboardStats = catchAsync(
           expiringCompliance: {
             count: expiringCompliance,
             timeframe: '30d',
+          },
+          companies: {
+            total: companyCount,
+            unclaimed: unclaimedCompanyCount,
           },
         },
       },
