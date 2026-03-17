@@ -26,12 +26,8 @@ export const cancelBooking = catchAsync(
         professionalId,
       },
       include: {
-        session: true,
-        course: {
-          include: {
-            sessions: true,
-          },
-        },
+        sessions: true,
+        course: true,
       },
     });
 
@@ -48,9 +44,13 @@ export const cancelBooking = catchAsync(
       return next(new AppError('Cannot cancel completed booking', 400));
     }
 
-    // Check if course has already started (if session exists)
-    if (booking.session) {
-      const sessionStartDate = new Date(booking.session.startDate);
+    // Check if any course session has already started
+    if (booking.sessions && booking.sessions.length > 0) {
+      const earliestSession = [...booking.sessions].sort(
+        (a, b) =>
+          new Date(a.startDate).getTime() - new Date(b.startDate).getTime(),
+      )[0];
+      const sessionStartDate = new Date(earliestSession.startDate);
       if (sessionStartDate < new Date()) {
         return next(
           new AppError('Cannot cancel booking after course has started', 400),
@@ -177,6 +177,85 @@ export const getRecommendedCourses = catchAsync(
       data: {
         courses: recommendedCourses,
         expiringCategories,
+      },
+    });
+  },
+);
+
+/**
+ * Toggle Save/Unsave a course
+ */
+export const toggleSaveCourse = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const professionalId = req.user?.id;
+    const { id: courseId } = req.params;
+
+    if (!professionalId) return next(new AppError('Unauthorized', 401));
+
+    const existing = await prisma.savedCourse.findUnique({
+      where: {
+        professionalId_courseId: {
+          professionalId,
+          courseId,
+        },
+      },
+    });
+
+    if (existing) {
+      await prisma.savedCourse.delete({
+        where: { id: existing.id },
+      });
+      return res.status(200).json({
+        status: 'success',
+        message: 'Course removed from saved list',
+        data: { saved: false },
+      });
+    }
+
+    await prisma.savedCourse.create({
+      data: {
+        professionalId,
+        courseId,
+      },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Course saved successfully',
+      data: { saved: true },
+    });
+  },
+);
+
+/**
+ * Get all saved courses for the current professional
+ */
+export const getSavedCourses = catchAsync(
+  async (req: CustomRequest, res: Response) => {
+    const professionalId = req.user?.id;
+
+    const savedCourses = await prisma.savedCourse.findMany({
+      where: { professionalId },
+      include: {
+        course: {
+          include: {
+            recruiter: { select: { organizationName: true } },
+            sessions: {
+              where: { startDate: { gte: new Date() } },
+              take: 1,
+            },
+            admin: { select: { email: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      results: savedCourses.length,
+      data: {
+        courses: savedCourses.map((sc) => sc.course),
       },
     });
   },

@@ -12,7 +12,7 @@ export const createCheckoutSession = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const professionalId = req.user?.id;
     const { courseId } = req.params;
-    const { priceId } = req.body; // Optional: specific Stripe price ID
+    const { priceId, sessionIds, documentIds } = req.body;
 
     if (!professionalId) {
       return next(new AppError('Unauthorized', 401));
@@ -78,7 +78,9 @@ export const createCheckoutSession = catchAsync(
       amount: Number(course.price),
       currency: course.currency,
       courseTitle: course.title,
-      priceId, // Use priceId from request body if provided
+      priceId,
+      sessionIds,
+      documentIds,
     });
 
     res.status(200).json({
@@ -114,8 +116,9 @@ export const getMyBookings = catchAsync(
             description: true,
           },
         },
-        session: {
+        sessions: {
           select: {
+            id: true,
             startDate: true,
             endDate: true,
             startTime: true,
@@ -124,6 +127,7 @@ export const getMyBookings = catchAsync(
             instructor: true,
           },
         },
+        attachedDocuments: true,
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -154,7 +158,8 @@ export const getBookingById = catchAsync(
       },
       include: {
         course: true,
-        session: true,
+        sessions: true,
+        attachedDocuments: true,
       },
     });
 

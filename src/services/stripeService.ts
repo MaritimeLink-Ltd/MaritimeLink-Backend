@@ -13,6 +13,8 @@ interface CreateCheckoutSessionParams {
   currency: string;
   courseTitle: string;
   priceId?: string;
+  sessionIds?: string[];
+  documentIds?: string[];
 }
 
 let cachedPriceId: string | null = null;
@@ -52,7 +54,7 @@ export const stripeService = {
     const courseProduct = products.data.find((p) => p.name === 'Course');
 
     if (!courseProduct) {
-      throw new Error('Product named \'Course\' not found in Stripe dashboard.');
+      throw new Error("Product named 'Course' not found in Stripe dashboard.");
     }
 
     const prices = await stripe.prices.list({
@@ -75,7 +77,15 @@ export const stripeService = {
    * Create a Stripe Checkout Session for course payment
    */
   async createCheckoutSession(params: CreateCheckoutSessionParams) {
-    const { courseId, professionalId, amount, currency, courseTitle } = params;
+    const {
+      courseId,
+      professionalId,
+      amount,
+      currency,
+      courseTitle,
+      sessionIds,
+      documentIds,
+    } = params;
     let { priceId } = params;
 
     // If no specific priceId provided, fetch the fixed one
@@ -83,7 +93,7 @@ export const stripeService = {
       priceId = await this.getFixedPriceId();
     }
 
-    // Create a pending booking in the database
+    // Create a pending booking in the database with multiple sessions and docs
     const booking = await prisma.courseBooking.create({
       data: {
         professionalId,
@@ -92,6 +102,18 @@ export const stripeService = {
         currency,
         bookingStatus: 'PENDING',
         paymentStatus: 'PENDING',
+        ...(sessionIds &&
+          sessionIds.length > 0 && {
+            sessions: {
+              connect: sessionIds.map((id) => ({ id })),
+            },
+          }),
+        ...(documentIds &&
+          documentIds.length > 0 && {
+            attachedDocuments: {
+              connect: documentIds.map((id) => ({ id })),
+            },
+          }),
       },
     });
 

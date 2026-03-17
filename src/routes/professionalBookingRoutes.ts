@@ -246,4 +246,47 @@ router.get('/recommended-courses', protect, async (req, res, next) => {
   return getRecommendedCourses(req, res, next);
 });
 
+/**
+ * @swagger
+ * /api/professional/courses/{id}/toggle-save:
+ *   post:
+ *     summary: Toggle save/unsave a course
+ *     tags: [Course Bookings]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *     responses:
+ *       200:
+ *         description: Toggle successful
+ */
+router.post('/courses/:id/toggle-save', protect, async (req, res, next) => {
+  const { toggleSaveCourse } =
+    await import('../controllers/professionalCourseController.js');
+  return toggleSaveCourse(req, res, next);
+});
+
+/**
+ * @swagger
+ * /api/professional/saved-courses:
+ *   get:
+ *     summary: Get all saved courses
+ *     tags: [Course Bookings]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of saved courses
+ */
+router.get('/saved-courses', protect, async (req, res, next) => {
+  const { getSavedCourses } =
+    await import('../controllers/professionalCourseController.js');
+  return getSavedCourses(req, res, next);
+});
+
 export default router;

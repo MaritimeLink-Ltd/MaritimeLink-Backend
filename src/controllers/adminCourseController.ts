@@ -118,7 +118,7 @@ export const getAdminBookingById = catchAsync(
             email: true,
           },
         },
-        session: true,
+        sessions: true,
       },
     });
 
@@ -158,7 +158,7 @@ export const getAdminCourseBookings = catchAsync(
             email: true,
           },
         },
-        session: {
+        sessions: {
           select: {
             startDate: true,
             endDate: true,

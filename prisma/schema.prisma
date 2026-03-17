@@ -42,6 +42,7 @@ model Professional {
 
   resume        ProfessionalResume?
   savedJobs     SavedJob[]
+  savedCourses  SavedCourse[]
   conversations Conversation[]
   kyc           ProfessionalKyc?
   documents     ProfessionalDocument[]
@@ -501,6 +502,7 @@ model Course {
 
   sessions     CourseSession[]
   bookings     CourseBooking[]
+  savedBy      SavedCourse[]
 
   @@map("courses")
 }
@@ -523,7 +525,7 @@ model CourseSession {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  bookings         CourseBooking[]
+  bookings         CourseBooking[] @relation("BookingSessions")
 
   @@map("course_sessions")
 }
@@ -536,8 +538,8 @@ model CourseBooking {
   courseId              String
   course                Course         @relation(fields: [courseId], references: [id], onDelete: Cascade)
   
-  sessionId             String?
-  session               CourseSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  sessions              CourseSession[] @relation("BookingSessions")
+  attachedDocuments     ProfessionalDocument[] @relation("BookingDocuments")
   
   bookingStatus         BookingStatus  @default(PENDING)
   paymentStatus         PaymentStatus  @default(PENDING)
@@ -559,6 +561,18 @@ model CourseBooking {
   updatedAt             DateTime       @updatedAt
 
   @@map("course_bookings")
+}
+
+model SavedCourse {
+  id             String       @id @default(uuid())
+  professionalId String
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  courseId       String
+  course         Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@unique([professionalId, courseId])
+  @@map("saved_courses")
 }
 
 model Conversation {
@@ -682,6 +696,7 @@ model ProfessionalDocument {
   updatedAt       DateTime         @updatedAt
 
   jobApplications JobApplication[] @relation("ApplicationDocuments")
+  courseBookings  CourseBooking[]  @relation("BookingDocuments")
 
   @@map("professional_documents")
 }

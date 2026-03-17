@@ -44,8 +44,9 @@ export const getCourseBookings = catchAsync(
             email: true,
           },
         },
-        session: {
+        sessions: {
           select: {
+            id: true,
             startDate: true,
             endDate: true,
             startTime: true,
@@ -98,7 +99,7 @@ export const getAllTrainerBookings = catchAsync(
             email: true,
           },
         },
-        session: {
+        sessions: {
           select: {
             startDate: true,
             endDate: true,
@@ -146,7 +147,7 @@ export const getTrainerBookingById = catchAsync(
             email: true,
           },
         },
-        session: true,
+        sessions: true,
       },
     });
 
