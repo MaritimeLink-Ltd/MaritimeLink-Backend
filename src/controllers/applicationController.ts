@@ -18,20 +18,37 @@ import {
 export const applyToJob = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const { id: jobId } = req.params;
-    const { coverLetter, cvUrl, documentIds } = req.body;
+    const { coverLetter, coverLetterUrl, cvUrl, documentIds } = req.body;
     const userId = req.user?.id;
 
     if (!userId) return next(new AppError('Unauthorized', 401));
 
-    // 1. Fetch Professional to get potentially stored CV/Cover Letter
+    // 1. Fetch Professional and their full Resume for the snapshot
     const professional = await prisma.professional.findUnique({
       where: { id: userId },
-      select: { cvUrl: true, lastCoverLetter: true },
+      select: {
+        cvUrl: true,
+        lastCoverLetter: true,
+        resume: {
+          include: {
+            skills: true,
+            licenses: true,
+            seaService: true,
+            education: true,
+            stcwCertificates: true,
+            medicalCertificates: true,
+            travelDocuments: true,
+            nextOfKin: true,
+            referees: true,
+          },
+        },
+      },
     });
 
     if (!professional) return next(new AppError('Professional not found', 404));
 
     // 2. Determine final values (prioritize req.body, fallback to profile)
+    // Note: If coverLetterUrl is provided, it means they uploaded a file for the cover letter
     const finalCoverLetter = coverLetter || professional.lastCoverLetter;
     const finalCvUrl = cvUrl || professional.cvUrl;
 
@@ -53,13 +70,15 @@ export const applyToJob = catchAsync(
       return next(new AppError('You have already applied to this job', 400));
     }
 
-    // 5. Create Application
+    // 5. Create Application with Snapshot
     const application = await prisma.jobApplication.create({
       data: {
         jobId,
         professionalId: userId,
         coverLetter: finalCoverLetter,
+        coverLetterUrl: coverLetterUrl || null,
         cvUrl: finalCvUrl,
+        resumeSnapshot: professional.resume as Prisma.InputJsonValue, // Captures full profile at time of application
         status: ApplicationStatus.APPLIED,
         ...(documentIds &&
           Array.isArray(documentIds) &&

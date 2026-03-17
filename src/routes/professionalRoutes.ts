@@ -983,6 +983,7 @@ router.post('/jobs/:id/save', protect, professionalJobController.toggleSaveJob);
  *             type: object
  *             properties:
  *               coverLetter: { type: string, example: "I am interested in this position..." }
+ *               coverLetterUrl: { type: string, format: url, description: "Optional. URL of the uploaded cover letter document." }
  *               cvUrl: { type: string, format: url, description: "Optional. URL of the resume from a previous upload. If omitted, uses the profile's current CV." }
  *               documentIds:
  *                 type: array

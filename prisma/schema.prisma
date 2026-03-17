@@ -436,6 +436,7 @@ model JobApplication {
   
   status         ApplicationStatus @default(APPLIED)
   coverLetter    String?           @db.Text
+  coverLetterUrl String?
   cvUrl          String?
   attachedDocuments ProfessionalDocument[] @relation("ApplicationDocuments")
   
