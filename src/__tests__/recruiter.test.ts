@@ -211,4 +211,75 @@ describe('Recruiter & Trainer Flow E2E Tests', () => {
       expect(res.status).toBe(200);
     });
   });
+
+  describe('SMS OTP Verification', () => {
+    it('Step 3 should generate a 6-digit phone OTP when saving personal info', async () => {
+      // Use the already-created recruiter from earlier steps
+      // Reset their step so we can re-trigger personal info
+      await prisma.recruiter.update({
+        where: { id: recruiterId },
+        data: { registrationStep: 2, phoneVerified: false },
+      });
+
+      const res = await request(app)
+        .patch('/api/recruiter/personal-info')
+        .send({
+          recruiterId,
+          firstName: 'Harris',
+          lastName: 'Test',
+          phoneCode: '+92',
+          phoneNumber: '3076517703',
+          personalRole: 'Crew Manager',
+        });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.registrationStep).toBe(3);
+
+      // Verify that a 6-digit phoneOtpCode was stored in the database
+      const updatedRecruiter = await prisma.recruiter.findUnique({
+        where: { id: recruiterId },
+        select: { phoneOtpCode: true, phoneOtpExpiresAt: true },
+      });
+
+      expect(updatedRecruiter?.phoneOtpCode).toBeDefined();
+      expect(updatedRecruiter?.phoneOtpCode).toHaveLength(6);
+      expect(updatedRecruiter?.phoneOtpExpiresAt).toBeDefined();
+
+      // Restore registration step for any following tests
+      await prisma.recruiter.update({
+        where: { id: recruiterId },
+        data: { registrationStep: 6, phoneVerified: true },
+      });
+    });
+  });
+
+  describe('Company Preview', () => {
+    it('should return company logo and name for a valid domain', async () => {
+      const res = await request(app)
+        .get('/api/recruiter/company-preview')
+        .query({ url: 'google.com' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('success');
+      expect(res.body.data).toHaveProperty('name');
+      expect(res.body.data).toHaveProperty('logo');
+      expect(res.body.data).toHaveProperty('domain');
+      expect(res.body.data.logo).toContain('logo.clearbit.com');
+    });
+
+    it('should return company preview for a URL with https prefix', async () => {
+      const res = await request(app)
+        .get('/api/recruiter/company-preview')
+        .query({ url: 'https://www.zyntrify.com' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.domain).toBe('zyntrify.com');
+    });
+
+    it('should return 400 when no URL is provided', async () => {
+      const res = await request(app).get('/api/recruiter/company-preview');
+
+      expect(res.status).toBe(400);
+    });
+  });
 });

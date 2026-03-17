@@ -14,4 +14,5 @@ export default {
         ],
     },
     extensionsToTreatAsEsm: ['.ts'],
+    testTimeout: 30000,
 };
