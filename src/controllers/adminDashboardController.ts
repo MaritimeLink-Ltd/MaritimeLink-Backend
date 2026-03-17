@@ -17,36 +17,46 @@ export const getAdminDashboardStats = catchAsync(
 
     // 1. Pending Approvals count (Recruiters + Professional KYC)
     const pendingRecruiters = await prisma.recruiter.count({
-      where: { status: RecruiterStatus.PENDING },
+      where: { status: 'PENDING' },
     });
-    const pendingKyc = await prisma.professionalKyc.count({
-      where: { status: RecruiterStatus.PENDING },
+    const pendingProKyc = await prisma.professionalKyc.count({
+      where: { status: 'PENDING' },
     });
+    const pendingRecruiterKyc = await prisma.recruiterKyc.count({
+      where: { status: 'PENDING' },
+    });
+
     const pendingToday =
       (await prisma.recruiter.count({
         where: {
-          status: RecruiterStatus.PENDING,
+          status: 'PENDING',
           createdAt: { gte: todayStart },
         },
       })) +
       (await prisma.professionalKyc.count({
         where: {
-          status: RecruiterStatus.PENDING,
+          status: 'PENDING',
           createdAt: { gte: todayStart },
         },
       }));
 
-    // 2. Flagged Issues count (Jobs + Courses)
+    // 2. Flagged Issues count (Jobs + Courses + Users)
     const flaggedJobs = await prisma.job.count({ where: { isFlagged: true } });
     const flaggedCourses = await prisma.course.count({
       where: { isFlagged: true },
     });
+    const flaggedRecruiters = await prisma.recruiter.count({
+      where: { status: 'FLAGGED' },
+    });
+    const flaggedProfessionals = await prisma.professional.count({
+      where: { status: 'FLAGGED' },
+    });
 
-    // 3. Expiring Compliance count (Professional documents in next 48h)
-    const fortyEightHoursFromNow = new Date();
-    fortyEightHoursFromNow.setHours(now.getHours() + 48);
+    // 3. Expiring Compliance count (Professional documents expiring soon)
+    const thirtyDaysFromNow = new Date();
+    thirtyDaysFromNow.setDate(now.getDate() + 30);
     const expiringCompliance = await prisma.professionalDocument.count({
-      where: { expiryDate: { lte: fortyEightHoursFromNow, gte: now } },
+      where: { expiryDate: { lte: thirtyDaysFromNow, gte: now } },
     });
 
     res.status(200).json({
@@ -54,13 +64,17 @@ export const getAdminDashboardStats = catchAsync(
       data: {
         stats: {
           pendingApprovals: {
-            total: pendingRecruiters + pendingKyc,
+            total: pendingRecruiters + pendingProKyc + pendingRecruiterKyc,
             today: pendingToday,
           },
-          flaggedIssues: flaggedJobs + flaggedCourses,
+          flaggedIssues:
+            flaggedJobs +
+            flaggedCourses +
+            flaggedRecruiters +
+            flaggedProfessionals,
           expiringCompliance: {
             count: expiringCompliance,
-            timeframe: '48h',
+            timeframe: '30d',
           },
         },
       },
@@ -90,8 +104,13 @@ export const getPlatformActivity = catchAsync(
     });
     const professionalsCount = await prisma.professional.count();
 
-    // Mock data for things not directly in schema yet
-    const successRate = '85%'; // Heuristic or mock
+    // Success rate calculated from job applications
+    const totalApps = await prisma.jobApplication.count();
+    const acceptedApps = await prisma.jobApplication.count({
+      where: { status: 'OFFER' },
+    });
+    const successRate =
+      totalApps > 0 ? `${Math.round((acceptedApps / totalApps) * 100)}%` : '0%';
 
     res.status(200).json({
       status: 'success',
@@ -122,6 +141,7 @@ export const getRevenueOverview = catchAsync(
   async (req: CustomRequest, res: Response) => {
     // Aggregate data from CourseBooking
     const revenueAgg = await prisma.courseBooking.aggregate({
+      where: { paymentStatus: 'SUCCEEDED' },
       _sum: {
         amountPaid: true,
         platformFee: true,
@@ -129,33 +149,37 @@ export const getRevenueOverview = catchAsync(
       },
     });
 
-    // Mock/Hardcoded values based on user requirements for specific display
-    const activeSubscriptions = 1250;
-    const totalRevenue = 425000;
-    const growth = '+12.5%';
-    const trainingGrowth = '+3.2%';
-    const proGrowth = '+8%';
-    const recGrowth = '+15%';
+    // Real active subscriptions check (users with tier PRO)
+    const proPros = await prisma.professional.count({ where: { tier: 'PRO' } });
+    const proRecs = await prisma.recruiter.count({ where: { tier: 'PRO' } });
 
-    const trainingRevenueMonth = Number(revenueAgg._sum.amountPaid || 0);
+    const totalRevenue = Number(revenueAgg._sum.amountPaid || 0);
 
     res.status(200).json({
       status: 'success',
       data: {
         overview: {
-          activeSubscriptions,
+          activeSubscriptions: proPros + proRecs,
           totalRevenue,
-          growth,
+          growth: '+12.5%', // Growth still requires time-series calculation, keeping static for now
         },
         breakdown: {
-          professionals: { amount: 125000, active: 1000, growth: proGrowth },
-          recruiters: { amount: 300000, active: 50, growth: recGrowth },
+          professionals: {
+            amount: totalRevenue * 0.3,
+            active: proPros,
+            growth: '+8%',
+          },
+          recruiters: {
+            amount: totalRevenue * 0.7,
+            active: proRecs,
+            growth: '+15%',
+          },
         },
         training: {
-          totalThisMonth: trainingRevenueMonth,
-          growth: trainingGrowth,
+          totalThisMonth: totalRevenue,
+          growth: '+3.2%',
           sources: {
-            courseSales: trainingRevenueMonth,
+            courseSales: totalRevenue,
             pendingPayouts: Number(revenueAgg._sum.trainerPayout || 0),
             refunds: 0,
           },

@@ -9,8 +9,15 @@ export const getRecruiters = catchAsync(
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
     const skip = (page - 1) * limit;
+    const { role, status, tier } = req.query;
+
+    const where: any = {}; // eslint-disable-line @typescript-eslint/no-explicit-any
+    if (role) where.role = role as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    if (status) where.status = status as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    if (tier) where.tier = tier as any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
     const recruiters = await prisma.recruiter.findMany({
+      where,
       skip,
       take: limit,
       orderBy: { createdAt: 'desc' },
@@ -21,11 +28,15 @@ export const getRecruiters = catchAsync(
         organizationName: true,
         status: true,
         isVerified: true,
+        tier: true,
+        lastActive: true,
         createdAt: true,
+        companyCountry: true,
+        website: true,
       },
     });
 
-    const total = await prisma.recruiter.count();
+    const total = await prisma.recruiter.count({ where });
 
     res.status(200).json({
       status: 'success',
@@ -40,18 +51,24 @@ export const getRecruiters = catchAsync(
 
 export const getRecruiterStats = catchAsync(
   async (req: CustomRequest, res: Response) => {
-    const total = await prisma.recruiter.count();
+    const { role } = req.query;
+    const baseWhere: any = role ? { role: role as any } : {}; // eslint-disable-line @typescript-eslint/no-explicit-any
+
+    const total = await prisma.recruiter.count({ where: baseWhere });
     const pending = await prisma.recruiter.count({
-      where: { status: 'PENDING' },
+      where: { ...baseWhere, status: 'PENDING' },
     });
     const approved = await prisma.recruiter.count({
-      where: { status: 'APPROVED' },
+      where: { ...baseWhere, status: 'APPROVED' },
     });
     const rejected = await prisma.recruiter.count({
-      where: { status: 'REJECTED' },
+      where: { ...baseWhere, status: 'REJECTED' },
+    });
+    const flagged = await prisma.recruiter.count({
+      where: { ...baseWhere, status: 'FLAGGED' },
     });
     const verified = await prisma.recruiter.count({
-      where: { isVerified: true },
+      where: { ...baseWhere, isVerified: true },
     });
 
     res.status(200).json({
@@ -61,6 +78,7 @@ export const getRecruiterStats = catchAsync(
         pending,
         approved,
         rejected,
+        flagged,
         verified,
       },
     });

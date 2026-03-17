@@ -197,6 +197,77 @@ router.get('/recruiters/stats', adminRecruiterController.getRecruiterStats);
 
 /**
  * @swagger
+ * /api/admin/professionals:
+ *   get:
+ *     summary: Get all professionals
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: List of professionals
+ */
+router.get('/professionals', adminProfessionalController.getProfessionals);
+
+/**
+ * @swagger
+ * /api/admin/professionals/stats:
+ *   get:
+ *     summary: Get professional stats
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Professional statistics
+ */
+router.get(
+  '/professionals/stats',
+  adminProfessionalController.getProfessionalStats,
+);
+
+/**
+ * @swagger
+ * /api/admin/kyc-submissions:
+ *   get:
+ *     summary: Get all KYC submissions across the platform
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema: { type: string }
+ *       - in: query
+ *         name: userType
+ *         schema: { type: string, enum: [PROFESSIONAL, RECRUITER] }
+ *     responses:
+ *       200:
+ *         description: List of KYC submissions
+ */
+import * as adminKycController from '../controllers/adminKycController.js';
+router.get('/kyc-submissions', adminKycController.getAllKYCSubmissions);
+
+/**
+ * @swagger
+ * /api/admin/kyc/stats:
+ *   get:
+ *     summary: Get consolidated KYC stats
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: KYC statistics
+ */
+router.get('/kyc/stats', adminKycController.getKYCStats);
+
+/**
+ * @swagger
  * /api/admin/recruiters/{id}:
  *   get:
  *     summary: Get single recruiter details

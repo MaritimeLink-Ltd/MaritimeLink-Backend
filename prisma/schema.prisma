@@ -39,6 +39,9 @@ model Professional {
 
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
+  status        ProfessionalStatus @default(PENDING)
+  tier          UserTier           @default(FREE)
+  lastActive    DateTime           @default(now())
 
   resume        ProfessionalResume?
   savedJobs     SavedJob[]
@@ -80,6 +83,20 @@ enum RecruiterStatus {
   PENDING
   APPROVED
   REJECTED
+  FLAGGED
+  BLOCKED
+}
+
+enum ProfessionalStatus {
+  PENDING
+  VERIFIED
+  FLAGGED
+  BLOCKED
+}
+
+enum UserTier {
+  FREE
+  PRO
 }
 
 enum KYCDocumentType {
@@ -168,6 +185,8 @@ model Recruiter {
   idPassportUrl    String?
   
   status           RecruiterStatus @default(PENDING)
+  tier             UserTier        @default(FREE)
+  lastActive       DateTime        @default(now())
   
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
