@@ -148,6 +148,30 @@ router.post('/verify-phone', recruiterController.verifyPhone);
 
 /**
  * @swagger
+ * /api/recruiter/company-preview:
+ *   get:
+ *     summary: Step 5a - Get Company Preview
+ *     description: Fetch company logo and name based on a website URL.
+ *     tags: [Recruiter]
+ *     parameters:
+ *       - in: query
+ *         name: url
+ *         required: true
+ *         schema:
+ *           type: string
+ *         example: "google.com"
+ *     responses:
+ *       200:
+ *         description: Company preview fetched successfully.
+ *       400:
+ *         description: Invalid URL
+ *       444:
+ *         description: Logo fetch failed
+ */
+router.get('/company-preview', recruiterController.getCompanyPreview);
+
+/**
+ * @swagger
  * /api/recruiter/company-details:
  *   patch:
  *     summary: Step 5 - Company Details

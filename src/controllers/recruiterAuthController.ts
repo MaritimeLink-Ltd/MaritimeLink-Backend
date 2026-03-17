@@ -11,6 +11,8 @@ import {
   sendPhoneOTPEmail,
   sendPasswordResetEmail,
 } from '../services/emailService.js';
+import { sendSMS } from '../services/smsService.js';
+import { getCompanyMetadata } from '../services/companyService.js';
 import { uploadToSupabase } from '../services/storageService.js';
 import { changePasswordSchema } from '../validations/passwordValidation.js';
 import { CustomRequest } from '../types/index.js';
@@ -170,8 +172,13 @@ export const setPersonalInfo = catchAsync(
       },
     });
 
-    // In a real app, we would send SMS here. For now, we return it or just log it.
-    console.log(`Phone OTP for ${phoneNumber}: ${phoneOtpCode}`);
+    // Send OTP via SMS
+    const message = `Your MaritimeLink verification code is: ${phoneOtpCode}`;
+    try {
+      await sendSMS(phoneCode + phoneNumber, message);
+    } catch (error) {
+      console.error('Failed to send phone OTP SMS:', error);
+    }
 
     // Fetch recruiter email to send OTP via email as requested
     const recruiter = await prisma.recruiter.findUnique({
@@ -253,6 +260,35 @@ export const setCompanyDetails = catchAsync(
       status: 'success',
       message: 'Company details saved. Please complete compliance declaration.',
       data: { registrationStep: 5 },
+    });
+  },
+);
+
+/**
+ * Get Company Preview
+ */
+export const getCompanyPreview = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const { url } = req.query;
+
+    if (!url || typeof url !== 'string') {
+      return next(new AppError('Please provide a valid company URL', 400));
+    }
+
+    // Clean URL to domain
+    const domain = url
+      .replace(/^(?:https?:\/\/)?(?:www\.)?/i, '')
+      .split('/')[0];
+
+    const metadata = await getCompanyMetadata(domain);
+
+    if (!metadata) {
+      return next(new AppError('Could not fetch company details', 404));
+    }
+
+    res.status(200).json({
+      status: 'success',
+      data: metadata,
     });
   },
 );

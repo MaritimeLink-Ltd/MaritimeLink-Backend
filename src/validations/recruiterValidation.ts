@@ -37,6 +37,7 @@ export const setCompanyDetailsSchema = z.object({
     .url('Invalid LinkedIn URL')
     .optional()
     .or(z.literal('')),
+  companyLogo: z.string().url('Invalid logo URL').optional().or(z.literal('')),
 });
 
 export const setComplianceSchema = z.object({
