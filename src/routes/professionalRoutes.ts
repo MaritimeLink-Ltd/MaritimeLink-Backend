@@ -501,6 +501,35 @@ router.post(
 
 /**
  * @swagger
+ * /api/professional/upload-cover-letter:
+ *   post:
+ *     summary: Upload Cover Letter file
+ *     description: Upload a PDF/Image of the professional's cover letter for a job application.
+ *     tags: [Professional]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [document]
+ *             properties:
+ *               document: { type: string, format: binary }
+ *     responses:
+ *       201:
+ *         description: Cover letter uploaded successfully.
+ */
+router.post(
+  '/upload-cover-letter',
+  protect,
+  upload.single('document'),
+  documentController.uploadCoverLetter,
+);
+
+/**
+ * @swagger
  * /api/professional/resumes:
  *   get:
  *     summary: Get all uploaded resumes

@@ -656,6 +656,7 @@ enum DocumentCategory {
   MISC_COMPANY_LETTERS
   RECENT_APPRAISALS
   CV_RESUME
+  COVER_LETTER
 }
 
 model ProfessionalDocument {

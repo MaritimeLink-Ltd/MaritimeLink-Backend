@@ -162,6 +162,51 @@ export const uploadResume = catchAsync(
   },
 );
 
+export const uploadCoverLetter = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    if (!req.file) {
+      return next(new AppError('Please upload a cover letter file', 400));
+    }
+
+    const professionalId = req.user?.id;
+    if (!professionalId) {
+      return next(new AppError('User not authenticated', 401));
+    }
+
+    // Upload to Supabase bucket
+    const sanitizedOriginalName = req.file.originalname.replace(
+      /[^a-zA-Z0-9.]/g,
+      '_',
+    );
+    const fileName = `${professionalId}/cover-letters/${Date.now()}-${sanitizedOriginalName}`;
+
+    // Using simple document wallet bucket
+    const publicUrl = await uploadToSupabase(
+      req.file,
+      fileName,
+      env.SUPABASE_DOCUMENT_WALLET_BUCKET,
+    );
+
+    // Save to ProfessionalDocument wallet for history
+    const document = await prisma.professionalDocument.create({
+      data: {
+        professionalId,
+        category: DocumentCategory.COVER_LETTER,
+        name: sanitizedOriginalName,
+        fileUrl: publicUrl,
+        ocrStatus: OCRStatus.COMPLETED,
+        verificationStatus: VerificationStatus.PENDING,
+      },
+    });
+
+    res.status(201).json({
+      status: 'success',
+      message: 'Cover letter uploaded successfully',
+      data: { url: publicUrl, documentId: document.id },
+    });
+  },
+);
+
 export const getMyResumes = catchAsync(
   async (req: CustomRequest, res: Response) => {
     const professionalId = req.user?.id;
