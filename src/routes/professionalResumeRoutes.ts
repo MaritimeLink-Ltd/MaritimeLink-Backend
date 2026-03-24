@@ -121,6 +121,7 @@ router.post('/skills', resumeController.addSkill);
  *               issueDate: { type: string, format: date }
  *               expiryDate: { type: string, format: date }
  *               isEndorsement: { type: boolean, default: false }
+ *               isCertificate: { type: boolean, default: false }
  *     responses:
  *       201:
  *         description: License added
