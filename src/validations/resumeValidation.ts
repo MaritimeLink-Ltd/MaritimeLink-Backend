@@ -34,7 +34,8 @@ export const licenseStepSchema = z.object({
   country: z.string().optional(),
   issueDate: dateSchema.optional(),
   expiryDate: dateSchema.optional(),
-  isEndorsement: z.boolean().default(false),
+  isEndorsement: z.boolean().optional(),
+  isCertificate: z.boolean().optional(),
 });
 
 export const seaServiceStepSchema = z.object({
@@ -154,6 +155,8 @@ export const resumeSchema = z.object({
         country: z.string().optional(),
         issueDate: dateSchema.optional(),
         expiryDate: dateSchema.optional(),
+        isEndorsement: z.boolean().optional(),
+        isCertificate: z.boolean().optional(),
       }),
     )
     .optional(),
