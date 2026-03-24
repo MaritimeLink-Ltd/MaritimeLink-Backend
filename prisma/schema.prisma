@@ -369,6 +369,7 @@ model ProfessionalLicense {
   issueDate        DateTime?
   expiryDate       DateTime?
   isEndorsement    Boolean?           @default(false)
+  isCertificate    Boolean?           @default(false)
 
   @@map("professional_licenses")
 }
