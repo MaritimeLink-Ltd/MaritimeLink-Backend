@@ -97,7 +97,28 @@ describe('Professional Resume API', () => {
 
     expect(checkResponse.body.data.resume.category).toBe('OFFICER');
     expect(checkResponse.body.data.resume.skills).toHaveLength(2);
-    // Previous list-based items should be replaced by new ones as per implementation
+    // NEW BEHAVIOR: Previous list-based items (seaService) should be PRESERVED
+    // because they were not explicitly included in the bulk update payload.
+    expect(checkResponse.body.data.resume.seaService).toHaveLength(1);
+    expect(checkResponse.body.data.resume.seaService[0].vesselName).toBe(
+      'Sea Queen',
+    );
+  });
+
+  it('should clear a list if an empty array is explicitly provided', async () => {
+    const clearData = {
+      seaService: [],
+    };
+
+    await request(app)
+      .post('/api/professional/resume')
+      .set('Authorization', `Bearer ${token}`)
+      .send(clearData);
+
+    const checkResponse = await request(app)
+      .get('/api/professional/resume')
+      .set('Authorization', `Bearer ${token}`);
+
     expect(checkResponse.body.data.resume.seaService).toHaveLength(0);
   });
 

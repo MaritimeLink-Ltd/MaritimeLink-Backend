@@ -322,78 +322,109 @@ export const upsertResume = catchAsync(
       });
 
       // 2. Clear out existing list-based sub-resources and recreate them
-      // This is simpler than matching IDs for nested updates
-      await tx.professionalSkill.deleteMany({ where: { resumeId: resume.id } });
-      await tx.professionalLicense.deleteMany({
-        where: { resumeId: resume.id },
-      });
-      await tx.professionalSeaServiceLog.deleteMany({
-        where: { resumeId: resume.id },
-      });
-      await tx.professionalEducation.deleteMany({
-        where: { resumeId: resume.id },
-      });
-      await tx.professionalSTCWCertificate.deleteMany({
-        where: { resumeId: resume.id },
-      });
-      await tx.professionalMedicalCertificate.deleteMany({
-        where: { resumeId: resume.id },
-      });
-      await tx.professionalTravelDocument.deleteMany({
-        where: { resumeId: resume.id },
-      });
-      await tx.professionalNextOfKin.deleteMany({
-        where: { resumeId: resume.id },
-      });
-      await tx.professionalReferee.deleteMany({
-        where: { resumeId: resume.id },
-      });
+      // ONLY if they are provided in the request (even if empty array).
+      // If a field is undefined, we leave the existing data alone.
 
-      // 3. Create new records for everything that was provided
-      if (skills?.length) {
-        await tx.professionalSkill.createMany({
-          data: skills.map((s) => ({ ...s, resumeId: resume.id })),
+      if (skills !== undefined) {
+        await tx.professionalSkill.deleteMany({
+          where: { resumeId: resume.id },
         });
+        if (skills.length) {
+          await tx.professionalSkill.createMany({
+            data: skills.map((s) => ({ ...s, resumeId: resume.id })),
+          });
+        }
       }
-      if (licenses?.length) {
-        await tx.professionalLicense.createMany({
-          data: licenses.map((l) => ({ ...l, resumeId: resume.id })),
+
+      if (licenses !== undefined) {
+        await tx.professionalLicense.deleteMany({
+          where: { resumeId: resume.id },
         });
+        if (licenses.length) {
+          await tx.professionalLicense.createMany({
+            data: licenses.map((l) => ({ ...l, resumeId: resume.id })),
+          });
+        }
       }
-      if (seaService?.length) {
-        await tx.professionalSeaServiceLog.createMany({
-          data: seaService.map((s) => ({ ...s, resumeId: resume.id })),
+
+      if (seaService !== undefined) {
+        await tx.professionalSeaServiceLog.deleteMany({
+          where: { resumeId: resume.id },
         });
+        if (seaService.length) {
+          await tx.professionalSeaServiceLog.createMany({
+            data: seaService.map((s) => ({ ...s, resumeId: resume.id })),
+          });
+        }
       }
-      if (education?.length) {
-        await tx.professionalEducation.createMany({
-          data: education.map((e) => ({ ...e, resumeId: resume.id })),
+
+      if (education !== undefined) {
+        await tx.professionalEducation.deleteMany({
+          where: { resumeId: resume.id },
         });
+        if (education.length) {
+          await tx.professionalEducation.createMany({
+            data: education.map((e) => ({ ...e, resumeId: resume.id })),
+          });
+        }
       }
-      if (stcwCertificates?.length) {
-        await tx.professionalSTCWCertificate.createMany({
-          data: stcwCertificates.map((s) => ({ ...s, resumeId: resume.id })),
+
+      if (stcwCertificates !== undefined) {
+        await tx.professionalSTCWCertificate.deleteMany({
+          where: { resumeId: resume.id },
         });
+        if (stcwCertificates.length) {
+          await tx.professionalSTCWCertificate.createMany({
+            data: stcwCertificates.map((s) => ({ ...s, resumeId: resume.id })),
+          });
+        }
       }
-      if (medicalCertificates?.length) {
-        await tx.professionalMedicalCertificate.createMany({
-          data: medicalCertificates.map((m) => ({ ...m, resumeId: resume.id })),
+
+      if (medicalCertificates !== undefined) {
+        await tx.professionalMedicalCertificate.deleteMany({
+          where: { resumeId: resume.id },
         });
+        if (medicalCertificates.length) {
+          await tx.professionalMedicalCertificate.createMany({
+            data: medicalCertificates.map((m) => ({
+              ...m,
+              resumeId: resume.id,
+            })),
+          });
+        }
       }
-      if (travelDocuments?.length) {
-        await tx.professionalTravelDocument.createMany({
-          data: travelDocuments.map((t) => ({ ...t, resumeId: resume.id })),
+
+      if (travelDocuments !== undefined) {
+        await tx.professionalTravelDocument.deleteMany({
+          where: { resumeId: resume.id },
         });
+        if (travelDocuments.length) {
+          await tx.professionalTravelDocument.createMany({
+            data: travelDocuments.map((t) => ({ ...t, resumeId: resume.id })),
+          });
+        }
       }
-      if (nextOfKin?.length) {
-        await tx.professionalNextOfKin.createMany({
-          data: nextOfKin.map((n) => ({ ...n, resumeId: resume.id })),
+
+      if (nextOfKin !== undefined) {
+        await tx.professionalNextOfKin.deleteMany({
+          where: { resumeId: resume.id },
         });
+        if (nextOfKin.length) {
+          await tx.professionalNextOfKin.createMany({
+            data: nextOfKin.map((n) => ({ ...n, resumeId: resume.id })),
+          });
+        }
       }
-      if (referees?.length) {
-        await tx.professionalReferee.createMany({
-          data: referees.map((r) => ({ ...r, resumeId: resume.id })),
+
+      if (referees !== undefined) {
+        await tx.professionalReferee.deleteMany({
+          where: { resumeId: resume.id },
         });
+        if (referees.length) {
+          await tx.professionalReferee.createMany({
+            data: referees.map((r) => ({ ...r, resumeId: resume.id })),
+          });
+        }
       }
 
       return resume;
