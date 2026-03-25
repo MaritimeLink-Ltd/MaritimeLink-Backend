@@ -360,7 +360,21 @@ router.get('/', resumeController.getResume);
  * /api/professional/resume:
  *   post:
  *     summary: Create or update full professional resume (Bulk)
+ *     description: |
+ *       Allows full replacement of the professional resume.
+ *       List-based fields (skills, licenses, certificates, etc.) will be completely replaced by the provided arrays.
  *     tags: [Resume]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/ResumeBulkUpdate'
+ *     responses:
+ *       200:
+ *         description: Resume updated successfully
  */
 router.post('/', resumeController.upsertResume);
 
