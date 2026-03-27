@@ -280,17 +280,12 @@ export const addKycNote = catchAsync(
     const { userType, content } = req.body;
     const adminId = req.user?.id;
 
-    const noteData: any = {
-      // eslint-disable-line @typescript-eslint/no-explicit-any
+    const noteData = {
       content,
       adminId: adminId as string,
+      professionalKycId: userType === 'PROFESSIONAL' ? id : undefined,
+      recruiterKycId: userType === 'RECRUITER' ? id : undefined,
     };
-
-    if (userType === 'PROFESSIONAL') {
-      noteData.professionalKycId = id;
-    } else {
-      noteData.recruiterKycId = id;
-    }
 
     const note = await prisma.kycNote.create({
       data: noteData,

@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { CustomRequest } from '../types/index.js';
 import { prisma } from '../config/prisma.js';
 import { env } from '../config/env.js';
 import { AppError } from '../utils/AppError.js';
@@ -117,8 +118,8 @@ export const uploadKYCSelfie = catchAsync(
  * Submit KYC Details
  */
 export const submitKYC = catchAsync(
-  async (req: Request, res: Response, next: NextFunction) => {
-    const { recruiterId } = req.body;
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const recruiterId = req.body.recruiterId as string;
 
     if (!recruiterId) {
       return next(new AppError('recruiterId is required', 400));
@@ -158,7 +159,7 @@ export const submitKYC = catchAsync(
       documentNumber,
       expiryDate: new Date(expiryDate),
       issueCountry,
-      documentUrl,
+      documentUrl: documentUrl as string,
       status: 'PENDING' as const,
     };
 
@@ -171,7 +172,9 @@ export const submitKYC = catchAsync(
       await prisma.recruiterKyc.create({
         data: {
           ...kycData,
-          recruiterId,
+          recruiter: {
+            connect: { id: recruiterId },
+          },
         },
       });
     }
