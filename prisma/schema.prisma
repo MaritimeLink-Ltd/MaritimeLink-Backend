@@ -785,7 +785,8 @@ model ProfessionalKyc {
   documentNumber   String
   expiryDate       DateTime
   issueCountry     String
-  documentUrl      String
+  documentFrontUrl String?
+  documentBackUrl  String?
   selfieUrl        String?
   
   status           RecruiterStatus @default(PENDING)
