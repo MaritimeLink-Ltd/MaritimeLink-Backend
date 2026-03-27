@@ -17,7 +17,9 @@ export const submitKYCSchema = z.object({
     message: 'Invalid expiry date',
   }),
   issueCountry: z.string().min(1, 'Issue country is required'),
-  documentUrl: z.string().url('Invalid document URL'),
+  documentUrl: z.string().url('Invalid document URL').optional(),
+  documentFrontUrl: z.string().url('Invalid front document URL').optional(),
+  documentBackUrl: z.string().url('Invalid back document URL').optional(),
   selfieUrl: z.string().url('Invalid selfie URL').optional(),
 });
 
