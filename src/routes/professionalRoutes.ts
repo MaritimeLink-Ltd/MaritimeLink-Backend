@@ -385,9 +385,87 @@ router.patch('/update-password', protect, authController.updatePassword);
 
 /**
  * @swagger
+ * /api/professional/kyc/upload-front:
+ *   post:
+ *     summary: Professional KYC Step 1a - Upload Identity Document (Front)
+ *     description: Upload the front side of your identity document (Passport, ID Card, etc.). Returns extraction results.
+ *     tags: [Professional KYC]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [document]
+ *             properties:
+ *               document: { type: string, format: binary }
+ *     responses:
+ *       200:
+ *         description: Front document uploaded successfully. Returns extraction results.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     url: { type: string, format: url, description: "Temporary signed URL for preview" }
+ *                     rawUrl: { type: string, format: url, description: "Permanent public URL for storage" }
+ *                     ocrData: { $ref: '#/components/schemas/OCRData' }
+ */
+router.post(
+  '/kyc/upload-front',
+  protect,
+  upload.single('document'),
+  kycController.uploadKYCDocumentFront,
+);
+
+/**
+ * @swagger
+ * /api/professional/kyc/upload-back:
+ *   post:
+ *     summary: Professional KYC Step 1b - Upload Identity Document (Back)
+ *     description: Upload the back side of your identity document (ID Card, etc.).
+ *     tags: [Professional KYC]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [document]
+ *             properties:
+ *               document: { type: string, format: binary }
+ *     responses:
+ *       200:
+ *         description: Back document uploaded successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     url: { type: string, format: url, description: "Temporary signed URL for preview" }
+ *                     rawUrl: { type: string, format: url, description: "Permanent public URL for storage" }
+ */
+router.post(
+  '/kyc/upload-back',
+  protect,
+  upload.single('document'),
+  kycController.uploadKYCDocumentBack,
+);
+
+/**
+ * @swagger
  * /api/professional/kyc/upload-document:
  *   post:
- *     summary: Professional KYC Step 1 - Upload Identity Document
+ *     summary: Professional KYC Step 1 (Legacy) - Upload Identity Document
+ *     description: Legacy single-file upload. For double-sided documents, use /upload-front and /upload-back.
  *     tags: [Professional KYC]
  *     requestBody:
  *       required: true
@@ -401,21 +479,10 @@ router.patch('/update-password', protect, authController.updatePassword);
  *     responses:
  *       200:
  *         description: Document uploaded successfully. Returns extraction results.
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 status: { type: string, example: success }
- *                 data:
- *                   type: object
- *                   properties:
- *                     url: { type: string, format: url }
- *                     ocrData: { $ref: '#/components/schemas/OCRData' }
- *                     isTypeValidated: { type: boolean }
  */
 router.post(
   '/kyc/upload-document',
+  protect,
   upload.single('document'),
   kycController.uploadKYCDocument,
 );
@@ -685,7 +752,7 @@ router.delete('/documents/:id', protect, documentController.deleteDocument);
  *         application/json:
  *           schema:
  *             type: object
- *             required: [professionalId, firstName, lastName, dateOfBirth, documentType, documentNumber, expiryDate, issueCountry, documentUrl]
+ *             required: [professionalId, firstName, lastName, dateOfBirth, documentType, documentNumber, expiryDate, issueCountry]
  *             properties:
  *               professionalId: { type: string }
  *               firstName: { type: string }
@@ -695,7 +762,9 @@ router.delete('/documents/:id', protect, documentController.deleteDocument);
  *               documentNumber: { type: string }
  *               expiryDate: { type: string, format: date }
  *               issueCountry: { type: string }
- *               documentUrl: { type: string }
+ *               documentUrl: { type: string, description: "Legacy combined URL" }
+ *               documentFrontUrl: { type: string, description: "URL for the front side of the document" }
+ *               documentBackUrl: { type: string, description: "URL for the back side of the document" }
  *     responses:
  *       200:
  *         description: KYC details submitted. Please upload a selfie next.
