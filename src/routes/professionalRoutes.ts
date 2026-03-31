@@ -742,6 +742,74 @@ router.delete('/documents/:id', protect, documentController.deleteDocument);
 
 /**
  * @swagger
+ * /api/professional/kyc/upload-document-front:
+ *   post:
+ *     summary: Professional KYC Step 1a - Upload Document Front Side
+ *     description: Upload the front side of the identity document.
+ *     tags: [Professional KYC]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [professionalId, documentFront]
+ *             properties:
+ *               professionalId: { type: string }
+ *               documentFront: { type: string, format: binary }
+ *     responses:
+ *       200:
+ *         description: Front side uploaded successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 url: { type: string }
+ */
+router.post(
+  '/kyc/upload-document-front',
+  upload.single('documentFront'),
+  kycController.uploadKYCDocumentFront,
+);
+
+/**
+ * @swagger
+ * /api/professional/kyc/upload-document-back:
+ *   post:
+ *     summary: Professional KYC Step 1b - Upload Document Back Side
+ *     description: Upload the back side of the identity document.
+ *     tags: [Professional KYC]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [professionalId, documentBack]
+ *             properties:
+ *               professionalId: { type: string }
+ *               documentBack: { type: string, format: binary }
+ *     responses:
+ *       200:
+ *         description: Back side uploaded successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 url: { type: string }
+ */
+router.post(
+  '/kyc/upload-document-back',
+  upload.single('documentBack'),
+  kycController.uploadKYCDocumentBack,
+);
+
+/**
+ * @swagger
  * /api/professional/kyc/submit:
  *   post:
  *     summary: Professional KYC Step 2 - Submit Personal Details & Document URL

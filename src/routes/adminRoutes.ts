@@ -263,6 +263,35 @@ router.get('/kyc-submissions', adminKycController.getAllKYCSubmissions);
  *   get:
  *     summary: Get detailed KYC information (Timeline, OCR, Notes)
  *     tags: [Admin Compliance]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: KYC Record ID
+ *       - in: query
+ *         name: userType
+ *         required: true
+ *         schema:
+ *           type: string
+ *           enum: [PROFESSIONAL, RECRUITER, TRAINING_PROVIDER]
+ *         description: Type of user the KYC belongs to
+ *     responses:
+ *       200:
+ *         description: Detailed KYC record
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     kyc: { type: object }
  */
 router.get('/kyc-submissions/:id', adminKycController.getKycDetails);
 
@@ -272,6 +301,43 @@ router.get('/kyc-submissions/:id', adminKycController.getKycDetails);
  *   patch:
  *     summary: Update KYC Verification Status (Approve/Reject)
  *     tags: [Admin Compliance]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: KYC Record ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - userType
+ *               - status
+ *             properties:
+ *               userType:
+ *                 type: string
+ *                 enum: [PROFESSIONAL, RECRUITER, TRAINING_PROVIDER]
+ *               status:
+ *                 type: string
+ *                 enum: [APPROVED, REJECTED]
+ *               reviewStep:
+ *                 type: integer
+ *                 description: New review step (1-4)
+ *               riskLevel:
+ *                 type: string
+ *                 enum: [LOW, MEDIUM, HIGH]
+ *               mismatchDetails:
+ *                 type: string
+ *                 description: Details of any OCR/Identity mismatch
+ *     responses:
+ *       200:
+ *         description: KYC status updated successfully
  */
 router.patch(
   '/kyc-submissions/:id/status',
@@ -284,6 +350,33 @@ router.patch(
  *   post:
  *     summary: Add an internal admin note to a KYC record
  *     tags: [Admin Compliance]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: KYC Record ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - content
+ *               - userType
+ *             properties:
+ *               content:
+ *                 type: string
+ *               userType:
+ *                 type: string
+ *                 enum: [PROFESSIONAL, RECRUITER, TRAINING_PROVIDER]
+ *     responses:
+ *       201:
+ *         description: Note added successfully
  */
 router.post('/kyc-submissions/:id/notes', adminKycController.addKycNote);
 
@@ -311,6 +404,16 @@ router.get('/kyc/stats', adminKycController.getKYCStats);
  *     tags: [Admin Marketplace]
  *     security:
  *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Marketplace statistics
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data: { type: object }
  */
 router.get(
   '/marketplace/stats',
@@ -323,10 +426,15 @@ router.get(
  *   get:
  *     summary: Get marketplace oversight (Counts per company/provider)
  *     tags: [Admin Marketplace]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: query
  *         name: type
  *         schema: { enum: [JOBS, COURSES] }
+ *     responses:
+ *       200:
+ *         description: Oversight data
  */
 router.get(
   '/marketplace/oversight',
@@ -339,6 +447,18 @@ router.get(
  *   get:
  *     summary: Get official MaritimeLink Listings (Internal)
  *     tags: [Admin Marketplace]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 10 }
+ *     responses:
+ *       200:
+ *         description: List of official listings
  */
 router.get(
   '/marketplace/listings',
@@ -353,6 +473,25 @@ router.get(
  *   post:
  *     summary: Initiate Stripe Connect onboarding for a trainer
  *     tags: [Admin Payouts]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Trainer ID
+ *     responses:
+ *       200:
+ *         description: Onboarding URL generated
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 url: { type: string }
  */
 router.post(
   '/trainers/:id/initiate-stripe',
@@ -908,6 +1047,16 @@ import * as jobController from '../controllers/jobController.js';
  *     tags: [Admin Jobs]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 10 }
+ *       - in: query
+ *         name: status
+ *         schema: { type: string, enum: [DRAFT, ACTIVE, FULL, COMPLETED, CANCELLED, REMOVED] }
  *     responses:
  *       200:
  *         description: List of jobs.
@@ -1080,6 +1229,16 @@ router.get('/courses/flagged', protectAdmin, async (req, res, next) => {
  *     tags: [Admin Courses]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 10 }
+ *       - in: query
+ *         name: status
+ *         schema: { type: string, enum: [PENDING, CONFIRMED, CANCELLED, COMPLETED] }
  *     responses:
  *       200:
  *         description: List of all bookings.
@@ -1168,6 +1327,8 @@ router.get('/companies', adminCompanyController.getCompaniesOverview);
  *   get:
  *     summary: Get all pending company merge requests
  *     tags: [Admin Companies]
+ *     security:
+ *       - bearerAuth: []
  *     responses:
  *       200:
  *         description: List of merge requests.
@@ -1183,10 +1344,14 @@ router.get(
  *   get:
  *     summary: Get company details with team and activity
  *     tags: [Admin Companies]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
+ *         schema:
+ *           type: string
  *     responses:
  *       200:
  *         description: Company details.
@@ -1199,10 +1364,23 @@ router.get('/companies/:id', adminCompanyController.getCompanyById);
  *   patch:
  *     summary: Update company (Verify/Claim/Tier)
  *     tags: [Admin Companies]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               isVerified: { type: boolean }
+ *               tier: { type: string, enum: [FREE, PRO] }
+ *               type: { type: string, enum: [RECRUITMENT_AGENT, TRAINING_AGENT] }
  *     responses:
  *       200:
  *         description: Company updated.
@@ -1215,13 +1393,17 @@ router.patch('/companies/:id', adminCompanyController.updateCompany);
  *   delete:
  *     summary: Remove a team member from a company
  *     tags: [Admin Companies]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
+ *         schema: { type: string }
  *       - in: path
  *         name: memberId
  *         required: true
+ *         schema: { type: string }
  *     responses:
  *       204:
  *         description: Member removed.
