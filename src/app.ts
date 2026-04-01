@@ -19,6 +19,7 @@ import professionalDashboardRoutes from './routes/professionalDashboardRoutes.js
 import recruiterDashboardRoutes from './routes/recruiterDashboardRoutes.js';
 import trainerDashboardRoutes from './routes/trainerDashboardRoutes.js';
 import adminDashboardRoutes from './routes/adminDashboardRoutes.js';
+import trainerRoutes from './routes/trainerRoutes.js';
 import webhookRoutes from './routes/webhookRoutes.js';
 
 const app = express();
@@ -56,6 +57,9 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Recruiter routes
 app.use('/api/recruiter', recruiterRoutes);
+
+// Trainer routes
+app.use('/api/trainer', trainerRoutes);
 
 // Unified Auth routes
 app.use('/api/auth', authRoutes);
