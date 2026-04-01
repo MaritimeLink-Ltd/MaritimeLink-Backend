@@ -438,9 +438,87 @@ router.patch(
 
 /**
  * @swagger
+ * /api/recruiter/kyc/upload-document-front:
+ *   post:
+ *     summary: KYC Step 1a - Upload Document Front Side
+ *     description: Upload the front side of the identity document.
+ *     tags: [Recruiter KYC]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [recruiterId, documentFront]
+ *             properties:
+ *               recruiterId: { type: string }
+ *               documentFront: { type: string, format: binary }
+ *     responses:
+ *       200:
+ *         description: Front side uploaded successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     url: { type: string }
+ *                     ocrData: { $ref: '#/components/schemas/OCRData' }
+ */
+router.post(
+  '/kyc/upload-document-front',
+  protectRecruiter,
+  upload.single('documentFront'),
+  kycController.uploadKYCDocumentFront,
+);
+
+/**
+ * @swagger
+ * /api/recruiter/kyc/upload-document-back:
+ *   post:
+ *     summary: KYC Step 1b - Upload Document Back Side
+ *     description: Upload the back side of the identity document.
+ *     tags: [Recruiter KYC]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [recruiterId, documentBack]
+ *             properties:
+ *               recruiterId: { type: string }
+ *               documentBack: { type: string, format: binary }
+ *     responses:
+ *       200:
+ *         description: Back side uploaded successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data: { type: object, properties: { url: { type: string } } }
+ */
+router.post(
+  '/kyc/upload-document-back',
+  protectRecruiter,
+  upload.single('documentBack'),
+  kycController.uploadKYCDocumentBack,
+);
+
+/**
+ * @swagger
  * /api/recruiter/kyc/upload-document:
  *   post:
- *     summary: KYC Step 1 - Upload Identity Document
+ *     summary: KYC Step 1 (Legacy) - Upload Identity Document
  *     tags: [Recruiter KYC]
  *     requestBody:
  *       required: true
@@ -479,13 +557,15 @@ router.post(
  *   post:
  *     summary: KYC Step 2 - Submit Personal Details & Document URL
  *     tags: [Recruiter KYC]
+ *     security:
+ *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
  *             type: object
- *             required: [recruiterId, firstName, lastName, dateOfBirth, documentType, documentNumber, expiryDate, issueCountry, documentUrl]
+ *             required: [recruiterId, firstName, lastName, dateOfBirth, documentType, documentNumber, expiryDate, issueCountry]
  *             properties:
  *               recruiterId: { type: string }
  *               firstName: { type: string }
@@ -495,12 +575,14 @@ router.post(
  *               documentNumber: { type: string }
  *               expiryDate: { type: string, format: date }
  *               issueCountry: { type: string }
- *               documentUrl: { type: string }
+ *               documentUrl: { type: string, description: "Legacy combined URL" }
+ *               documentFrontUrl: { type: string, description: "URL for the front side of the document" }
+ *               documentBackUrl: { type: string, description: "URL for the back side of the document" }
  *     responses:
  *       200:
  *         description: KYC details submitted. Please upload a selfie next.
  */
-router.post('/kyc/submit', kycController.submitKYC);
+router.post('/kyc/submit', protectRecruiter, kycController.submitKYC);
 
 /**
  * @swagger
@@ -508,6 +590,8 @@ router.post('/kyc/submit', kycController.submitKYC);
  *   post:
  *     summary: KYC Step 3 - Upload Selfie
  *     tags: [Recruiter KYC]
+ *     security:
+ *       - bearerAuth: []
  *     requestBody:
  *       required: true
  *       content:
@@ -524,6 +608,7 @@ router.post('/kyc/submit', kycController.submitKYC);
  */
 router.post(
   '/kyc/upload-selfie',
+  protectRecruiter,
   upload.single('selfie'),
   kycController.uploadKYCSelfie,
 );

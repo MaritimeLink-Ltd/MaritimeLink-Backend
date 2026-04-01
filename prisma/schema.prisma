@@ -755,7 +755,9 @@ model RecruiterKyc {
   documentNumber   String
   expiryDate       DateTime
   issueCountry     String
-  documentUrl      String
+  documentUrl      String?         // Legacy field
+  documentFrontUrl String?         // Individual Front side
+  documentBackUrl  String?         // Individual Back side
   selfieUrl        String?
   
   status           RecruiterStatus @default(PENDING)

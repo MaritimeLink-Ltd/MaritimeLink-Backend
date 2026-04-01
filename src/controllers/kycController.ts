@@ -12,7 +12,85 @@ import {
 import { submitKYCSchema } from '../validations/kycValidation.js';
 
 /**
- * Upload Identity Document
+ * Helper to upload KYC doc and return signed URL (Recruiter)
+ */
+const processKYCUpload = async (
+  file: Express.Multer.File,
+  side: 'front' | 'back' | 'selfie',
+  recruiterId: string | undefined,
+) => {
+  const sanitizedOriginalName = file.originalname.replace(
+    /[^a-zA-Z0-9.]/g,
+    '_',
+  );
+  const path = `kyc-docs/${recruiterId || 'unknown'}/${Date.now()}-${side}-${sanitizedOriginalName}`;
+
+  const publicUrl = await uploadToSupabase(
+    file,
+    path,
+    env.SUPABASE_RECRUITER_KYC_DOCS_BUCKET,
+  );
+
+  return { publicUrl, path };
+};
+
+/**
+ * Upload Identity Document Front
+ */
+export const uploadKYCDocumentFront = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const file = req.file;
+    if (!file) {
+      return next(
+        new AppError('Please upload the front of your document', 400),
+      );
+    }
+
+    const { publicUrl } = await processKYCUpload(file, 'front', req.user?.id);
+
+    // Gemini OCR Analysis
+    let ocrData = null;
+    try {
+      if (file.buffer) {
+        ocrData = await analyzeDocument(file.buffer, file.mimetype);
+      }
+    } catch (error) {
+      console.error('Recruiter KYC OCR analysis failed:', error);
+    }
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        url: publicUrl,
+        ocrData,
+      },
+    });
+  },
+);
+
+/**
+ * Upload Identity Document Back
+ */
+export const uploadKYCDocumentBack = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const file = req.file;
+    if (!file) {
+      return next(new AppError('Please upload the back of your document', 400));
+    }
+
+    const { publicUrl } = await processKYCUpload(file, 'back', req.user?.id);
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        url: publicUrl,
+      },
+    });
+  },
+);
+
+/**
+ * Upload Identity Document (Legacy/Single)
  */
 export const uploadKYCDocument = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
@@ -139,7 +217,9 @@ export const submitKYC = catchAsync(
       documentNumber,
       expiryDate,
       issueCountry,
-      documentUrl,
+      documentUrl, // Legacy
+      documentFrontUrl,
+      documentBackUrl,
     } = validationResult.data;
 
     // Check if KYC already exists
@@ -159,7 +239,9 @@ export const submitKYC = catchAsync(
       documentNumber,
       expiryDate: new Date(expiryDate),
       issueCountry,
-      documentUrl: documentUrl as string,
+      documentUrl: (documentUrl as string) || undefined,
+      documentFrontUrl: documentFrontUrl || (documentUrl as string),
+      documentBackUrl,
       status: 'PENDING' as const,
     };
 
