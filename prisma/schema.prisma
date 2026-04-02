@@ -527,7 +527,7 @@ model Job {
   isFlagged    Boolean     @default(false)
   status       JobStatus   @default(ACTIVE)
   riskLevel    KycRiskLevel @default(LOW)
-  expiryDate   DateTime?
+  closingDate   DateTime?
   
   applications JobApplication[]
   invitations  JobInvitation[]
