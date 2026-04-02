@@ -1,8 +1,6 @@
 import { Router } from 'express';
 import * as jobController from '../controllers/jobController.js';
-import * as professionalJobController from '../controllers/professionalJobController.js';
 import { protectAdminOrRecruiter } from '../middlewares/adminOrRecruiterAuthMiddleware.js';
-import { protect } from '../middlewares/authMiddleware.js';
 
 const router = Router();
 
@@ -86,20 +84,6 @@ router.get('/my', protectAdminOrRecruiter, jobController.getMyJobs);
 
 /**
  * @swagger
- * /api/jobs/saved:
- *   get:
- *     summary: Get all saved jobs for current professional
- *     tags: [Jobs]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: List of saved jobs
- */
-router.get('/saved', protect, professionalJobController.getSavedJobs);
-
-/**
- * @swagger
  * /api/jobs/{id}:
  *   get:
  *     summary: Get job details by ID
@@ -165,24 +149,5 @@ router.patch('/:id', protectAdminOrRecruiter, jobController.updateJob);
  *         description: Job deleted successfully
  */
 router.delete('/:id', protectAdminOrRecruiter, jobController.deleteJob);
-
-/**
- * @swagger
- * /api/jobs/{id}/save:
- *   post:
- *     summary: Toggle Save/Unsave a job
- *     tags: [Jobs]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema: { type: string }
- *     responses:
- *       200:
- *         description: Job saved/unsaved status toggled
- */
-router.post('/:id/save', protect, professionalJobController.toggleSaveJob);
 
 export default router;
