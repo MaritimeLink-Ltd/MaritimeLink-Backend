@@ -27,9 +27,11 @@ export const createJob = catchAsync(
     // Admins have specific roles
     const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'].includes(userRole);
 
+    const { closingDate } = validatedData;
     const job = await prisma.job.create({
       data: {
         ...validatedData,
+        closingDate: closingDate ? new Date(closingDate) : null,
         adminId: isAdmin ? userId : null,
         recruiterId: !isAdmin ? userId : null,
       },
@@ -204,9 +206,13 @@ export const updateJob = catchAsync(
         return next(new AppError('Unauthorized', 403));
     }
 
+    const { closingDate } = validatedData;
     const updatedJob = await prisma.job.update({
       where: { id },
-      data: validatedData,
+      data: {
+        ...validatedData,
+        closingDate: closingDate ? new Date(closingDate) : undefined,
+      },
     });
 
     res.status(200).json({

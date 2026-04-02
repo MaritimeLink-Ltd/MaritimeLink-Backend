@@ -81,7 +81,7 @@ export const getRecruiterDashboardStats = catchAsync(
           { status: JobStatus.DRAFT },
           {
             status: JobStatus.ACTIVE,
-            expiryDate: { lte: threeDaysFromNow, gte: now },
+            closingDate: { lte: threeDaysFromNow, gte: now },
           },
         ],
       },
@@ -182,13 +182,13 @@ export const getActionRequiredItems = catchAsync(
       where: {
         recruiterId,
         status: JobStatus.ACTIVE,
-        expiryDate: { lte: threeDaysFromNow, gte: now },
+        closingDate: { lte: threeDaysFromNow, gte: now },
       },
     });
 
     expiringJobs.forEach((job) => {
       const daysLeft = Math.ceil(
-        (job.expiryDate!.getTime() - now.getTime()) / (1000 * 3600 * 24),
+        (job.closingDate!.getTime() - now.getTime()) / (1000 * 3600 * 24),
       );
       actionItems.push({
         type: 'JOB_EXPIRING',

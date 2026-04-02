@@ -35,6 +35,7 @@ const router = Router();
  *               contractType: { type: string, enum: [TEMPORARY, CONTRACT, PERMANENT] }
  *               salary: { type: string }
  *               description: { type: string }
+ *               closingDate: { type: string, format: date }
  *     responses:
  *       201:
  *         description: Job created successfully
@@ -139,6 +140,7 @@ router.get('/:id', jobController.getJobById);
  *               contractType: { type: string, enum: [TEMPORARY, CONTRACT, PERMANENT] }
  *               salary: { type: string }
  *               description: { type: string }
+ *               closingDate: { type: string, format: date }
  *     responses:
  *       200:
  *         description: Job updated successfully

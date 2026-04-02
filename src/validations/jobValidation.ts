@@ -7,6 +7,12 @@ export const createJobSchema = z.object({
   contractType: z.enum(['TEMPORARY', 'CONTRACT', 'PERMANENT']),
   salary: z.string().min(1).max(50),
   description: z.string().min(10),
+  closingDate: z
+    .string()
+    .optional()
+    .refine((val) => !val || !isNaN(Date.parse(val)), {
+      message: 'Invalid date format',
+    }),
 });
 
 export const createCourseSchema = z.object({
