@@ -31,7 +31,7 @@ async function verifyDashboards() {
           description: 'Testing dashboard alerts',
           recruiterId: recruiter.id,
           status: JobStatus.ACTIVE,
-          expiryDate: expiringSoon,
+          closingDate: expiringSoon,
         },
       });
       console.log('✅ Created test expiring job.');
