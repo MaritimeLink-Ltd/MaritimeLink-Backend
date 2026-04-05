@@ -989,6 +989,8 @@ router.get('/jobs', protect, jobController.getJobs);
  *   get:
  *     summary: Get my saved jobs
  *     tags: [Professional Jobs]
+ *     security:
+ *       - bearerAuth: []
  */
 router.get('/jobs/saved', protect, professionalJobController.getSavedJobs);
 
@@ -1032,6 +1034,8 @@ router.get('/jobs/:id', protect, jobController.getJobById);
  *   post:
  *     summary: Toggle save/bookmark job
  *     tags: [Professional Jobs]
+ *     security:
+ *       - bearerAuth: []
  */
 router.post('/jobs/:id/save', protect, professionalJobController.toggleSaveJob);
 
@@ -1088,6 +1092,8 @@ router.post('/jobs/:id/apply', protect, applicationController.applyToJob);
  *   get:
  *     summary: Check if applied to job
  *     tags: [Professional Jobs]
+ *     security:
+ *       - bearerAuth: []
  */
 router.get(
   '/jobs/:id/application-status',
@@ -1131,6 +1137,8 @@ router.get('/applications', protect, applicationController.getMyApplications);
  *   get:
  *     summary: Get application details
  *     tags: [Professional Applications]
+ *     security:
+ *       - bearerAuth: []
  */
 router.get(
   '/applications/:id',
@@ -1144,6 +1152,8 @@ router.get(
  *   delete:
  *     summary: Withdraw application
  *     tags: [Professional Applications]
+ *     security:
+ *       - bearerAuth: []
  */
 router.delete(
   '/applications/:id',
