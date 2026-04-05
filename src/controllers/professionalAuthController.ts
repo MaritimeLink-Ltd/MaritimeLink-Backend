@@ -333,6 +333,7 @@ export const login = catchAsync(
           email: professional.email,
           profession: professional.profession,
           idPassportUrl: professional.idPassportUrl,
+          status: professional.status,
         },
       },
     });
