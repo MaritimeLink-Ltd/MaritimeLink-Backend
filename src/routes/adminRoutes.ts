@@ -492,6 +492,12 @@ router.get(
  *       - in: query
  *         name: search
  *         schema: { type: string }
+ *       - in: query
+ *         name: recruiterId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: companyId
+ *         schema: { type: string, format: uuid }
  *     responses:
  *       200:
  *         description: List of all jobs
@@ -516,6 +522,45 @@ router.get('/jobs', adminMarketplaceController.getAllJobsForAdmin);
  *         description: Job details
  */
 router.get('/jobs/:id', adminMarketplaceController.getJobByIdForAdmin);
+
+/**
+ * @swagger
+ * /api/admin/courses:
+ *   get:
+ *     summary: Get all courses (Admin perspective)
+ *     tags: [Admin Marketplace]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 10 }
+ *       - in: query
+ *         name: status
+ *         schema: { type: string }
+ *       - in: query
+ *         name: isFlagged
+ *         schema: { type: boolean }
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *       - in: query
+ *         name: type
+ *         schema: { type: string, enum: [INTERNAL, EXTERNAL] }
+ *       - in: query
+ *         name: recruiterId
+ *         schema: { type: string, format: uuid }
+ *       - in: query
+ *         name: companyId
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: List of all courses
+ */
+router.get('/courses', adminMarketplaceController.getAllCoursesForAdmin);
 
 // --- TRAINER PAYOUT & STRIPE CONNECT ROUTES ---
 

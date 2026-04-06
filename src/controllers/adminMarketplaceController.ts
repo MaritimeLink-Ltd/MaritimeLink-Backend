@@ -1,6 +1,12 @@
 import { Response } from 'express';
 import { prisma } from '../config/prisma.js';
-import { Prisma, JobCategory, JobStatus } from '../generated/client/index.js';
+import {
+  Prisma,
+  JobCategory,
+  JobStatus,
+  CourseStatus,
+  CourseType,
+} from '../generated/client/index.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { CustomRequest } from '../types/index.js';
 
@@ -295,18 +301,23 @@ export const getAllJobsForAdmin = catchAsync(
     const limit = parseInt(req.query.limit as string) || 10;
     const skip = (page - 1) * limit;
 
-    const { category, status, isFlagged, search } = req.query as {
-      category?: string;
-      status?: string;
-      isFlagged?: string;
-      search?: string;
-    };
+    const { category, status, isFlagged, search, recruiterId, companyId } =
+      req.query as {
+        category?: string;
+        status?: string;
+        isFlagged?: string;
+        search?: string;
+        recruiterId?: string;
+        companyId?: string;
+      };
 
     const where: Prisma.JobWhereInput = {};
 
     if (category) where.category = category as JobCategory;
     if (status) where.status = status as JobStatus;
     if (isFlagged !== undefined) where.isFlagged = isFlagged === 'true';
+    if (recruiterId) where.recruiterId = recruiterId;
+    if (companyId) where.companyId = companyId;
     if (search) {
       where.OR = [
         { title: { contains: search as string, mode: 'insensitive' } },
@@ -382,6 +393,71 @@ export const getJobByIdForAdmin = catchAsync(
     res.status(200).json({
       status: 'success',
       data: { job },
+    });
+  },
+);
+
+/**
+ * @desc    Get all courses for Admin specifically (includes flagged, non-flagged)
+ * @route   GET /api/admin/courses
+ * @access  Private (Admin)
+ */
+export const getAllCoursesForAdmin = catchAsync(
+  async (req: CustomRequest, res: Response) => {
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const skip = (page - 1) * limit;
+
+    const { status, isFlagged, search, recruiterId, companyId, type } =
+      req.query as {
+        status?: string;
+        isFlagged?: string;
+        search?: string;
+        recruiterId?: string;
+        companyId?: string;
+        type?: string;
+      };
+
+    const where: Prisma.CourseWhereInput = {};
+
+    if (status) where.status = status as CourseStatus;
+    if (isFlagged !== undefined) where.isFlagged = isFlagged === 'true';
+    if (recruiterId) where.recruiterId = recruiterId;
+    if (companyId) where.companyId = companyId;
+    if (type) where.courseType = type as CourseType;
+
+    if (search) {
+      where.OR = [
+        { title: { contains: search as string, mode: 'insensitive' } },
+        { location: { contains: search as string, mode: 'insensitive' } },
+      ];
+    }
+
+    const courses = await prisma.course.findMany({
+      where,
+      skip,
+      take: limit,
+      include: {
+        recruiter: {
+          select: { organizationName: true, email: true },
+        },
+        admin: {
+          select: { email: true },
+        },
+        _count: {
+          select: { bookings: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const total = await prisma.course.count({ where });
+
+    res.status(200).json({
+      status: 'success',
+      results: courses.length,
+      pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+      data: { courses },
     });
   },
 );
