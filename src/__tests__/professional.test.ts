@@ -264,6 +264,29 @@ describe('Professional Flow E2E Tests', () => {
     });
   });
 
+  describe('Document Upload with OCR matching', () => {
+    it('should upload a document and return matchStatus correctly (graceful fallback without OCR key)', async () => {
+      // Mocking file upload and passing form data
+      const res = await request(app)
+        .post('/api/professional/documents/upload')
+        .set('Authorization', `Bearer ${token}`)
+        .field('category', 'LICENSES_ENDORSEMENTS')
+        .field('name', 'John Doe')
+        .field('number', '12345')
+        .field('issuingCountry', 'UK')
+        .field('issueDate', '2020-01-01T00:00:00Z')
+        .field('expiryDate', '2025-01-01T00:00:00Z')
+        .attach('document', Buffer.from('fake-pdf-content'), 'certificate.pdf');
+
+      expect(res.status).toBe(201);
+      expect(res.body.status).toBe('success');
+      expect(res.body.data.matchStatus).toBeDefined();
+      // Without API key, OCR returns {} so matching fails gracefully
+      expect(res.body.data.matchStatus.isFullyMatched).toBe(false);
+      expect(res.body.data.matchStatus.details.name.isMatched).toBe(false);
+    });
+  });
+
   describe('Edge Cases', () => {
     it('should return 400 when registering with an existing email', async () => {
       const res = await request(app).post('/api/professional/register').send({

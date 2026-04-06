@@ -422,6 +422,11 @@ router.patch('/update-password', protect, authController.updatePassword);
  *                   properties:
  *                     document: { $ref: '#/components/schemas/ProfessionalDocument' }
  *                     ocrData: { $ref: '#/components/schemas/OCRData' }
+ *                     matchStatus:
+ *                       type: object
+ *                       properties:
+ *                         isFullyMatched: { type: boolean }
+ *                         details: { type: object }
  */
 /**
  * @swagger
@@ -556,6 +561,12 @@ router.get('/resumes', protect, documentController.getMyResumes);
  *                   properties:
  *                     document: { $ref: '#/components/schemas/ProfessionalDocument' }
  *                     ocrData: { $ref: '#/components/schemas/OCRData' }
+ *                     matchStatus:
+ *                       type: object
+ *                       description: "Contains comparison logic matching user input against extracted OCR data."
+ *                       properties:
+ *                         isFullyMatched: { type: boolean }
+ *                         details: { type: object }
  */
 router.post(
   '/documents/upload',
