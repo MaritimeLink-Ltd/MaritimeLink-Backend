@@ -319,16 +319,13 @@ export const updateApplicationStatus = catchAsync(
 
     if (!application) return next(new AppError('Application not found', 404));
 
-    // If Admin, bypass check. If Recruiter, check ownership.
-    // const isRecruiter = req.user?.role && !['SUPER_ADMIN', 'ADMIN'].includes(req.user.role as string);
-    // Basic check: if job.recruiterId !== userId (and user is recruiter) -> Error
-    // NOTE: Type casting for user role if needed or rely on middleware context
-    // Ideally we check:
-    /*
-    if (user.role === 'RECRUITMENT_AGENT' && application.job.recruiterId !== userId) {
-       throw error
+    // Ensure user has authority to update this application
+    const isRecruiter = !['SUPER_ADMIN', 'ADMIN'].includes(
+      req.user?.role as string,
+    );
+    if (isRecruiter && application.job.recruiterId !== userId) {
+      return next(new AppError('Not authorized to update this status', 403));
     }
-    */
 
     const updated = await prisma.jobApplication.update({
       where: { id },
@@ -337,10 +334,16 @@ export const updateApplicationStatus = catchAsync(
 
     // Log for Recruiter activity
     if (userId) {
+      const actorType = ['SUPER_ADMIN', 'ADMIN'].includes(
+        req.user?.role as string,
+      )
+        ? ActorType.ADMIN
+        : ActorType.RECRUITER;
+
       await logActivity({
         action: 'APPLICATION_STATUS_UPDATE',
         actorId: userId,
-        actorType: ActorType.RECRUITER, // Simplification, could be Admin
+        actorType,
         targetId: application.id,
         targetType: 'JobApplication',
         status: 'SUCCESS',

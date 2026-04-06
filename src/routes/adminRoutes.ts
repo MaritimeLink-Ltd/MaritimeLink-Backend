@@ -5,6 +5,8 @@ import * as adminProfessionalController from '../controllers/adminProfessionalCo
 import * as adminCompanyController from '../controllers/adminCompanyController.js';
 import * as adminMarketplaceController from '../controllers/adminMarketplaceController.js';
 import * as adminTrainerPayoutController from '../controllers/adminTrainerPayoutController.js';
+import * as applicationController from '../controllers/applicationController.js';
+import * as candidateController from '../controllers/recruiterCandidateController.js';
 import { protectAdmin } from '../middlewares/adminAuthMiddleware.js';
 
 const router = Router();
@@ -522,6 +524,120 @@ router.get('/jobs', adminMarketplaceController.getAllJobsForAdmin);
  *         description: Job details
  */
 router.get('/jobs/:id', adminMarketplaceController.getJobByIdForAdmin);
+
+/**
+ * @swagger
+ * /api/admin/jobs/{id}/applicants:
+ *   get:
+ *     summary: View applicants for a job
+ *     tags: [Admin Marketplace]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: List of applications for the job
+ */
+router.get('/jobs/:id/applicants', applicationController.getJobApplicants);
+
+/**
+ * @swagger
+ * /api/admin/applicants/{id}:
+ *   get:
+ *     summary: View applicant details
+ *     tags: [Admin Marketplace]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Applicant details
+ */
+router.get('/applicants/:id', applicationController.getApplicationDetails);
+
+/**
+ * @swagger
+ * /api/admin/applicants/{id}/status:
+ *   patch:
+ *     summary: Update application status
+ *     tags: [Admin Marketplace]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [status]
+ *             properties:
+ *               status: { type: string, enum: [REVIEWING, SHORTLISTED, ACCEPTED, REJECTED] }
+ *     responses:
+ *       200:
+ *         description: Status updated
+ */
+router.patch(
+  '/applicants/:id/status',
+  applicationController.updateApplicationStatus,
+);
+
+/**
+ * @swagger
+ * /api/admin/jobs/{id}/matches:
+ *   get:
+ *     summary: Get matching candidates for a job
+ *     tags: [Admin Marketplace]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Matching candidates
+ */
+router.get('/jobs/:id/matches', candidateController.getMatchingCandidates);
+
+/**
+ * @swagger
+ * /api/admin/jobs/{id}/invite/{professionalId}:
+ *   post:
+ *     summary: Invite a professional for a job
+ *     tags: [Admin Marketplace]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *       - in: path
+ *         name: professionalId
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       201:
+ *         description: Invitation sent
+ */
+router.post(
+  '/jobs/:id/invite/:professionalId',
+  candidateController.inviteProfessional,
+);
 
 /**
  * @swagger

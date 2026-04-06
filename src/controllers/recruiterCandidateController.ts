@@ -185,17 +185,23 @@ export const inviteProfessional = catchAsync(
     });
 
     // 4. Create Alert for Professional
-    const recruiterData = await prisma.recruiter.findUnique({
-      where: { id: recruiterId },
-      select: { organizationName: true },
-    });
-    const recruiterName = recruiterData?.organizationName || 'A recruiter';
+    let senderName = 'A recruiter';
+    if (req.user?.role === 'ADMIN' || req.user?.role === 'SUPER_ADMIN') {
+      senderName = 'MaritimeLink Admin';
+    } else {
+      const recruiterData = await prisma.recruiter.findUnique({
+        where: { id: recruiterId },
+        select: { organizationName: true },
+      });
+      senderName = recruiterData?.organizationName || 'A recruiter';
+    }
+
     await prisma.alert.create({
       data: {
         professionalId,
         type: 'INVITATION',
         title: 'New Job Invitation',
-        message: `${recruiterName} has invited you to apply for "${job.title}".`,
+        message: `${senderName} has invited you to apply for "${job.title}".`,
         metadata: { jobId, invitationId: invitation.id },
       },
     });
