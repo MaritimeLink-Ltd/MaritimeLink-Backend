@@ -449,6 +449,13 @@ export const getResume = catchAsync(
     const resume = await prisma.professionalResume.findUnique({
       where: { professionalId },
       include: {
+        professional: {
+          select: {
+            firstName: true,
+            middleName: true,
+            lastName: true,
+          },
+        },
         skills: true,
         licenses: true,
         seaService: true,
@@ -465,9 +472,18 @@ export const getResume = catchAsync(
       return next(new AppError('Resume not found', 404));
     }
 
+    const { professional, ...resumeData } = resume;
+
     res.status(200).json({
       status: 'success',
-      data: { resume },
+      data: {
+        resume: {
+          ...resumeData,
+          firstName: professional.firstName,
+          middleName: professional.middleName,
+          lastName: professional.lastName,
+        },
+      },
     });
   },
 );
