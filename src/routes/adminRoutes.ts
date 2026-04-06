@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import multer from 'multer';
 import * as adminAuthController from '../controllers/adminAuthController.js';
 import * as adminRecruiterController from '../controllers/adminRecruiterController.js';
 import * as adminProfessionalController from '../controllers/adminProfessionalController.js';
@@ -10,6 +11,7 @@ import * as candidateController from '../controllers/recruiterCandidateControlle
 import { protectAdmin } from '../middlewares/adminAuthMiddleware.js';
 
 const router = Router();
+const upload = multer({ storage: multer.memoryStorage() });
 
 /**
  * @swagger
@@ -505,6 +507,32 @@ router.get(
  *         description: List of all jobs
  */
 router.get('/jobs', adminMarketplaceController.getAllJobsForAdmin);
+
+/**
+ * @swagger
+ * /api/admin/jobs/bulk-upload:
+ *   post:
+ *     summary: Bulk upload jobs via CSV
+ *     tags: [Admin Marketplace]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               file: { type: string, format: binary, description: "CSV file containing job data" }
+ *     responses:
+ *       201:
+ *         description: Jobs uploaded successfully
+ */
+router.post(
+  '/jobs/bulk-upload',
+  upload.single('file'),
+  adminMarketplaceController.bulkUploadJobs,
+);
 
 /**
  * @swagger

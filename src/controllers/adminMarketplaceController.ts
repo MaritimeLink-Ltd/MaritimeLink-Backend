@@ -1,4 +1,4 @@
-import { Response } from 'express';
+import { Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma.js';
 import {
   Prisma,
@@ -9,6 +9,10 @@ import {
 } from '../generated/client/index.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { CustomRequest } from '../types/index.js';
+import { Readable } from 'stream';
+import csv from 'csv-parser';
+import { AppError } from '../utils/AppError.js';
+import { JobType } from '../generated/client/index.js';
 
 /**
  * @desc    Get Marketplace Statistics for top cards
@@ -458,6 +462,68 @@ export const getAllCoursesForAdmin = catchAsync(
       results: courses.length,
       pagination: { page, limit, total, pages: Math.ceil(total / limit) },
       data: { courses },
+    });
+  },
+);
+
+/**
+ * @desc    Bulk Upload Jobs via CSV
+ * @route   POST /api/admin/jobs/bulk-upload
+ * @access  Private (Admin)
+ */
+export const bulkUploadJobs = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    if (!req.file) {
+      return next(new AppError('Please upload a CSV file', 400));
+    }
+
+    const results: Record<string, string>[] = [];
+    const stream = Readable.from(req.file.buffer);
+
+    await new Promise((resolve, reject) => {
+      stream
+        .pipe(csv())
+        .on('data', (data) => results.push(data))
+        .on('end', resolve)
+        .on('error', reject);
+    });
+
+    if (results.length === 0) {
+      return next(new AppError('CSV file is empty', 400));
+    }
+
+    const adminId = req.user?.id;
+    if (!adminId)
+      return next(new AppError('Admin ID not found in request', 401));
+
+    // Map and validate rows
+    const jobsData = results.map((row) => {
+      // Basic validation for required fields
+      if (!row.title || !row.location || !row.category || !row.description) {
+        throw new AppError('Missing required fields in one or more rows', 400);
+      }
+
+      return {
+        title: row.title,
+        location: row.location,
+        category: row.category as JobCategory,
+        contractType: (row.contractType as JobType) || JobType.PERMANENT,
+        salary: row.salary || 'Competitive',
+        description: row.description,
+        adminId: adminId,
+        status: JobStatus.ACTIVE,
+      };
+    });
+
+    // Create jobs in bulk
+    await prisma.job.createMany({
+      data: jobsData,
+    });
+
+    res.status(201).json({
+      status: 'success',
+      message: `${jobsData.length} jobs uploaded successfully`,
+      count: jobsData.length,
     });
   },
 );
