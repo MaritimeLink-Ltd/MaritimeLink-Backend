@@ -83,6 +83,69 @@ export const uploadDocument = catchAsync(
       console.error('Document type validation failed:', error);
     }
 
+    // Match Verification Logic
+    const compare = (val1?: string | null, val2?: string | null) => {
+      if (!val1 || !val2) return false;
+      return val1.trim().toLowerCase() === val2.trim().toLowerCase();
+    };
+
+    const compareDateStr = (
+      d1?: string | Date | null,
+      d2?: string | Date | null,
+    ) => {
+      try {
+        if (!d1 || !d2) return false;
+        const date1 = new Date(d1).toISOString().split('T')[0];
+        const date2 = new Date(d2).toISOString().split('T')[0];
+        return date1 === date2;
+      } catch {
+        return false;
+      }
+    };
+
+    const matchDetails = {
+      name: {
+        entered: name || null,
+        extracted: ocrData?.name || null,
+        isMatched: compare(name, ocrData?.name),
+      },
+      number: {
+        entered: number || null,
+        extracted: ocrData?.number || null,
+        isMatched: compare(number, ocrData?.number),
+      },
+      issuingCountry: {
+        entered: issuingCountry || null,
+        extracted: ocrData?.issuingCountry || null,
+        isMatched: compare(issuingCountry, ocrData?.issuingCountry),
+      },
+      issueDate: {
+        entered: issueDate || null,
+        extracted: ocrData?.issueDate || null,
+        isMatched: compareDateStr(issueDate, ocrData?.issueDate),
+      },
+      expiryDate: {
+        entered: expiryDate || null,
+        extracted: ocrData?.expiryDate || null,
+        isMatched: compareDateStr(expiryDate, ocrData?.expiryDate),
+      },
+    };
+
+    let isFullyMatched = true;
+    if (name && !matchDetails.name.isMatched) isFullyMatched = false;
+    if (number && !matchDetails.number.isMatched) isFullyMatched = false;
+    if (issuingCountry && !matchDetails.issuingCountry.isMatched)
+      isFullyMatched = false;
+    if (issueDate && !matchDetails.issueDate.isMatched) isFullyMatched = false;
+    if (expiryDate && !matchDetails.expiryDate.isMatched)
+      isFullyMatched = false;
+    if (!ocrData || Object.keys(ocrData).length === 0) isFullyMatched = false;
+
+    const matchStatus = {
+      isFullyMatched,
+      details: matchDetails,
+    };
+
     // Use OCR data if user provided data is missing
     const finalName = name || ocrData?.name || 'Untitled Document';
     const finalNumber = number || ocrData?.number;
@@ -107,7 +170,7 @@ export const uploadDocument = catchAsync(
 
     res.status(201).json({
       status: 'success',
-      data: { document, ocrData },
+      data: { document, ocrData, matchStatus },
     });
   },
 );
