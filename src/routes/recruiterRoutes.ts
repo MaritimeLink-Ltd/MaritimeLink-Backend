@@ -1003,6 +1003,14 @@ router.get('/jobs/my', protectRecruiter, jobController.getMyJobs);
  *   get:
  *     summary: View my job details
  *     tags: [Recruiter Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *         description: Job ID
  */
 router.get('/jobs/:id', protectRecruiter, jobController.getJobById);
 
@@ -1012,6 +1020,14 @@ router.get('/jobs/:id', protectRecruiter, jobController.getJobById);
  *   patch:
  *     summary: Edit job post
  *     tags: [Recruiter Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *         description: Job ID
  */
 router.patch('/jobs/:id', protectRecruiter, jobController.updateJob);
 
@@ -1021,6 +1037,14 @@ router.patch('/jobs/:id', protectRecruiter, jobController.updateJob);
  *   delete:
  *     summary: Delete job post
  *     tags: [Recruiter Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *         description: Job ID
  */
 router.delete('/jobs/:id', protectRecruiter, jobController.deleteJob);
 

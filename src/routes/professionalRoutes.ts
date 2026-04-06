@@ -1036,6 +1036,12 @@ router.get('/jobs/:id', protect, jobController.getJobById);
  *     tags: [Professional Jobs]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *         description: Job ID
  */
 router.post('/jobs/:id/save', protect, professionalJobController.toggleSaveJob);
 
@@ -1094,6 +1100,12 @@ router.post('/jobs/:id/apply', protect, applicationController.applyToJob);
  *     tags: [Professional Jobs]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *         description: Job ID
  */
 router.get(
   '/jobs/:id/application-status',
@@ -1139,6 +1151,13 @@ router.get('/applications', protect, applicationController.getMyApplications);
  *     tags: [Professional Applications]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Application ID
  */
 router.get(
   '/applications/:id',
@@ -1154,6 +1173,13 @@ router.get(
  *     tags: [Professional Applications]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Application ID
  */
 router.delete(
   '/applications/:id',
