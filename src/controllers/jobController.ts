@@ -121,6 +121,7 @@ export const getJobs = catchAsync(async (req: CustomRequest, res: Response) => {
 export const getJobById = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const { id } = req.params;
+    const userId = req.user?.id;
 
     const job = await prisma.job.findUnique({
       where: { id },
@@ -143,9 +144,51 @@ export const getJobById = catchAsync(
       return next(new AppError('Job not found', 404));
     }
 
+    // If the viewer is a logged-in professional, include application & saved status
+    let hasApplied = false;
+    let applicationStatus: string | null = null;
+    let applicationId: string | null = null;
+    let isSaved = false;
+
+    if (userId) {
+      const [application, savedJob] = await Promise.all([
+        prisma.jobApplication.findUnique({
+          where: {
+            jobId_professionalId: {
+              jobId: id,
+              professionalId: userId,
+            },
+          },
+          select: { id: true, status: true },
+        }),
+        prisma.savedJob.findUnique({
+          where: {
+            professionalId_jobId: {
+              professionalId: userId,
+              jobId: id,
+            },
+          },
+          select: { id: true },
+        }),
+      ]);
+
+      if (application) {
+        hasApplied = true;
+        applicationStatus = application.status;
+        applicationId = application.id;
+      }
+      isSaved = !!savedJob;
+    }
+
     res.status(200).json({
       status: 'success',
-      data: { job },
+      data: {
+        job,
+        hasApplied,
+        applicationStatus,
+        applicationId,
+        isSaved,
+      },
     });
   },
 );
