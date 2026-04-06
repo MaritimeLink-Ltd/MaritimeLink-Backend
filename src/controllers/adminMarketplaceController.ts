@@ -527,3 +527,24 @@ export const bulkUploadJobs = catchAsync(
     });
   },
 );
+
+/**
+ * @desc    Get Bulk Upload CSV Sample
+ * @route   GET /api/admin/jobs/bulk-upload/sample
+ * @access  Private (Admin)
+ */
+export const getBulkUploadSample = catchAsync(
+  async (req: CustomRequest, res: Response) => {
+    const headers = 'title,location,category,contractType,salary,description';
+    const sample =
+      'Full-Stack Web Developer,Middle East,OFFICER,PERMANENT,50000,Minimum 5 years of experience';
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader(
+      'Content-Disposition',
+      'attachment; filename=jobs_sample.csv',
+    );
+
+    res.status(200).send(`${headers}\n${sample}`);
+  },
+);

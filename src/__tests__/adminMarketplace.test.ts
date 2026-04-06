@@ -132,4 +132,47 @@ describe('Admin Marketplace Management Tests', () => {
       expect(res.body.data.courses.length).toBeGreaterThan(0);
     });
   });
+  describe('Bulk Job Upload', () => {
+    it('should return a sample CSV format', async () => {
+      const res = await request(app)
+        .get('/api/admin/jobs/bulk-upload/sample')
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.header['content-type']).toContain('text/csv');
+      expect(res.text).toContain(
+        'title,location,category,contractType,salary,description',
+      );
+    });
+
+    it('should successfully bulk upload jobs via CSV', async () => {
+      const csvContent =
+        'title,location,category,contractType,salary,description\nBulk Job 1,London,OFFICER,PERMANENT,60000,Bulk Description 1\nBulk Job 2,Dubai,RATINGS_AND_CREW,CONTRACT,40000,Bulk Description 2';
+
+      const res = await request(app)
+        .post('/api/admin/jobs/bulk-upload')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .attach('file', Buffer.from(csvContent), 'test_jobs.csv');
+
+      expect(res.status).toBe(201);
+      expect(res.body.status).toBe('success');
+      expect(res.body.count).toBe(2);
+
+      // Verify the jobs were actually created
+      const dbJobs = await prisma.job.findMany({
+        where: { title: { startsWith: 'Bulk Job' } },
+      });
+      expect(dbJobs.length).toBe(2);
+      expect(dbJobs[0].adminId).toBe(adminId);
+    });
+
+    it('should fail if no file is uploaded', async () => {
+      const res = await request(app)
+        .post('/api/admin/jobs/bulk-upload')
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(res.status).toBe(400);
+      expect(res.body.message).toBe('Please upload a CSV file');
+    });
+  });
 });

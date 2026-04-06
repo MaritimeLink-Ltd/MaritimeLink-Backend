@@ -526,12 +526,42 @@ router.get('/jobs', adminMarketplaceController.getAllJobsForAdmin);
  *               file: { type: string, format: binary, description: "CSV file containing job data" }
  *     responses:
  *       201:
- *         description: Jobs uploaded successfully
+ *         description: |
+ *           Jobs uploaded successfully.
+ *           ### CSV Format:
+ *           The CSV file must have the following headers:
+ *           - **title** (Required) - Job title
+ *           - **location** (Required) - Job location
+ *           - **category** (Required) - Choose from: `OFFICER`, `RATINGS_AND_CREW`, `CATERING_AND_MEDICAL`
+ *           - **contractType** (Optional) - Choose from: `TEMPORARY`, `CONTRACT`, `PERMANENT` (Default: `PERMANENT`)
+ *           - **salary** (Optional) - Job salary (Default: `Competitive`)
+ *           - **description** (Required) - Detailed job description
  */
 router.post(
   '/jobs/bulk-upload',
   upload.single('file'),
   adminMarketplaceController.bulkUploadJobs,
+);
+
+/**
+ * @swagger
+ * /api/admin/jobs/bulk-upload/sample:
+ *   get:
+ *     summary: Download a sample CSV for bulk jobs upload
+ *     tags: [Admin Marketplace]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: A CSV file sample
+ *         content:
+ *           text/csv:
+ *             schema:
+ *               type: string
+ */
+router.get(
+  '/jobs/bulk-upload/sample',
+  adminMarketplaceController.getBulkUploadSample,
 );
 
 /**
