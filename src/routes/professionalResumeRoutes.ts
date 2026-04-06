@@ -351,7 +351,23 @@ router.post('/referees', resumeController.addReferee);
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: Resume data retrieved
+ *         description: Resume data retrieved, including professional's name details
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: "success" }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     resume:
+ *                       type: object
+ *                       properties:
+ *                         firstName: { type: string, example: "John" }
+ *                         middleName: { type: string, example: "Lee" }
+ *                         lastName: { type: string, example: "Doe" }
+ *                         id: { type: string, format: "uuid" }
  */
 router.get('/', resumeController.getResume);
 
