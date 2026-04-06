@@ -465,6 +465,58 @@ router.get(
   adminMarketplaceController.getMaritimeLinkListings,
 );
 
+/**
+ * @swagger
+ * /api/admin/jobs:
+ *   get:
+ *     summary: Get all jobs (Admin perspective)
+ *     tags: [Admin Marketplace]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 10 }
+ *       - in: query
+ *         name: category
+ *         schema: { type: string }
+ *       - in: query
+ *         name: status
+ *         schema: { type: string }
+ *       - in: query
+ *         name: isFlagged
+ *         schema: { type: boolean }
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: List of all jobs
+ */
+router.get('/jobs', adminMarketplaceController.getAllJobsForAdmin);
+
+/**
+ * @swagger
+ * /api/admin/jobs/{id}:
+ *   get:
+ *     summary: Get specific job details (Admin perspective)
+ *     tags: [Admin Marketplace]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Job details
+ */
+router.get('/jobs/:id', adminMarketplaceController.getJobByIdForAdmin);
+
 // --- TRAINER PAYOUT & STRIPE CONNECT ROUTES ---
 
 /**

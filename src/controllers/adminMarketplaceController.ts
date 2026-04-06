@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { prisma } from '../config/prisma.js';
+import { Prisma, JobCategory, JobStatus } from '../generated/client/index.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { CustomRequest } from '../types/index.js';
 
@@ -279,6 +280,108 @@ export const getMaritimeLinkListings = catchAsync(
     res.status(200).json({
       status: 'success',
       data: { listings: jobs },
+    });
+  },
+);
+
+/**
+ * @desc    Get all jobs for Admin specifically (includes flagged, non-flagged)
+ * @route   GET /api/admin/jobs
+ * @access  Private (Admin)
+ */
+export const getAllJobsForAdmin = catchAsync(
+  async (req: CustomRequest, res: Response) => {
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const skip = (page - 1) * limit;
+
+    const { category, status, isFlagged, search } = req.query as {
+      category?: string;
+      status?: string;
+      isFlagged?: string;
+      search?: string;
+    };
+
+    const where: Prisma.JobWhereInput = {};
+
+    if (category) where.category = category as JobCategory;
+    if (status) where.status = status as JobStatus;
+    if (isFlagged !== undefined) where.isFlagged = isFlagged === 'true';
+    if (search) {
+      where.OR = [
+        { title: { contains: search as string, mode: 'insensitive' } },
+        { location: { contains: search as string, mode: 'insensitive' } },
+      ];
+    }
+
+    const jobs = await prisma.job.findMany({
+      where,
+      skip,
+      take: limit,
+      include: {
+        recruiter: {
+          select: { organizationName: true, email: true },
+        },
+        admin: {
+          select: { email: true },
+        },
+        _count: {
+          select: { applications: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const total = await prisma.job.count({ where });
+
+    res.status(200).json({
+      status: 'success',
+      results: jobs.length,
+      pagination: { page, limit, total, pages: Math.ceil(total / limit) },
+      data: { jobs },
+    });
+  },
+);
+
+/**
+ * @desc    Get a specific job by ID for Admin
+ * @route   GET /api/admin/jobs/:id
+ * @access  Private (Admin)
+ */
+export const getJobByIdForAdmin = catchAsync(
+  async (req: CustomRequest, res: Response) => {
+    const { id } = req.params;
+
+    const job = await prisma.job.findUnique({
+      where: { id },
+      include: {
+        recruiter: {
+          select: {
+            id: true,
+            organizationName: true,
+            email: true,
+            website: true,
+            address: true,
+          },
+        },
+        admin: {
+          select: { id: true, email: true },
+        },
+        _count: {
+          select: { applications: true, savedBy: true },
+        },
+      },
+    });
+
+    if (!job) {
+      return res
+        .status(404)
+        .json({ status: 'error', message: 'Job not found' });
+    }
+
+    res.status(200).json({
+      status: 'success',
+      data: { job },
     });
   },
 );
