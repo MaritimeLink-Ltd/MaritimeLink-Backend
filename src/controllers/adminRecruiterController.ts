@@ -91,6 +91,10 @@ export const getRecruiterById = catchAsync(
 
     const recruiter = await prisma.recruiter.findUnique({
       where: { id },
+      include: {
+        kyc: true,
+        jobs: true,
+      },
     });
 
     if (!recruiter) {

@@ -145,3 +145,34 @@ export const updateKYCStatus = catchAsync(
     });
   },
 );
+
+/**
+ * Get detailed professional by ID, including complete relations
+ */
+export const getProfessionalById = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const { id } = req.params;
+
+    const professional = await prisma.professional.findUnique({
+      where: { id },
+      include: {
+        kyc: true,
+        resume: true,
+        documents: true,
+        courses: true,
+        applications: true,
+      },
+    });
+
+    if (!professional) {
+      return next(new AppError('Professional not found', 404));
+    }
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        professional,
+      },
+    });
+  },
+);
