@@ -38,6 +38,7 @@ export const getProfessionals = catchAsync(
         lastActive: true,
         createdAt: true,
         isVerified: true,
+        profilePhotoUrl: true,
       },
     });
 
@@ -159,7 +160,8 @@ export const getProfessionalById = catchAsync(
         kyc: true,
         resume: true,
         documents: true,
-        courses: true,
+        bookings: true,
+        savedCourses: true,
         applications: true,
       },
     });
