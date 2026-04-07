@@ -10,13 +10,16 @@ export const getTrainers = catchAsync(
     const limit = parseInt(req.query.limit as string) || 10;
     const skip = (page - 1) * limit;
 
-    const trainers = await prisma.trainer.findMany({
+    const trainers = await prisma.recruiter.findMany({
+      where: { role: 'TRAINING_AGENT' },
       skip,
       take: limit,
       orderBy: { createdAt: 'desc' },
     });
 
-    const total = await prisma.trainer.count();
+    const total = await prisma.recruiter.count({
+      where: { role: 'TRAINING_AGENT' },
+    });
 
     res.status(200).json({
       status: 'success',
@@ -30,12 +33,11 @@ export const getTrainers = catchAsync(
 export const getTrainerById = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const { id } = req.params;
-    const trainer = await prisma.trainer.findUnique({
-      where: { id },
+    const trainer = await prisma.recruiter.findUnique({
+      where: { id, role: 'TRAINING_AGENT' },
       include: {
         kyc: true,
         courses: true,
-        stripeAccount: true,
       },
     });
 
