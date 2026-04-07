@@ -102,7 +102,7 @@ export const getMatchingCandidates = catchAsync(
         id: prof.id,
         fullname: prof.fullname,
         rank: latestExp?.role || prof.resume?.subcategory || 'N/A',
-        avatarUrl: prof.idPassportUrl,
+        avatarUrl: prof.profilePhotoUrl,
         location: prof.resume?.country || prof.kyc?.issueCountry || 'Global',
         totalYearsExperience: years,
         availability: latestExp?.vesselName || 'Available Now',

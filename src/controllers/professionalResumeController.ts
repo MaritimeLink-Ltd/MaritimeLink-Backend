@@ -454,6 +454,7 @@ export const getResume = catchAsync(
             firstName: true,
             middleName: true,
             lastName: true,
+            profilePhotoUrl: true,
           },
         },
         skills: true,
@@ -482,6 +483,7 @@ export const getResume = catchAsync(
           firstName: professional.firstName,
           middleName: professional.middleName,
           lastName: professional.lastName,
+          profilePhotoUrl: professional.profilePhotoUrl,
         },
       },
     });
