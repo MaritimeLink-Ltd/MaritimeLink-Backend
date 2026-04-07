@@ -214,10 +214,54 @@ router.get('/recruiters/stats', adminRecruiterController.getRecruiterStats);
  *     parameters:
  *       - in: query
  *         name: status
+ *         schema: { type: string, enum: [PENDING, VERIFIED, FLAGGED, BLOCKED] }
+ *         description: Filter by status
+ *       - in: query
+ *         name: tier
+ *         schema: { type: string, enum: [FREE, PRO] }
+ *         description: Filter by subscription tier
+ *       - in: query
+ *         name: search
  *         schema: { type: string }
+ *         description: Search by name or email
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 10 }
  *     responses:
  *       200:
- *         description: List of professionals
+ *         description: A paginated list of professionals
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 results: { type: integer }
+ *                 total: { type: integer }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     professionals:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id: { type: string }
+ *                           fullname: { type: string }
+ *                           email: { type: string }
+ *                           status: { type: string }
+ *                           tier: { type: string }
+ *                           lastActive: { type: string, format: date-time }
+ *                           createdAt: { type: string, format: date-time }
+ *                           isVerified: { type: boolean }
+ *                           profilePhotoUrl: { type: string }
+ *                           resume:
+ *                             type: object
+ *                             properties:
+ *                               country: { type: string, nullable: true }
  */
 router.get('/professionals', adminProfessionalController.getProfessionals);
 
@@ -252,9 +296,20 @@ router.get(
  *         required: true
  *         schema:
  *           type: string
+ *         description: The professional ID
  *     responses:
  *       200:
- *         description: Professional details
+ *         description: Full profile of the professional including KYC, Resume, and Bookings
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     professional: { type: object }
  */
 router.get(
   '/professionals/:id',
@@ -1036,6 +1091,10 @@ router.patch('/kyc/:id/status', adminRecruiterController.updateKYCStatus);
  *                                 properties:
  *                                   email: { type: string }
  *                                   fullname: { type: string }
+ *                                   resume:
+ *                                     type: object
+ *                                     properties:
+ *                                       country: { type: string, nullable: true }
  */
 router.get(
   '/professional-kyc/pending',

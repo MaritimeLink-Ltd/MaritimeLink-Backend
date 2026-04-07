@@ -39,6 +39,11 @@ export const getProfessionals = catchAsync(
         createdAt: true,
         isVerified: true,
         profilePhotoUrl: true,
+        resume: {
+          select: {
+            country: true,
+          },
+        },
       },
     });
 
@@ -96,6 +101,11 @@ export const getPendingKYCs = catchAsync(
           select: {
             fullname: true,
             email: true,
+            resume: {
+              select: {
+                country: true,
+              },
+            },
           },
         },
       },
