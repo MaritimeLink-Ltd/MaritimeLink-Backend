@@ -255,6 +255,32 @@ router.post(
 
 /**
  * @swagger
+ * /api/recruiter/upload-photo:
+ *   post:
+ *     summary: Upload Profile Photo
+ *     description: Upload a personal profile photo for the recruiter or training agent.
+ *     tags: [Recruiter]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required: [recruiterId, photo]
+ *             properties:
+ *               recruiterId: { type: string, format: uuid }
+ *               photo: { type: string, format: binary }
+ *     responses:
+ *       200:
+ *         description: Profile photo uploaded successfully.
+ */
+router.post(
+  '/upload-photo',
+  upload.single('photo'),
+  recruiterController.uploadProfilePhoto,
+);
+/**
+ * @swagger
  * /api/recruiter/complete-profile:
  *   post:
  *     summary: Legacy Complete Profile (Internal Use)

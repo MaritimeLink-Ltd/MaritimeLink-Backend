@@ -138,6 +138,7 @@ const options: swaggerJsdoc.Options = {
               nullable: true,
             },
             idPassportUrl: { type: 'string', format: 'url', nullable: true },
+            profilePhotoUrl: { type: 'string', format: 'url', nullable: true },
             bio: { type: 'string', nullable: true },
             isVerified: { type: 'boolean' },
             cvUrl: { type: 'string', format: 'url', nullable: true },
@@ -159,6 +160,7 @@ const options: swaggerJsdoc.Options = {
             website: { type: 'string', nullable: true },
             orgEmail: { type: 'string', nullable: true },
             idPassportUrl: { type: 'string', format: 'url', nullable: true },
+            profilePhotoUrl: { type: 'string', format: 'url', nullable: true },
             status: {
               type: 'string',
               enum: ['PENDING', 'APPROVED', 'REJECTED'],

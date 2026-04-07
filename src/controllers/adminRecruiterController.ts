@@ -33,6 +33,7 @@ export const getRecruiters = catchAsync(
         createdAt: true,
         companyCountry: true,
         website: true,
+        profilePhotoUrl: true,
       },
     });
 

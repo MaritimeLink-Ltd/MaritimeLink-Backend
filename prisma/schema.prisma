@@ -197,12 +197,14 @@ model Recruiter {
   companyCity      String?
   companyState     String?
   companyZip       String?
+  companyLogo      String?         // Added for Company Preview feature
+  profilePhotoUrl  String?
+  idPassportUrl    String?
   companyCountry   String?
   website          String?
   companyLinkedIn  String?
   orgEmail         String?
-  companyLogo      String?         // Added for Company Preview feature
-  idPassportUrl    String?
+
 
   stripeAccountId        String?
   stripeOnboardingComplete Boolean @default(false)

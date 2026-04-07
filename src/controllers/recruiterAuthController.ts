@@ -362,6 +362,52 @@ export const uploadID = catchAsync(
 );
 
 /**
+ * Step 5b: Upload Profile Photo
+ */
+export const uploadProfilePhoto = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const { recruiterId } = req.body;
+    const file = req.file;
+
+    if (!file) {
+      return next(new AppError('Please upload a profile photo', 400));
+    }
+
+    if (!recruiterId) {
+      return next(new AppError('recruiterId is required', 400));
+    }
+
+    const sanitizedOriginalName = file.originalname.replace(
+      /[^a-zA-Z0-9.]/g,
+      '_',
+    );
+    const fileName = `recruiter-profile-photos/${recruiterId}-${Date.now()}-${sanitizedOriginalName}`;
+
+    // Use recruiter bucket
+    const publicUrl = await uploadToSupabase(
+      file,
+      fileName,
+      env.SUPABASE_RECRUITER_BUCKET_NAME,
+    );
+
+    await prisma.recruiter.update({
+      where: { id: recruiterId },
+      data: {
+        profilePhotoUrl: publicUrl,
+      },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Profile photo uploaded successfully.',
+      data: {
+        url: publicUrl,
+      },
+    });
+  },
+);
+
+/**
  * Step 4: Complete Profile - Legacy support for existing routes
  */
 export const completeProfile = catchAsync(
@@ -467,6 +513,7 @@ export const login = catchAsync(
           email: recruiter.email,
           role: recruiter.role,
           organizationName: recruiter.organizationName,
+          profilePhotoUrl: recruiter.profilePhotoUrl,
           status: recruiter.status,
         },
       },
