@@ -8,6 +8,7 @@ import * as adminMarketplaceController from '../controllers/adminMarketplaceCont
 import * as adminTrainerPayoutController from '../controllers/adminTrainerPayoutController.js';
 import * as applicationController from '../controllers/applicationController.js';
 import * as candidateController from '../controllers/recruiterCandidateController.js';
+import * as adminTrainerController from '../controllers/adminTrainerController.js';
 import { protectAdmin } from '../middlewares/adminAuthMiddleware.js';
 
 const router = Router();
@@ -235,6 +236,29 @@ router.get('/professionals', adminProfessionalController.getProfessionals);
 router.get(
   '/professionals/stats',
   adminProfessionalController.getProfessionalStats,
+);
+
+/**
+ * @swagger
+ * /api/admin/professionals/{id}:
+ *   get:
+ *     summary: Get detailed professional by ID
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Professional details
+ */
+router.get(
+  '/professionals/:id',
+  adminProfessionalController.getProfessionalById,
 );
 
 /**
@@ -735,6 +759,46 @@ router.post(
  *         description: List of all courses
  */
 router.get('/courses', adminMarketplaceController.getAllCoursesForAdmin);
+
+/**
+ * @swagger
+ * /api/admin/trainers:
+ *   get:
+ *     summary: Get all trainers
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: List of trainers
+ */
+router.get('/trainers', adminTrainerController.getTrainers);
+
+/**
+ * @swagger
+ * /api/admin/trainers/{id}:
+ *   get:
+ *     summary: Get single trainer details
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Trainer data
+ */
+router.get('/trainers/:id', adminTrainerController.getTrainerById);
 
 // --- TRAINER PAYOUT & STRIPE CONNECT ROUTES ---
 
