@@ -484,6 +484,16 @@ export const getResume = catchAsync(
           middleName: professional.middleName,
           lastName: professional.lastName,
           profilePhotoUrl: professional.profilePhotoUrl,
+          // Ensure arrays are explicitly included (though spread should handle it)
+          skills: resume.skills || [],
+          licenses: resume.licenses || [],
+          seaService: resume.seaService || [],
+          education: resume.education || [],
+          stcwCertificates: resume.stcwCertificates || [],
+          medicalCertificates: resume.medicalCertificates || [],
+          travelDocuments: resume.travelDocuments || [],
+          nextOfKin: resume.nextOfKin || [],
+          referees: resume.referees || [],
         },
       },
     });

@@ -200,6 +200,7 @@ const options: swaggerJsdoc.Options = {
               items: {
                 type: 'object',
                 properties: {
+                  id: { type: 'string', format: 'uuid' },
                   skillName: { type: 'string' },
                   rating: { type: 'number' },
                 },
@@ -210,6 +211,7 @@ const options: swaggerJsdoc.Options = {
               items: {
                 type: 'object',
                 properties: {
+                  id: { type: 'string', format: 'uuid' },
                   name: { type: 'string' },
                   number: { type: 'string' },
                   country: { type: 'string' },
@@ -223,6 +225,7 @@ const options: swaggerJsdoc.Options = {
               items: {
                 type: 'object',
                 properties: {
+                  id: { type: 'string', format: 'uuid' },
                   companyName: { type: 'string' },
                   role: { type: 'string' },
                   vesselName: { type: 'string' },
@@ -242,8 +245,11 @@ const options: swaggerJsdoc.Options = {
               items: {
                 type: 'object',
                 properties: {
+                  id: { type: 'string', format: 'uuid' },
                   qualificationName: { type: 'string' },
                   institution: { type: 'string' },
+                  city: { type: 'string' },
+                  country: { type: 'string' },
                   grade: { type: 'string' },
                   startDate: { type: 'string', format: 'date' },
                   endDate: { type: 'string', format: 'date' },
@@ -255,6 +261,7 @@ const options: swaggerJsdoc.Options = {
               items: {
                 type: 'object',
                 properties: {
+                  id: { type: 'string', format: 'uuid' },
                   qualification: { type: 'string' },
                   certificateNumber: { type: 'string' },
                   issuingCountry: { type: 'string' },
@@ -268,9 +275,13 @@ const options: swaggerJsdoc.Options = {
               items: {
                 type: 'object',
                 properties: {
+                  id: { type: 'string', format: 'uuid' },
                   name: { type: 'string' },
                   certificateNumber: { type: 'string' },
+                  documentNumber: { type: 'string' },
                   issuingCountry: { type: 'string' },
+                  city: { type: 'string' },
+                  institutionCountry: { type: 'string' },
                   issueDate: { type: 'string', format: 'date' },
                   expiryDate: { type: 'string', format: 'date' },
                 },
@@ -281,9 +292,12 @@ const options: swaggerJsdoc.Options = {
               items: {
                 type: 'object',
                 properties: {
+                  id: { type: 'string', format: 'uuid' },
                   name: { type: 'string' },
                   documentNumber: { type: 'string' },
                   issuingCountry: { type: 'string' },
+                  city: { type: 'string' },
+                  institutionCountry: { type: 'string' },
                   issueDate: { type: 'string', format: 'date' },
                   expiryDate: { type: 'string', format: 'date' },
                 },
@@ -294,6 +308,7 @@ const options: swaggerJsdoc.Options = {
               items: {
                 type: 'object',
                 properties: {
+                  id: { type: 'string', format: 'uuid' },
                   name: { type: 'string' },
                   relationship: { type: 'string' },
                   countryCode: { type: 'string' },
@@ -307,6 +322,7 @@ const options: swaggerJsdoc.Options = {
               items: {
                 type: 'object',
                 properties: {
+                  id: { type: 'string', format: 'uuid' },
                   name: { type: 'string' },
                   position: { type: 'string' },
                   countryCode: { type: 'string' },
@@ -316,6 +332,9 @@ const options: swaggerJsdoc.Options = {
               },
             },
           },
+        },
+        ResumeBulkUpdate: {
+          $ref: '#/components/schemas/Resume',
         },
         Error: {
           type: 'object',

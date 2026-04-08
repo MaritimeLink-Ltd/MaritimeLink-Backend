@@ -141,6 +141,7 @@ export const resumeSchema = z.object({
   skills: z
     .array(
       z.object({
+        id: z.string().uuid().optional(),
         skillName: z.string(),
         rating: z.number().min(0).max(10).optional(),
       }),
@@ -150,6 +151,7 @@ export const resumeSchema = z.object({
   licenses: z
     .array(
       z.object({
+        id: z.string().uuid().optional(),
         name: z.string(),
         number: z.string().optional(),
         country: z.string().optional(),
@@ -164,6 +166,7 @@ export const resumeSchema = z.object({
   seaService: z
     .array(
       z.object({
+        id: z.string().uuid().optional(),
         companyName: z.string(),
         role: z.string().optional(),
         vesselName: z.string().optional(),
@@ -182,8 +185,11 @@ export const resumeSchema = z.object({
   education: z
     .array(
       z.object({
+        id: z.string().uuid().optional(),
         qualificationName: z.string(),
         institution: z.string().optional(),
+        city: z.string().optional(),
+        country: z.string().optional(),
         grade: z.string().optional(),
         startDate: dateSchema.optional(),
         endDate: dateSchema.optional(),
@@ -194,6 +200,7 @@ export const resumeSchema = z.object({
   stcwCertificates: z
     .array(
       z.object({
+        id: z.string().uuid().optional(),
         qualification: z.string(),
         certificateNumber: z.string().optional(),
         issuingCountry: z.string().optional(),
@@ -206,6 +213,7 @@ export const resumeSchema = z.object({
   medicalCertificates: z
     .array(
       z.object({
+        id: z.string().uuid().optional(),
         name: z.string(),
         certificateNumber: z.string().optional(),
         documentNumber: z.string().optional(),
@@ -221,6 +229,7 @@ export const resumeSchema = z.object({
   travelDocuments: z
     .array(
       z.object({
+        id: z.string().uuid().optional(),
         name: z.string(),
         documentNumber: z.string().optional(),
         issuingCountry: z.string().optional(),
@@ -235,6 +244,7 @@ export const resumeSchema = z.object({
   nextOfKin: z
     .array(
       z.object({
+        id: z.string().uuid().optional(),
         name: z.string(),
         relationship: z.string().optional(),
         countryCode: z.string().optional(),
@@ -247,6 +257,7 @@ export const resumeSchema = z.object({
   referees: z
     .array(
       z.object({
+        id: z.string().uuid().optional(),
         name: z.string(),
         position: z.string().optional(),
         countryCode: z.string().optional(),
