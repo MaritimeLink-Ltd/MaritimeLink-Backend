@@ -172,6 +172,8 @@ router.use(protectAdmin);
  *                           status: { type: string, enum: [PENDING, APPROVED, REJECTED] }
  *                           isVerified: { type: boolean }
  *                           createdAt: { type: string, format: date-time }
+ *                           profilePhotoUrl: { type: string, format: url, nullable: true }
+ *                           kyc: { $ref: '#/components/schemas/RecruiterKyc' }
  */
 router.get('/recruiters', adminRecruiterController.getRecruiters);
 
@@ -852,6 +854,16 @@ router.get('/trainers', adminTrainerController.getTrainers);
  *     responses:
  *       200:
  *         description: Trainer data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     trainer: { $ref: '#/components/schemas/Recruiter' }
  */
 router.get('/trainers/:id', adminTrainerController.getTrainerById);
 

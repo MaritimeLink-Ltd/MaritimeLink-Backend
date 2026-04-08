@@ -502,7 +502,9 @@ const options: swaggerJsdoc.Options = {
             documentNumber: { type: 'string' },
             expiryDate: { type: 'string', format: 'date-time' },
             issueCountry: { type: 'string' },
-            documentUrl: { type: 'string', format: 'url' },
+            documentUrl: { type: 'string', format: 'url', nullable: true },
+            documentFrontUrl: { type: 'string', format: 'url', nullable: true },
+            documentBackUrl: { type: 'string', format: 'url', nullable: true },
             selfieUrl: { type: 'string', format: 'url', nullable: true },
             status: {
               type: 'string',
@@ -532,7 +534,9 @@ const options: swaggerJsdoc.Options = {
             documentNumber: { type: 'string' },
             expiryDate: { type: 'string', format: 'date-time' },
             issueCountry: { type: 'string' },
-            documentUrl: { type: 'string', format: 'url' },
+            documentUrl: { type: 'string', format: 'url', nullable: true },
+            documentFrontUrl: { type: 'string', format: 'url', nullable: true },
+            documentBackUrl: { type: 'string', format: 'url', nullable: true },
             selfieUrl: { type: 'string', format: 'url', nullable: true },
             status: {
               type: 'string',

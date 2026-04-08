@@ -20,21 +20,10 @@ export const getRecruiters = catchAsync(
       where,
       skip,
       take: limit,
-      orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        email: true,
-        role: true,
-        organizationName: true,
-        status: true,
-        isVerified: true,
-        tier: true,
-        lastActive: true,
-        createdAt: true,
-        companyCountry: true,
-        website: true,
-        profilePhotoUrl: true,
+      include: {
+        kyc: true,
       },
+      orderBy: { createdAt: 'desc' },
     });
 
     const total = await prisma.recruiter.count({ where });

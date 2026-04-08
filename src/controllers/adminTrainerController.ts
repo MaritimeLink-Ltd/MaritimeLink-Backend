@@ -14,6 +14,7 @@ export const getTrainers = catchAsync(
       where: { role: 'TRAINING_AGENT' },
       skip,
       take: limit,
+      include: { kyc: true },
       orderBy: { createdAt: 'desc' },
     });
 
