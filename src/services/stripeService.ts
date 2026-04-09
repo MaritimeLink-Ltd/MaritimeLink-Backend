@@ -54,7 +54,7 @@ export const stripeService = {
     const courseProduct = products.data.find((p) => p.name === 'Course');
 
     if (!courseProduct) {
-      throw new Error("Product named 'Course' not found in Stripe dashboard.");
+      throw new Error('Product named \'Course\' not found in Stripe dashboard.');
     }
 
     const prices = await stripe.prices.list({
@@ -182,7 +182,7 @@ export const stripeService = {
       currency,
       courseTitle,
       trainerStripeId,
-      commissionRate = 12, // Default to 12%
+      commissionRate = 18, // Default to 18%
     } = params;
 
     const commissionAmount = Math.round(amount * (commissionRate / 100) * 100); // in cents
@@ -252,10 +252,61 @@ export const stripeService = {
         card_payments: { requested: true },
         transfers: { requested: true },
       },
+      settings: {
+        payouts: {
+          schedule: { interval: 'manual' },
+        },
+      },
       metadata: { recruiterId },
     });
 
     return account;
+  },
+
+  /**
+   * Create a Payment Intent for custom UI flows (Stripe Elements)
+   */
+  async createPaymentIntent(params: {
+    amount: number;
+    currency: string;
+    description: string;
+    metadata: Record<string, string>;
+  }) {
+    const { amount, currency, description, metadata } = params;
+
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: Math.round(amount * 100), // Convert to cents
+      currency: currency.toLowerCase(),
+      description,
+      metadata,
+      automatic_payment_methods: {
+        enabled: true,
+      },
+    });
+
+    return paymentIntent;
+  },
+
+  /**
+   * Transfer funds to a connected trainer account (82% payout)
+   */
+  async createTransfer(params: {
+    amount: number;
+    currency: string;
+    destinationAccountId: string;
+    bookingId: string;
+  }) {
+    const { amount, currency, destinationAccountId, bookingId } = params;
+
+    const transfer = await stripe.transfers.create({
+      amount: Math.round(amount * 100), // Convert to cents
+      currency: currency.toLowerCase(),
+      destination: destinationAccountId,
+      description: `Payout for booking ${bookingId}`,
+      metadata: { bookingId },
+    });
+
+    return transfer;
   },
 
   /**

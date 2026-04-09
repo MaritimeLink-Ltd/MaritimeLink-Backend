@@ -4,6 +4,114 @@ import { catchAsync } from '../utils/catchAsync.js';
 import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
 
+/**
+ * Get all courses for administration and moderation
+ */
+export const getAdminCourses = catchAsync(
+  async (req: CustomRequest, res: Response) => {
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const skip = (page - 1) * limit;
+
+    const { status, search } = req.query;
+
+    const where: any = {}; // eslint-disable-line @typescript-eslint/no-explicit-any
+
+    if (status) where.status = status;
+    if (search) {
+      where.OR = [
+        { title: { contains: search as string, mode: 'insensitive' } },
+        { description: { contains: search as string, mode: 'insensitive' } },
+      ];
+    }
+
+    const courses = await prisma.course.findMany({
+      where,
+      skip,
+      take: limit,
+      include: {
+        recruiter: {
+          select: { organizationName: true, email: true },
+        },
+        _count: {
+          select: { bookings: true },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const total = await prisma.course.count({ where });
+
+    res.status(200).json({
+      status: 'success',
+      results: courses.length,
+      total,
+      data: { courses },
+    });
+  },
+);
+
+/**
+ * Get detailed course by ID (Admin)
+ */
+export const getAdminCourseById = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const { id } = req.params;
+
+    const course = await prisma.course.findUnique({
+      where: { id },
+      include: {
+        recruiter: {
+          select: {
+            id: true,
+            organizationName: true,
+            email: true,
+            phoneNumber: true,
+          },
+        },
+        sessions: {
+          orderBy: { startDate: 'asc' },
+        },
+        _count: {
+          select: { bookings: true },
+        },
+      },
+    });
+
+    if (!course) {
+      return next(new AppError('Course not found', 404));
+    }
+
+    res.status(200).json({
+      status: 'success',
+      data: { course },
+    });
+  },
+);
+
+/**
+ * Update/Moderate course (Admin)
+ */
+export const updateAdminCourse = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const { id } = req.params;
+    const updateData = req.body;
+
+    const course = await prisma.course.findUnique({ where: { id } });
+    if (!course) return next(new AppError('Course not found', 404));
+
+    const updatedCourse = await prisma.course.update({
+      where: { id },
+      data: updateData,
+    });
+
+    res.status(200).json({
+      status: 'success',
+      data: { course: updatedCourse },
+    });
+  },
+);
+
 export const getFlaggedCourses = catchAsync(
   async (req: CustomRequest, res: Response) => {
     const courses = await prisma.course.findMany({
@@ -207,15 +315,15 @@ export const getPlatformRevenue = catchAsync(
       (sum, b) => sum + Number(b.amountPaid),
       0,
     );
-    const platformCommission = totalRevenue * 0.12;
-    const trainerPayouts = totalRevenue * 0.88;
+    const platformCommission = totalRevenue * 0.18;
+    const trainerPayouts = totalRevenue * 0.82;
 
     // Calculate pending payouts (not yet processed)
     const pendingPayouts = bookings.filter(
       (b) => !b.trainerPayout || Number(b.trainerPayout) === 0,
     );
     const pendingAmount = pendingPayouts.reduce(
-      (sum, b) => sum + Number(b.amountPaid) * 0.88,
+      (sum, b) => sum + Number(b.amountPaid) * 0.82,
       0,
     );
 
@@ -237,7 +345,7 @@ export const getPlatformRevenue = catchAsync(
         }
         acc[recruiterId].bookings += 1;
         acc[recruiterId].revenue += Number(booking.amountPaid);
-        acc[recruiterId].payout += Number(booking.amountPaid) * 0.88;
+        acc[recruiterId].payout += Number(booking.amountPaid) * 0.82;
         return acc;
       },
       {} as Record<
@@ -297,8 +405,8 @@ export const processPayout = catchAsync(
 
     // Calculate payout amounts
     const updates = bookings.map((booking) => {
-      const platformFee = Number(booking.amountPaid) * 0.12;
-      const trainerPayout = Number(booking.amountPaid) * 0.88;
+      const platformFee = Number(booking.amountPaid) * 0.18;
+      const trainerPayout = Number(booking.amountPaid) * 0.82;
 
       return prisma.courseBooking.update({
         where: { id: booking.id },
@@ -312,7 +420,7 @@ export const processPayout = catchAsync(
     await prisma.$transaction(updates);
 
     const totalPayout = bookings.reduce(
-      (sum, b) => sum + Number(b.amountPaid) * 0.88,
+      (sum, b) => sum + Number(b.amountPaid) * 0.82,
       0,
     );
 

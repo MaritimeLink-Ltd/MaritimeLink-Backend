@@ -800,12 +800,6 @@ router.post(
  *         name: isFlagged
  *         schema: { type: boolean }
  *       - in: query
- *         name: search
- *         schema: { type: string }
- *       - in: query
- *         name: type
- *         schema: { type: string, enum: [INTERNAL, EXTERNAL] }
- *       - in: query
  *         name: recruiterId
  *         schema: { type: string, format: uuid }
  *       - in: query
@@ -1480,7 +1474,7 @@ import * as jobController from '../controllers/jobController.js';
  *                       type: array
  *                       items: { $ref: '#/components/schemas/Job' }
  */
-router.get('/jobs', jobController.getJobs); // Assuming admin wants filters too
+router.get('/jobs', jobController.getJobs);
 
 /**
  * @swagger
