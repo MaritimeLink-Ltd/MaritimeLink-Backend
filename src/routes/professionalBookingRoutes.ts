@@ -51,64 +51,28 @@ router.get('/stripe-prices', protect, bookingController.getStripePrices);
 
 /**
  * @swagger
- * /api/professional/courses/{courseId}/checkout:
+ * /api/professional/course-bookings/checkout:
  *   post:
- *     summary: Initiate course checkout session
- *     description: Create a Stripe Checkout Session for a specific course. This returns a hosted Stripe URL where the user can securely complete their payment.
+ *     summary: Initiate course checkout (Stripe Elements)
  *     tags: [Course Bookings]
  *     security:
  *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: courseId
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *         description: The ID of the course to book
- *     requestBody:
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               priceId:
- *                 type: string
- *                 description: |
- *                   Optional. A specific Stripe Price ID to use for this checkout.
- *                   If omitted, the default price for the 'Course' product will be used.
- *     responses:
- *       200:
- *         description: Checkout session created successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 status: { type: string, example: success }
- *                 data:
- *                   type: object
- *                   properties:
- *                     checkoutUrl:
- *                       type: string
- *                       format: url
- *                       description: "The secure Stripe URL to redirect the user to"
- *                     sessionId:
- *                       type: string
- *                       description: "The Stripe Session ID"
- *                     bookingId:
- *                       type: string
- *                       format: uuid
- *                       description: "The unique ID of the pending booking in the maritime database"
- *       404:
- *         $ref: '#/components/responses/NotFoundError'
- *       401:
- *         $ref: '#/components/responses/UnauthorizedError'
+ */
+router.post('/course-bookings/checkout', protect, bookingController.checkout);
+
+/**
+ * @swagger
+ * /api/professional/course-bookings/{bookingId}/confirm:
+ *   post:
+ *     summary: Confirm booking payment fallback
+ *     tags: [Course Bookings]
+ *     security:
+ *       - bearerAuth: []
  */
 router.post(
-  '/courses/:courseId/checkout',
+  '/course-bookings/:bookingId/confirm',
   protect,
-  bookingController.createCheckoutSession,
+  bookingController.confirmBooking,
 );
 
 /**

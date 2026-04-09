@@ -7,6 +7,124 @@ import { cancelBookingSchema } from '../validations/jobValidation.js';
 import { stripeService } from '../services/stripeService.js';
 
 /**
+ * Get all courses for professionals with advanced filtering
+ */
+export const getCourses = catchAsync(
+  async (req: CustomRequest, res: Response) => {
+    const professionalId = req.user?.id;
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const skip = (page - 1) * limit;
+
+    const { search, category, priceRange, duration } = req.query;
+
+    const where: any = { status: 'ACTIVE' }; // eslint-disable-line @typescript-eslint/no-explicit-any
+
+    if (search) {
+      where.OR = [
+        { title: { contains: search as string, mode: 'insensitive' } },
+        { description: { contains: search as string, mode: 'insensitive' } },
+      ];
+    }
+
+    if (category) where.category = category;
+
+    if (priceRange) {
+      const [min, max] = (priceRange as string).split('-').map(Number);
+      where.price = {
+        gte: min || 0,
+        lte: max || 999999,
+      };
+    }
+
+    if (duration) {
+      where.duration = { contains: duration as string, mode: 'insensitive' };
+    }
+
+    const courses = await prisma.course.findMany({
+      where,
+      skip,
+      take: limit,
+      include: {
+        recruiter: {
+          select: { organizationName: true },
+        },
+        savedBy: professionalId
+          ? {
+              where: { professionalId },
+              select: { id: true },
+            }
+          : false,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const total = await prisma.course.count({ where });
+
+    const formattedCourses = courses.map((course) => {
+      const { savedBy, recruiter, ...rest } = course;
+      return {
+        ...rest,
+        providerName: recruiter?.organizationName || 'Maritime Academy',
+        isSaved: (savedBy && savedBy.length > 0) || false,
+      };
+    });
+
+    res.status(200).json({
+      status: 'success',
+      results: formattedCourses.length,
+      total,
+      data: { courses: formattedCourses },
+    });
+  },
+);
+
+/**
+ * Get sessions for a specific course with seat info
+ */
+export const getCourseSessions = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const { courseId } = req.params;
+
+    const course = await prisma.course.findUnique({
+      where: { id: courseId },
+      include: {
+        sessions: {
+          where: {
+            startDate: { gte: new Date() },
+          },
+          orderBy: { startDate: 'asc' },
+        },
+      },
+    });
+
+    if (!course) {
+      return next(new AppError('Course not found', 404));
+    }
+
+    const sessions = course.sessions.map((s) => ({
+      id: s.id,
+      eventDate: s.startDate,
+      startDate: s.startDate,
+      endDate: s.endDate,
+      startTime: s.startTime,
+      endTime: s.endTime,
+      totalSeats: s.totalSeats,
+      bookedSeats: s.totalSeats - s.availableSeats,
+      availableSeats: s.availableSeats,
+      location: s.location,
+      status: s.availableSeats > 0 ? 'AVAILABLE' : 'FULL',
+    }));
+
+    res.status(200).json({
+      status: 'success',
+      results: sessions.length,
+      data: { sessions },
+    });
+  },
+);
+
+/**
  * Cancel a course booking
  */
 export const cancelBooking = catchAsync(

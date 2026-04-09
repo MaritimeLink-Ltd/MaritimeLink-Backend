@@ -2,6 +2,8 @@ import express from 'express';
 import multer from 'multer';
 import * as recruiterAuthController from '../controllers/recruiterAuthController.js';
 import * as kycController from '../controllers/kycController.js';
+import * as stripeController from '../controllers/trainerStripeController.js';
+import * as bookingController from '../controllers/trainerBookingController.js';
 import { protectRecruiter } from '../middlewares/recruiterAuthMiddleware.js';
 
 const router = express.Router();
@@ -231,6 +233,72 @@ router.post(
   protectRecruiter,
   upload.single('selfie'),
   kycController.uploadKYCSelfie,
+);
+
+/**
+ * @swagger
+ * /api/trainer/stripe/onboarding:
+ *   post:
+ *     summary: Initiate Stripe Connect onboarding
+ *     tags: [Trainer Stripe]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Onboarding URL generated successfully.
+ */
+router.post(
+  '/stripe/onboarding',
+  protectRecruiter,
+  stripeController.initiateOnboarding,
+);
+
+/**
+ * @swagger
+ * /api/trainer/stripe/onboarding/refresh:
+ *   post:
+ *     summary: Refresh Stripe onboarding link
+ *     tags: [Trainer Stripe]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: New onboarding URL generated.
+ */
+router.post(
+  '/stripe/onboarding/refresh',
+  protectRecruiter,
+  stripeController.refreshOnboarding,
+);
+
+/**
+ * @swagger
+ * /api/trainer/sessions/{sessionId}/attendees:
+ *   get:
+ *     summary: Get attendees for a specific session
+ *     tags: [Trainer Management]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get(
+  '/sessions/:sessionId/attendees',
+  protectRecruiter,
+  bookingController.getSessionAttendees,
+);
+
+/**
+ * @swagger
+ * /api/trainer/sessions/{sessionId}/attendees/{bookingId}/approve:
+ *   post:
+ *     summary: Approve a candidate for a session (Triggers Payout)
+ *     tags: [Trainer Management]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.post(
+  '/sessions/:sessionId/attendees/:bookingId/approve',
+  protectRecruiter,
+  bookingController.approveAttendee,
 );
 
 export default router;

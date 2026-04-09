@@ -8,7 +8,7 @@ export const agentRegisterSchema = z
     confirmPassword: z.string(),
   })
   .refine((data) => data.password === data.confirmPassword, {
-    message: "Passwords don't match",
+    message: 'Passwords don\'t match',
     path: ['confirmPassword'],
   });
 

@@ -7,6 +7,7 @@ import {
   updateBookingStatusSchema,
   messageTraineeSchema,
 } from '../validations/jobValidation.js';
+import { stripeService } from '../services/stripeService.js';
 
 /**
  * Get all bookings for a specific course
@@ -189,15 +190,181 @@ export const updateBookingStatus = catchAsync(
       return next(new AppError('Booking not found', 404));
     }
 
+    const previousStatus = booking.bookingStatus;
+    const newStatus = validatedData.status;
+
     const updatedBooking = await prisma.courseBooking.update({
       where: { id: bookingId },
       data: {
-        bookingStatus: validatedData.status,
+        bookingStatus: newStatus,
+      },
+      include: {
+        course: {
+          include: {
+            recruiter: {
+              select: { stripeAccountId: true, stripeOnboardingComplete: true },
+            },
+          },
+        },
       },
     });
 
+    // Handle Payout on Approval
+    if (
+      newStatus === 'CONFIRMED' &&
+      previousStatus !== 'CONFIRMED' &&
+      updatedBooking.paymentStatus === 'SUCCEEDED'
+    ) {
+      const trainer = updatedBooking.course.recruiter;
+      if (trainer?.stripeAccountId && trainer?.stripeOnboardingComplete) {
+        try {
+          // Payout 82% to trainer
+          const totalAmount = Number(updatedBooking.amountPaid);
+          const trainerAmount = totalAmount * 0.82;
+
+          await stripeService.createTransfer({
+            amount: trainerAmount,
+            currency: updatedBooking.currency,
+            destinationAccountId: trainer.stripeAccountId,
+            bookingId: updatedBooking.id,
+          });
+
+          // Track in ledger if needed (conceptual)
+          console.log(
+            `Pushed ${trainerAmount} to trainer ${trainer.stripeAccountId}`,
+          );
+        } catch (error) {
+          console.error('Payout failed:', error);
+          // In production, we'd log this to a failed_payouts table for retry
+        }
+      }
+    }
+
     res.status(200).json({
       status: 'success',
+      data: { booking: updatedBooking },
+    });
+  },
+);
+
+/**
+ * Get attendees for a specific session
+ */
+export const getSessionAttendees = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const { sessionId } = req.params;
+    const recruiterId = req.user?.id;
+
+    if (!recruiterId) return next(new AppError('Unauthorized', 401));
+
+    const session = await prisma.courseSession.findFirst({
+      where: {
+        id: sessionId,
+        course: { recruiterId },
+      },
+      include: {
+        bookings: {
+          include: {
+            professional: {
+              select: {
+                id: true,
+                fullname: true,
+                email: true,
+                profilePhotoUrl: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!session) return next(new AppError('Session not found', 404));
+
+    const attendees = session.bookings.map((b) => ({
+      bookingId: b.id,
+      professionalId: b.professional.id,
+      fullname: b.professional.fullname,
+      email: b.professional.email,
+      photo: b.professional.profilePhotoUrl,
+      status: b.bookingStatus,
+      paymentStatus: b.paymentStatus,
+    }));
+
+    res.status(200).json({
+      status: 'success',
+      results: attendees.length,
+      data: { attendees },
+    });
+  },
+);
+
+/**
+ * Approve a specific attendee (Triggers Payout)
+ */
+export const approveAttendee = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const { bookingId } = req.params;
+    const recruiterId = req.user?.id;
+
+    if (!recruiterId) return next(new AppError('Unauthorized', 401));
+
+    const booking = await prisma.courseBooking.findFirst({
+      where: {
+        id: bookingId,
+        course: { recruiterId },
+      },
+      include: {
+        course: {
+          include: {
+            recruiter: {
+              select: { stripeAccountId: true, stripeOnboardingComplete: true },
+            },
+          },
+        },
+      },
+    });
+
+    if (!booking) return next(new AppError('Booking not found', 404));
+
+    // Approval can only happen if booking is CONFIRMED (paid) or PENDING
+    if (booking.bookingStatus === 'COMPLETED') {
+      return next(
+        new AppError('Attendee already approved and payout processed', 400),
+      );
+    }
+
+    // Update status to COMPLETED (signifies completion and payout trigger)
+    const updatedBooking = await prisma.courseBooking.update({
+      where: { id: bookingId },
+      data: { bookingStatus: 'COMPLETED' },
+    });
+
+    // Trigger Payout Logic
+    if (updatedBooking.paymentStatus === 'SUCCEEDED') {
+      const trainer = booking.course.recruiter;
+      if (trainer?.stripeAccountId && trainer?.stripeOnboardingComplete) {
+        try {
+          const amount = Number(booking.amountPaid) * 0.82;
+          await stripeService.createTransfer({
+            amount,
+            currency: booking.currency,
+            destinationAccountId: trainer.stripeAccountId,
+            bookingId: booking.id,
+          });
+          console.log(
+            `Transferred ${amount} to trainer ${trainer.stripeAccountId}`,
+          );
+        } catch (err) {
+          console.error('Approval-triggered payout failed:', err);
+          // In real app, we would mark this for retry or notify admin
+        }
+      }
+    }
+
+    res.status(200).json({
+      status: 'success',
+      message:
+        'Attendee approved successfully. Payout triggered if applicable.',
       data: { booking: updatedBooking },
     });
   },

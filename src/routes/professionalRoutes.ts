@@ -3,6 +3,7 @@ import multer from 'multer';
 import * as authController from '../controllers/professionalAuthController.js';
 import * as kycController from '../controllers/professionalKycController.js';
 import * as documentController from '../controllers/professionalDocumentController.js';
+import * as courseController from '../controllers/professionalCourseController.js';
 import { protect } from '../middlewares/authMiddleware.js';
 
 const router = Router();
@@ -781,6 +782,32 @@ router.post(
   protect,
   upload.single('selfie'),
   kycController.uploadKYCSelfie,
+);
+
+/**
+ * @swagger
+ * /api/professional/courses:
+ *   get:
+ *     summary: Browse maritime courses
+ *     tags: [Professional Courses]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get('/courses', protect, courseController.getCourses);
+
+/**
+ * @swagger
+ * /api/professional/courses/{courseId}/sessions:
+ *   get:
+ *     summary: Get available sessions for a course
+ *     tags: [Professional Courses]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get(
+  '/courses/:courseId/sessions',
+  protect,
+  courseController.getCourseSessions,
 );
 
 // --- User Support Routes ---
