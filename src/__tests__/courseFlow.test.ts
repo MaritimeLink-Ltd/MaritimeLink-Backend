@@ -13,16 +13,16 @@ const request = (await import('supertest')).default;
 const app = (await import('../app.js')).default;
 
 // Mock Stripe Service
-// @ts-expect-error Mocking stripeService for integration tests
+/* eslint-disable @typescript-eslint/no-explicit-any */
 jest.spyOn(stripeService, 'createPaymentIntent').mockResolvedValue({
   id: 'pi_test_123',
   client_secret: 'pi_test_123_secret_abc',
 } as any);
 
-// @ts-expect-error Mocking stripeService for integration tests
 jest.spyOn(stripeService, 'createTransfer').mockResolvedValue({
   id: 'tr_test_123',
 } as any);
+/* eslint-enable @typescript-eslint/no-explicit-any */
 
 describe('Course Management System Integration Tests', () => {
   let professionalId: string;
