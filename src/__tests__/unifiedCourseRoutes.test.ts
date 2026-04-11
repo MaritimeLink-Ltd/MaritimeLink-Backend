@@ -15,6 +15,7 @@ describe('Unified Course Routes Integration Tests', () => {
   let trainerId: string;
   let trainerToken: string;
   let courseId: string;
+  let draftCourseId: string;
   let sessionId: string;
 
   const testEmail = `trainer_unified_${Date.now()}@example.com`;
@@ -53,17 +54,53 @@ describe('Unified Course Routes Integration Tests', () => {
         description: 'Testing unified routes',
         price: 100,
         currency: 'USD',
-        courseType: 'INTERNAL'
+        courseType: 'INTERNAL',
       });
     expect(courseRes.status).toBe(201);
     courseId = courseRes.body.data.course.id;
   });
 
   afterAll(async () => {
-    await prisma.courseSession.deleteMany({ where: { courseId } }).catch(() => {});
+    if (draftCourseId) {
+      await prisma.course
+        .delete({ where: { id: draftCourseId } })
+        .catch(() => {});
+    }
+    await prisma.courseSession
+      .deleteMany({ where: { courseId } })
+      .catch(() => {});
     await prisma.course.delete({ where: { id: courseId } }).catch(() => {});
     await prisma.recruiter.delete({ where: { id: trainerId } }).catch(() => {});
     await prisma.$disconnect();
+  });
+
+  it('POST /api/courses/drafts - should save a course as draft', async () => {
+    const res = await request(app)
+      .post('/api/courses/drafts')
+      .set('Authorization', `Bearer ${trainerToken}`)
+      .send({
+        title: 'Draft Test Course',
+        location: 'Draft City',
+        category: 'SAFETY',
+        contractType: 'Part-time',
+        description: 'Testing draft course creation',
+        price: 125,
+        currency: 'USD',
+        courseType: 'INTERNAL',
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.course.status).toBe('DRAFT');
+    draftCourseId = res.body.data.course.id;
+  });
+
+  it('PATCH /api/courses/:id/publish - should publish an owned draft course', async () => {
+    const res = await request(app)
+      .patch(`/api/courses/${draftCourseId}/publish`)
+      .set('Authorization', `Bearer ${trainerToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.course.status).toBe('ACTIVE');
   });
 
   it('GET /api/courses/my - should list trainer specific courses', async () => {
@@ -73,7 +110,9 @@ describe('Unified Course Routes Integration Tests', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data.courses.length).toBeGreaterThan(0);
-    expect(res.body.data.courses[0].id).toBe(courseId);
+    expect(
+      res.body.data.courses.map((course: { id: string }) => course.id),
+    ).toContain(courseId);
   });
 
   it('POST /api/courses/:courseId/sessions - should create a session', async () => {
@@ -87,7 +126,7 @@ describe('Unified Course Routes Integration Tests', () => {
         endTime: '18:00',
         location: 'Room 101',
         instructor: 'Dr. Test',
-        totalSeats: 25
+        totalSeats: 25,
       });
 
     expect(res.status).toBe(201);
@@ -96,16 +135,14 @@ describe('Unified Course Routes Integration Tests', () => {
   });
 
   it('GET /api/courses/:courseId/sessions - should list sessions', async () => {
-    const res = await request(app)
-      .get(`/api/courses/${courseId}/sessions`);
+    const res = await request(app).get(`/api/courses/${courseId}/sessions`);
 
     expect(res.status).toBe(200);
     expect(res.body.data.sessions.length).toBeGreaterThan(0);
   });
 
   it('GET /api/courses/sessions/:id - should get session details', async () => {
-    const res = await request(app)
-      .get(`/api/courses/sessions/${sessionId}`);
+    const res = await request(app).get(`/api/courses/sessions/${sessionId}`);
 
     expect(res.status).toBe(200);
     expect(res.body.data.session.id).toBe(sessionId);
@@ -117,7 +154,7 @@ describe('Unified Course Routes Integration Tests', () => {
       .set('Authorization', `Bearer ${trainerToken}`)
       .send({
         location: 'Updated Room',
-        totalSeats: 30
+        totalSeats: 30,
       });
 
     expect(res.status).toBe(200);
@@ -131,7 +168,9 @@ describe('Unified Course Routes Integration Tests', () => {
 
     expect(res.status).toBe(204);
 
-    const check = await prisma.courseSession.findUnique({ where: { id: sessionId } });
+    const check = await prisma.courseSession.findUnique({
+      where: { id: sessionId },
+    });
     expect(check).toBeNull();
   });
 });
