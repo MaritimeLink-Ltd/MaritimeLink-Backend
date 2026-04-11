@@ -22,6 +22,7 @@ export const createCourseSchema = z.object({
   contractType: z.string().min(2).max(50).optional(),
   description: z.string().min(10),
   price: z.number().min(0),
+  currency: z.string().min(3).max(3).optional(),
   // New fields
   trainingType: z.string().optional(),
   issuingAuthority: z.string().optional(),
@@ -36,6 +37,10 @@ export const createCourseSchema = z.object({
   certificationProvided: z.string().max(100).optional(),
   curriculum: z.string().optional(),
   requirements: z.string().optional(),
+});
+
+export const createCourseDraftSchema = createCourseSchema.omit({
+  status: true,
 });
 
 export const updateJobSchema = createJobSchema.partial();

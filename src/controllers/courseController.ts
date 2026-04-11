@@ -5,8 +5,20 @@ import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
 import {
   createCourseSchema,
+  createCourseDraftSchema,
   updateCourseSchema,
 } from '../validations/jobValidation.js';
+
+const adminRoles = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'];
+
+const userOwnsCourse = (
+  course: { adminId: string | null; recruiterId: string | null },
+  userId: string | undefined,
+  userRole: string | undefined,
+) => {
+  const isAdmin = adminRoles.includes(userRole || '');
+  return isAdmin ? course.adminId === userId : course.recruiterId === userId;
+};
 
 export const createCourse = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
@@ -18,7 +30,7 @@ export const createCourse = catchAsync(
       return next(new AppError('User context missing', 400));
     }
 
-    const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'].includes(userRole);
+    const isAdmin = adminRoles.includes(userRole);
 
     const course = await prisma.course.create({
       data: {
@@ -36,6 +48,38 @@ export const createCourse = catchAsync(
 );
 
 /**
+ * Save a course as a draft.
+ */
+export const createCourseDraft = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const validatedData = createCourseDraftSchema.parse(req.body);
+    const userId = req.user?.id;
+    const userRole = req.user?.role;
+
+    if (!userId || !userRole) {
+      return next(new AppError('User context missing', 400));
+    }
+
+    const isAdmin = adminRoles.includes(userRole);
+
+    const course = await prisma.course.create({
+      data: {
+        ...validatedData,
+        status: 'DRAFT',
+        adminId: isAdmin ? userId : null,
+        recruiterId: !isAdmin ? userId : null,
+      },
+    });
+
+    res.status(201).json({
+      status: 'success',
+      message: 'Course saved as draft',
+      data: { course },
+    });
+  },
+);
+
+/**
  * Get all course posts (Public)
  */
 export const getCourses = catchAsync(
@@ -43,8 +87,10 @@ export const getCourses = catchAsync(
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
     const skip = (page - 1) * limit;
+    const where = { status: 'ACTIVE' as const };
 
     const courses = await prisma.course.findMany({
+      where,
       skip,
       take: limit,
       include: {
@@ -58,7 +104,7 @@ export const getCourses = catchAsync(
       orderBy: { createdAt: 'desc' },
     });
 
-    const total = await prisma.course.count();
+    const total = await prisma.course.count({ where });
 
     res.status(200).json({
       status: 'success',
@@ -117,9 +163,7 @@ export const getMyCourses = catchAsync(
     const userId = req.user?.id;
     const userRole = req.user?.role;
 
-    const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'].includes(
-      userRole || '',
-    );
+    const isAdmin = adminRoles.includes(userRole || '');
 
     const courses = await prisma.course.findMany({
       where: isAdmin ? { adminId: userId } : { recruiterId: userId },
@@ -149,10 +193,6 @@ export const updateCourse = catchAsync(
     const userId = req.user?.id;
     const userRole = req.user?.role;
 
-    const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'].includes(
-      userRole || '',
-    );
-
     const course = await prisma.course.findUnique({
       where: { id },
     });
@@ -162,12 +202,8 @@ export const updateCourse = catchAsync(
     }
 
     // Ownership check
-    if (isAdmin) {
-      if (course.adminId !== userId)
-        return next(new AppError('Unauthorized', 403));
-    } else {
-      if (course.recruiterId !== userId)
-        return next(new AppError('Unauthorized', 403));
+    if (!userOwnsCourse(course, userId, userRole)) {
+      return next(new AppError('Unauthorized', 403));
     }
 
     const updatedCourse = await prisma.course.update({
@@ -185,6 +221,71 @@ export const updateCourse = catchAsync(
 );
 
 /**
+ * Publish an owned draft course.
+ */
+export const publishCourse = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const { id } = req.params;
+    const userId = req.user?.id;
+    const userRole = req.user?.role;
+
+    const course = await prisma.course.findUnique({
+      where: { id },
+    });
+
+    if (!course) {
+      return next(new AppError('Course not found', 404));
+    }
+
+    if (!userOwnsCourse(course, userId, userRole)) {
+      return next(new AppError('Unauthorized', 403));
+    }
+
+    if (course.status !== 'DRAFT') {
+      return next(new AppError('Only draft courses can be published', 400));
+    }
+
+    const publishableCourse = createCourseDraftSchema.safeParse({
+      title: course.title,
+      location: course.location || undefined,
+      category: course.category,
+      contractType: course.contractType || undefined,
+      description: course.description,
+      price: Number(course.price),
+      trainingType: course.trainingType || undefined,
+      issuingAuthority: course.issuingAuthority || undefined,
+      duration: course.duration || undefined,
+      courseType: course.courseType,
+      externalUrl: course.externalUrl || undefined,
+      capacity: course.capacity || undefined,
+      certificationProvided: course.certificationProvided || undefined,
+      curriculum: course.curriculum || undefined,
+      requirements: course.requirements || undefined,
+    });
+
+    if (!publishableCourse.success) {
+      return next(
+        new AppError(
+          `Course cannot be published: ${publishableCourse.error.issues[0].message}`,
+          400,
+        ),
+      );
+    }
+
+    const updatedCourse = await prisma.course.update({
+      where: { id },
+      data: { status: 'ACTIVE' },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Course published successfully',
+      data: { course: updatedCourse },
+    });
+  },
+);
+
+/**
  * Delete a course post
  */
 export const deleteCourse = catchAsync(
@@ -192,10 +293,6 @@ export const deleteCourse = catchAsync(
     const { id } = req.params;
     const userId = req.user?.id;
     const userRole = req.user?.role;
-
-    const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'].includes(
-      userRole || '',
-    );
 
     const course = await prisma.course.findUnique({
       where: { id },
@@ -206,12 +303,8 @@ export const deleteCourse = catchAsync(
     }
 
     // Ownership check
-    if (isAdmin) {
-      if (course.adminId !== userId)
-        return next(new AppError('Unauthorized', 403));
-    } else {
-      if (course.recruiterId !== userId)
-        return next(new AppError('Unauthorized', 403));
+    if (!userOwnsCourse(course, userId, userRole)) {
+      return next(new AppError('Unauthorized', 403));
     }
 
     await prisma.course.delete({

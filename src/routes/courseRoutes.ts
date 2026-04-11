@@ -76,6 +76,40 @@ router.post('/', protectAdminOrRecruiter, courseController.createCourse);
 
 /**
  * @swagger
+ * /api/courses/drafts:
+ *   post:
+ *     summary: Save a course as draft
+ *     description: Create a course owned by the current admin or training agent without publishing it to professionals.
+ *     tags: [Courses]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [title, category, description, price]
+ *             properties:
+ *               title: { type: string, example: "STCW Basic Safety Training" }
+ *               location: { type: string, example: "Southampton, UK" }
+ *               category: { type: string, example: "STCW_CERTIFICATES" }
+ *               contractType: { type: string, example: "Full-time" }
+ *               description: { type: string, example: "A comprehensive course covering emergency procedures and sea survival." }
+ *               price: { type: number, example: 500 }
+ *               courseType: { type: string, enum: [INTERNAL, EXTERNAL], example: "INTERNAL" }
+ *     responses:
+ *       201:
+ *         description: Course draft saved successfully
+ */
+router.post(
+  '/drafts',
+  protectAdminOrRecruiter,
+  courseController.createCourseDraft,
+);
+
+/**
+ * @swagger
  * /api/courses:
  *   get:
  *     summary: Browse all course offerings
@@ -203,6 +237,32 @@ router.get('/:id', courseController.getCourse);
  *         $ref: '#/components/responses/NotFoundError'
  */
 router.patch('/:id', protectAdminOrRecruiter, courseController.updateCourse);
+
+/**
+ * @swagger
+ * /api/courses/{id}/publish:
+ *   patch:
+ *     summary: Publish a draft course
+ *     description: Change an owned draft course from DRAFT to ACTIVE so professionals can discover and book it.
+ *     tags: [Courses]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Course published successfully
+ *       400:
+ *         description: Course is not a draft or is incomplete
+ */
+router.patch(
+  '/:id/publish',
+  protectAdminOrRecruiter,
+  courseController.publishCourse,
+);
 
 /**
  * @swagger
