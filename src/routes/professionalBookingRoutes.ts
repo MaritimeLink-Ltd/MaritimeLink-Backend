@@ -54,9 +54,43 @@ router.get('/stripe-prices', protect, bookingController.getStripePrices);
  * /api/professional/course-bookings/checkout:
  *   post:
  *     summary: Initiate course checkout (Stripe Elements)
+ *     description: Create a pending booking and a Stripe Payment Intent for one or more sessions of a course.
  *     tags: [Course Bookings]
  *     security:
  *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [courseId, sessionIds]
+ *             properties:
+ *               courseId: { type: string, format: uuid, example: "uuid-of-course" }
+ *               sessionIds:
+ *                 type: array
+ *                 items: { type: string, format: uuid }
+ *                 example: ["uuid-of-session-1"]
+ *               documentIds:
+ *                 type: array
+ *                 items: { type: string, format: uuid }
+ *                 description: "Optional. Attach previously uploaded documents from the wallet."
+ *     responses:
+ *       200:
+ *         description: Checkout session initiated. Returns Stripe clientSecret.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     bookingId: { type: string }
+ *                     clientSecret: { type: string }
+ *                     amount: { type: number }
+ *                     currency: { type: string }
  */
 router.post('/course-bookings/checkout', protect, bookingController.checkout);
 
