@@ -123,6 +123,11 @@ export const getMyCourses = catchAsync(
 
     const courses = await prisma.course.findMany({
       where: isAdmin ? { adminId: userId } : { recruiterId: userId },
+      include: {
+        sessions: {
+          orderBy: { startDate: 'asc' },
+        },
+      },
       orderBy: { createdAt: 'desc' },
     });
 
