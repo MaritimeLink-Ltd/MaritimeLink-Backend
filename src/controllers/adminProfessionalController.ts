@@ -3,6 +3,18 @@ import { prisma } from '../config/prisma.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
+import { KycRiskLevel, VerificationStatus } from '../generated/client/index.js';
+
+const resolveProfessionalRiskLevel = (professional: {
+  kyc: { riskLevel: KycRiskLevel } | null;
+  documents: { id: string }[];
+}) => {
+  if (professional.documents.length > 0) {
+    return KycRiskLevel.HIGH;
+  }
+
+  return professional.kyc?.riskLevel ?? KycRiskLevel.LOW;
+};
 
 /**
  * Get all professionals with filtering and pagination
@@ -39,6 +51,22 @@ export const getProfessionals = catchAsync(
         createdAt: true,
         isVerified: true,
         profilePhotoUrl: true,
+        kyc: {
+          select: {
+            riskLevel: true,
+            mismatchDetected: true,
+            mismatchDetails: true,
+          },
+        },
+        documents: {
+          where: {
+            verificationStatus: VerificationStatus.MISMATCH,
+          },
+          select: {
+            id: true,
+          },
+          take: 1,
+        },
         resume: {
           select: {
             country: true,
@@ -49,12 +77,22 @@ export const getProfessionals = catchAsync(
 
     const total = await prisma.professional.count({ where });
 
+    const professionalsWithRisk = professionals.map((professional) => {
+      const { documents, ...professionalData } = professional;
+
+      return {
+        ...professionalData,
+        riskLevel: resolveProfessionalRiskLevel({ ...professional, documents }),
+        hasDocumentMismatch: documents.length > 0,
+      };
+    });
+
     res.status(200).json({
       status: 'success',
-      results: professionals.length,
+      results: professionalsWithRisk.length,
       total,
       data: {
-        professionals,
+        professionals: professionalsWithRisk,
       },
     });
   },

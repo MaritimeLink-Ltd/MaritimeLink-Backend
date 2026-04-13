@@ -141,6 +141,13 @@ export const uploadDocument = catchAsync(
       isFullyMatched = false;
     if (!ocrData || Object.keys(ocrData).length === 0) isFullyMatched = false;
 
+    const hasOcrData = Boolean(ocrData && Object.keys(ocrData).length > 0);
+    const hasEnteredOcrMismatch =
+      hasOcrData &&
+      Object.values(matchDetails).some(
+        (detail) => Boolean(detail.entered) && !detail.isMatched,
+      );
+
     const matchStatus = {
       isFullyMatched,
       details: matchDetails,
@@ -152,6 +159,9 @@ export const uploadDocument = catchAsync(
     const finalIssuingCountry = issuingCountry || ocrData?.issuingCountry;
     const finalIssueDate = issueDate || ocrData?.issueDate;
     const finalExpiryDate = expiryDate || ocrData?.expiryDate;
+    const savedOcrData: Prisma.InputJsonValue | undefined = ocrData
+      ? { ...ocrData }
+      : undefined;
 
     // 6. Create DB Record
     const document = await prisma.professionalDocument.create({
@@ -165,6 +175,11 @@ export const uploadDocument = catchAsync(
         expiryDate: finalExpiryDate ? new Date(finalExpiryDate) : null,
         fileUrl: publicUrl,
         mimeType: req.file.mimetype,
+        ocrData: savedOcrData,
+        ocrStatus: hasOcrData ? OCRStatus.COMPLETED : OCRStatus.FAILED,
+        verificationStatus: hasEnteredOcrMismatch
+          ? VerificationStatus.MISMATCH
+          : VerificationStatus.PENDING,
       },
     });
 
