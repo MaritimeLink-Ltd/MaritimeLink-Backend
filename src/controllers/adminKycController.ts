@@ -128,7 +128,7 @@ export const getAllKYCSubmissions = catchAsync(
         ocrConfidence: k.ocrConfidence,
         submittedAt: k.createdAt,
         updatedAt: k.updatedAt,
-        slaStatus: getSLAStatus(k.createdAt),
+        slaStatus: getSLAStatus(k.createdAt, k.updatedAt, k.status),
       })),
       ...recKycs.map((k) => ({
         id: k.id,
@@ -151,7 +151,7 @@ export const getAllKYCSubmissions = catchAsync(
         ocrConfidence: k.ocrConfidence,
         submittedAt: k.createdAt,
         updatedAt: k.updatedAt,
-        slaStatus: getSLAStatus(k.createdAt),
+        slaStatus: getSLAStatus(k.createdAt, k.updatedAt, k.status),
       })),
     ].sort(
       (a, b) =>
@@ -346,10 +346,18 @@ export const getKYCStats = catchAsync(
   },
 );
 
-// Helper to determine SLA status (e.g. within 24h is good)
-function getSLAStatus(createdAt: Date) {
+// Helper to determine SLA status. Pending items count against now; resolved
+// items count against the admin action timestamp stored in updatedAt.
+function getSLAStatus(createdAt: Date, updatedAt: Date, status: string) {
+  const isPending = status === 'PENDING';
+  const actionAt = isPending ? new Date() : new Date(updatedAt);
   const hoursSince =
-    (new Date().getTime() - new Date(createdAt).getTime()) / (1000 * 60 * 60);
+    (actionAt.getTime() - new Date(createdAt).getTime()) / (1000 * 60 * 60);
+
+  if (!isPending) {
+    return hoursSince <= 48 ? 'Within SLA' : 'SLA Breached';
+  }
+
   if (hoursSince < 24) return 'Within SLA';
   if (hoursSince < 48) return 'Breaching soon';
   return 'SLA Breached';
