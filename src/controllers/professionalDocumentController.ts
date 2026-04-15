@@ -25,8 +25,45 @@ export const uploadDocument = catchAsync(
       return next(new AppError('Please upload a document file', 400));
     }
 
+    const normalizeDateInput = (value: unknown) => {
+      if (typeof value !== 'string' || !value.trim()) return value;
+
+      const trimmed = value.trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+
+      const slashDateMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+      if (slashDateMatch) {
+        const [, month, day, year] = slashDateMatch;
+        return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      }
+
+      return trimmed;
+    };
+
+    const bodyWithAliases = {
+      ...req.body,
+      number:
+        req.body.number ||
+        req.body.certificateNumber ||
+        req.body.documentNumber,
+      issuingCountry:
+        req.body.issuingCountry ||
+        req.body.issueCountry ||
+        req.body.country ||
+        req.body.issuingAuthorityCountry,
+      issueDate: normalizeDateInput(
+        req.body.issueDate || req.body.dateOfIssue || req.body.issuedAt,
+      ),
+      expiryDate: normalizeDateInput(
+        req.body.expiryDate ||
+          req.body.validTill ||
+          req.body.validUntil ||
+          req.body.expirationDate,
+      ),
+    };
+
     // Parse body data
-    const validation = uploadDocumentSchema.safeParse(req.body);
+    const validation = uploadDocumentSchema.safeParse(bodyWithAliases);
 
     if (!validation.success) {
       return next(new AppError(validation.error.issues[0].message, 400));
@@ -107,7 +144,7 @@ export const uploadDocument = catchAsync(
       name: {
         entered: name || null,
         extracted: ocrData?.name || null,
-        isMatched: compare(name, ocrData?.name),
+        isMatched: ocrData?.name ? compare(name, ocrData.name) : true,
       },
       number: {
         entered: number || null,
@@ -131,8 +168,14 @@ export const uploadDocument = catchAsync(
       },
     };
 
+    const comparableMatchDetails = [
+      matchDetails.number,
+      matchDetails.issuingCountry,
+      matchDetails.issueDate,
+      matchDetails.expiryDate,
+    ];
+
     let isFullyMatched = true;
-    if (name && !matchDetails.name.isMatched) isFullyMatched = false;
     if (number && !matchDetails.number.isMatched) isFullyMatched = false;
     if (issuingCountry && !matchDetails.issuingCountry.isMatched)
       isFullyMatched = false;
@@ -144,8 +187,11 @@ export const uploadDocument = catchAsync(
     const hasOcrData = Boolean(ocrData && Object.keys(ocrData).length > 0);
     const hasEnteredOcrMismatch =
       hasOcrData &&
-      Object.values(matchDetails).some(
-        (detail) => Boolean(detail.entered) && !detail.isMatched,
+      comparableMatchDetails.some(
+        (detail) =>
+          Boolean(detail.entered) &&
+          Boolean(detail.extracted) &&
+          !detail.isMatched,
       );
 
     const matchStatus = {

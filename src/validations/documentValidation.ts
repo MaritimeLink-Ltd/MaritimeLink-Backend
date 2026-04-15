@@ -15,8 +15,8 @@ export const uploadDocumentSchema = z.object({
   name: z.string().optional(),
   number: z.string().optional(),
   issuingCountry: z.string().optional(),
-  issueDate: z.string().datetime().optional().or(z.literal('')),
-  expiryDate: z.string().datetime().optional().or(z.literal('')),
+  issueDate: z.string().date().optional().or(z.literal('')),
+  expiryDate: z.string().date().optional().or(z.literal('')),
 });
 
 export const updateDocumentSchema = z.object({
@@ -24,6 +24,6 @@ export const updateDocumentSchema = z.object({
   name: z.string().min(1, 'Document name is required').optional(),
   number: z.string().optional(),
   issuingCountry: z.string().optional(),
-  issueDate: z.string().datetime().optional().or(z.literal('')),
-  expiryDate: z.string().datetime().optional().or(z.literal('')),
+  issueDate: z.string().date().optional().or(z.literal('')),
+  expiryDate: z.string().date().optional().or(z.literal('')),
 });
