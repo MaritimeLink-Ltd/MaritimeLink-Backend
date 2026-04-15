@@ -282,6 +282,61 @@ router.post(
  *     tags: [Trainer Management]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: sessionId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Course session ID.
+ *     responses:
+ *       200:
+ *         description: Session attendees returned successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: success
+ *                 results:
+ *                   type: integer
+ *                   example: 1
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     attendees:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           bookingId:
+ *                             type: string
+ *                             format: uuid
+ *                           professionalId:
+ *                             type: string
+ *                             format: uuid
+ *                           fullname:
+ *                             type: string
+ *                             example: John Doe
+ *                           email:
+ *                             type: string
+ *                             format: email
+ *                           photo:
+ *                             type: string
+ *                             nullable: true
+ *                           status:
+ *                             type: string
+ *                             enum: [PENDING, CONFIRMED, CANCELLED, COMPLETED]
+ *                           paymentStatus:
+ *                             type: string
+ *                             enum: [PENDING, SUCCEEDED, FAILED, REFUNDED]
+ *       401:
+ *         description: Unauthorized.
+ *       404:
+ *         description: Session not found.
  */
 router.get(
   '/sessions/:sessionId/attendees',
@@ -297,6 +352,56 @@ router.get(
  *     tags: [Trainer Management]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: sessionId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Course session ID.
+ *       - in: path
+ *         name: bookingId
+ *         required: true
+ *         schema:
+ *           type: string
+ *           format: uuid
+ *         description: Course booking ID to approve.
+ *     responses:
+ *       200:
+ *         description: Attendee approved successfully.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: success
+ *                 message:
+ *                   type: string
+ *                   example: Attendee approved successfully. Payout triggered if applicable.
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     booking:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                           format: uuid
+ *                         bookingStatus:
+ *                           type: string
+ *                           example: COMPLETED
+ *                         paymentStatus:
+ *                           type: string
+ *                           example: SUCCEEDED
+ *       400:
+ *         description: Attendee already approved and payout processed.
+ *       401:
+ *         description: Unauthorized.
+ *       404:
+ *         description: Booking not found.
  */
 router.post(
   '/sessions/:sessionId/attendees/:bookingId/approve',
