@@ -115,6 +115,16 @@ describe('Recruiter & Trainer Flow E2E Tests', () => {
       expect(res.body.token).toBeDefined();
       recruiterToken = res.body.token;
     });
+
+    it('should allow a pending recruiter to login after verification', async () => {
+      const res = await request(app)
+        .post('/api/recruiter/login')
+        .send({ email: testRecruiterEmail, password: testPassword });
+
+      expect(res.status).toBe(200);
+      expect(res.body.token).toBeDefined();
+      expect(res.body.data.recruiter.status).toBe('PENDING');
+    });
   });
 
   describe('Trainer Registration Flow (Minimal Steps)', () => {
@@ -132,16 +142,23 @@ describe('Recruiter & Trainer Flow E2E Tests', () => {
       // Advance trainer to completion for dashboard testing
       await prisma.recruiter.update({
         where: { id: trainerId },
-        data: { isVerified: true, status: 'APPROVED', registrationStep: 6 },
+        data: { isVerified: true, status: 'PENDING', registrationStep: 6 },
       });
 
-      // Login as trainer
+      // Login as pending trainer
       const loginRes = await request(app)
-        .post('/api/recruiter/login')
+        .post('/api/trainer/login')
         .send({ email: testTrainerEmail, password: testPassword });
 
       trainerToken = loginRes.body.token;
+      expect(loginRes.status).toBe(200);
       expect(trainerToken).toBeDefined();
+      expect(loginRes.body.data.recruiter.status).toBe('PENDING');
+
+      await prisma.recruiter.update({
+        where: { id: trainerId },
+        data: { status: 'APPROVED' },
+      });
     });
   });
 
