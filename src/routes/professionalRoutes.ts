@@ -792,6 +792,75 @@ router.post(
  *     tags: [Professional Courses]
  *     security:
  *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Page number for pagination.
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *         description: Number of courses per page.
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search by course title or description.
+ *       - in: query
+ *         name: category
+ *         schema:
+ *           type: string
+ *         description: Filter courses by category.
+ *       - in: query
+ *         name: priceRange
+ *         schema:
+ *           type: string
+ *           example: "100-500"
+ *         description: Filter by minimum and maximum price.
+ *       - in: query
+ *         name: duration
+ *         schema:
+ *           type: string
+ *         description: Filter by duration text.
+ *     responses:
+ *       200:
+ *         description: Active courses available to the professional. Courses already booked by this professional are not included.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: success
+ *                 results:
+ *                   type: integer
+ *                   example: 2
+ *                 total:
+ *                   type: integer
+ *                   example: 12
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     courses:
+ *                       type: array
+ *                       items:
+ *                         allOf:
+ *                           - $ref: '#/components/schemas/Course'
+ *                           - type: object
+ *                             properties:
+ *                               providerName:
+ *                                 type: string
+ *                                 example: Maritime Academy
+ *                               isSaved:
+ *                                 type: boolean
+ *                                 example: false
+ *       401:
+ *         description: Unauthorized.
  */
 router.get('/courses', protect, courseController.getCourses);
 

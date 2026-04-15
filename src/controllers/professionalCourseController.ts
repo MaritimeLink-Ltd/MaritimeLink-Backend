@@ -10,15 +10,26 @@ import { stripeService } from '../services/stripeService.js';
  * Get all courses for professionals with advanced filtering
  */
 export const getCourses = catchAsync(
-  async (req: CustomRequest, res: Response) => {
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
     const professionalId = req.user?.id;
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
     const skip = (page - 1) * limit;
 
+    if (!professionalId) {
+      return next(new AppError('Unauthorized', 401));
+    }
+
     const { search, category, priceRange, duration } = req.query;
 
     const where: any = { status: 'ACTIVE' }; // eslint-disable-line @typescript-eslint/no-explicit-any
+
+    where.bookings = {
+      none: {
+        professionalId,
+        bookingStatus: { in: ['PENDING', 'CONFIRMED', 'COMPLETED'] },
+      },
+    };
 
     if (search) {
       where.OR = [
