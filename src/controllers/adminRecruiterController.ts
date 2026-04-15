@@ -3,6 +3,11 @@ import { prisma } from '../config/prisma.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
+import { KycRiskLevel } from '../generated/client/index.js';
+
+const resolveRecruiterRiskLevel = (recruiter: {
+  kyc: { riskLevel: KycRiskLevel } | null;
+}) => recruiter.kyc?.riskLevel ?? KycRiskLevel.LOW;
 
 export const getRecruiters = catchAsync(
   async (req: CustomRequest, res: Response) => {
@@ -27,12 +32,18 @@ export const getRecruiters = catchAsync(
 
     const total = await prisma.recruiter.count({ where });
 
+    const recruitersWithRisk = recruiters.map((recruiter) => ({
+      ...recruiter,
+      riskLevel: resolveRecruiterRiskLevel(recruiter),
+      hasCompanyMismatch: recruiter.kyc?.mismatchDetected ?? false,
+    }));
+
     res.status(200).json({
       status: 'success',
-      results: recruiters.length,
+      results: recruitersWithRisk.length,
       total,
       data: {
-        recruiters,
+        recruiters: recruitersWithRisk,
       },
     });
   },

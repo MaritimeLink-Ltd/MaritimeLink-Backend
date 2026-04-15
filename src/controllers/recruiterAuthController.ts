@@ -12,7 +12,11 @@ import {
   sendPasswordResetEmail,
 } from '../services/emailService.js';
 import { sendSMS } from '../services/smsService.js';
-import { getCompanyMetadata } from '../services/companyService.js';
+import {
+  compareCompanyDetails,
+  fetchGeminiCompanyDetails,
+  getCompanyMetadata,
+} from '../services/companyService.js';
 import { uploadToSupabase } from '../services/storageService.js';
 import { changePasswordSchema } from '../validations/passwordValidation.js';
 import { CustomRequest } from '../types/index.js';
@@ -247,6 +251,8 @@ export const setCompanyDetails = catchAsync(
   async (req: Request, res: Response) => {
     const validatedData = setCompanyDetailsSchema.parse(req.body);
     const { recruiterId, ...companyData } = validatedData;
+    const externalCompany = await fetchGeminiCompanyDetails(companyData);
+    const companyMatch = compareCompanyDetails(companyData, externalCompany);
 
     await prisma.recruiter.update({
       where: { id: recruiterId },
@@ -256,10 +262,87 @@ export const setCompanyDetails = catchAsync(
       },
     });
 
+    const existingKyc = await prisma.recruiterKyc.findUnique({
+      where: { recruiterId },
+      select: { id: true },
+    });
+
+    if (existingKyc) {
+      await prisma.recruiterKyc.update({
+        where: { recruiterId },
+        data: {
+          ...(companyMatch.mismatchDetected
+            ? {
+                riskLevel: companyMatch.riskLevel,
+                mismatchDetected: true,
+                mismatchDetails: companyMatch.mismatchDetails,
+              }
+            : {}),
+        },
+      });
+    }
+
     res.status(200).json({
       status: 'success',
       message: 'Company details saved. Please complete compliance declaration.',
-      data: { registrationStep: 5 },
+      data: {
+        registrationStep: 5,
+        companyVerification: {
+          source: externalCompany ? 'GEMINI_GOOGLE_SEARCH' : null,
+          mismatchDetected: companyMatch.mismatchDetected,
+          riskLevel: companyMatch.riskLevel,
+        },
+      },
+    });
+  },
+);
+
+/**
+ * Lookup full company details using Gemini + Google Search grounding
+ */
+export const lookupCompanyDetails = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const {
+      url,
+      organizationName,
+      address,
+      companyCity,
+      companyState,
+      companyZip,
+      companyCountry,
+      companyLinkedIn,
+    } = req.query;
+
+    if (
+      (!url || typeof url !== 'string') &&
+      (!organizationName || typeof organizationName !== 'string')
+    ) {
+      return next(
+        new AppError('Please provide a company URL or organizationName', 400),
+      );
+    }
+
+    const details = await fetchGeminiCompanyDetails({
+      website: typeof url === 'string' ? url : undefined,
+      organizationName:
+        typeof organizationName === 'string' ? organizationName : undefined,
+      address: typeof address === 'string' ? address : undefined,
+      companyCity: typeof companyCity === 'string' ? companyCity : undefined,
+      companyState: typeof companyState === 'string' ? companyState : undefined,
+      companyZip: typeof companyZip === 'string' ? companyZip : undefined,
+      companyCountry:
+        typeof companyCountry === 'string' ? companyCountry : undefined,
+      companyLinkedIn:
+        typeof companyLinkedIn === 'string' ? companyLinkedIn : undefined,
+    });
+
+    if (!details) {
+      return next(new AppError('Could not fetch company details', 404));
+    }
+
+    res.status(200).json({
+      status: 'success',
+      data: { company: details },
     });
   },
 );

@@ -324,7 +324,7 @@ describe('Recruiter & Trainer Flow E2E Tests', () => {
       expect(res.body.data).toHaveProperty('name');
       expect(res.body.data).toHaveProperty('logo');
       expect(res.body.data).toHaveProperty('domain');
-      expect(res.body.data.logo).toContain('logo.clearbit.com');
+      expect(res.body.data.logo).toContain('google.com/s2/favicons');
     });
 
     it('should return company preview for a URL with https prefix', async () => {
@@ -338,6 +338,14 @@ describe('Recruiter & Trainer Flow E2E Tests', () => {
 
     it('should return 400 when no URL is provided', async () => {
       const res = await request(app).get('/api/recruiter/company-preview');
+
+      expect(res.status).toBe(400);
+    });
+
+    it('should return 400 when company lookup has no URL or name', async () => {
+      const res = await request(app).get(
+        '/api/recruiter/company-details/lookup',
+      );
 
       expect(res.status).toBe(400);
     });

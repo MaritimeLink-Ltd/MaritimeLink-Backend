@@ -174,6 +174,34 @@ router.get('/company-preview', recruiterController.getCompanyPreview);
 
 /**
  * @swagger
+ * /api/recruiter/company-details/lookup:
+ *   get:
+ *     summary: Step 5b - Lookup Company Details
+ *     description: Uses Gemini with Google Search grounding to fetch public company details.
+ *     tags: [Recruiter]
+ *     parameters:
+ *       - in: query
+ *         name: url
+ *         schema:
+ *           type: string
+ *         example: "google.com"
+ *       - in: query
+ *         name: organizationName
+ *         schema:
+ *           type: string
+ *         example: "Google"
+ *     responses:
+ *       200:
+ *         description: Company details fetched successfully.
+ *       400:
+ *         description: Missing URL or organization name.
+ *       404:
+ *         description: Company details could not be fetched.
+ */
+router.get('/company-details/lookup', recruiterController.lookupCompanyDetails);
+
+/**
+ * @swagger
  * /api/recruiter/company-details:
  *   patch:
  *     summary: Step 5 - Company Details

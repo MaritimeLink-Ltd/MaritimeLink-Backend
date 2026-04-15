@@ -10,6 +10,10 @@ import {
   validateDocumentType,
 } from '../services/geminiService.js';
 import { submitKYCSchema } from '../validations/kycValidation.js';
+import {
+  compareCompanyDetails,
+  fetchGeminiCompanyDetails,
+} from '../services/companyService.js';
 
 /**
  * Helper to upload KYC doc and return signed URL (Recruiter)
@@ -243,6 +247,28 @@ export const submitKYC = catchAsync(
       return next(new AppError('KYC already approved', 400));
     }
 
+    const recruiter = await prisma.recruiter.findUnique({
+      where: { id: recruiterId },
+      select: {
+        organizationName: true,
+        address: true,
+        companyCity: true,
+        companyState: true,
+        companyZip: true,
+        companyCountry: true,
+        website: true,
+        companyLinkedIn: true,
+      },
+    });
+
+    const externalCompany = recruiter
+      ? await fetchGeminiCompanyDetails(recruiter)
+      : null;
+    const companyMatch = compareCompanyDetails(
+      recruiter ?? {},
+      externalCompany,
+    );
+
     const kycData = {
       firstName,
       lastName,
@@ -255,6 +281,9 @@ export const submitKYC = catchAsync(
       documentFrontUrl: documentFrontUrl || (documentUrl as string),
       documentBackUrl,
       status: 'PENDING' as const,
+      riskLevel: companyMatch.riskLevel,
+      mismatchDetected: companyMatch.mismatchDetected,
+      mismatchDetails: companyMatch.mismatchDetails,
     };
 
     if (existingKyc) {
