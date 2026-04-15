@@ -327,12 +327,63 @@ router.post(
  *                           photo:
  *                             type: string
  *                             nullable: true
+ *                           profession:
+ *                             type: string
+ *                             nullable: true
+ *                           subcategory:
+ *                             type: string
+ *                             nullable: true
  *                           status:
  *                             type: string
  *                             enum: [PENDING, CONFIRMED, CANCELLED, COMPLETED]
  *                           paymentStatus:
  *                             type: string
  *                             enum: [PENDING, SUCCEEDED, FAILED, REFUNDED]
+ *                           attachedDocuments:
+ *                             type: array
+ *                             description: Documents selected/uploaded by the professional while booking this course.
+ *                             items:
+ *                               $ref: '#/components/schemas/ProfessionalDocument'
+ *                           resume:
+ *                             type: object
+ *                             properties:
+ *                               cvUrl:
+ *                                 type: string
+ *                                 nullable: true
+ *                               summary:
+ *                                 type: string
+ *                                 nullable: true
+ *                                 description: Experience Summary from the professional resume.
+ *                               experienceSummary:
+ *                                 type: array
+ *                                 items:
+ *                                   type: string
+ *                                 example: ["2 years total sea service", "Current Rank: Deck Officer"]
+ *                               totalSeaTime:
+ *                                 type: object
+ *                                 properties:
+ *                                   years:
+ *                                     type: integer
+ *                                   months:
+ *                                     type: integer
+ *                                   totalMonths:
+ *                                     type: integer
+ *                               keySkillsAndCompetencies:
+ *                                 type: array
+ *                                 items:
+ *                                   type: object
+ *                                   properties:
+ *                                     id:
+ *                                       type: string
+ *                                     skillName:
+ *                                       type: string
+ *                                     rating:
+ *                                       type: integer
+ *                                       nullable: true
+ *                               seaService:
+ *                                 type: array
+ *                                 items:
+ *                                   type: object
  *       401:
  *         description: Unauthorized.
  *       404:

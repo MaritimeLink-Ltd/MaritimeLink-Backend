@@ -8,6 +8,10 @@ import {
   messageTraineeSchema,
 } from '../validations/jobValidation.js';
 import { stripeService } from '../services/stripeService.js';
+import {
+  calculateTotalSeaTime,
+  getExperienceSummary,
+} from '../utils/experienceUtils.js';
 
 /**
  * Get all bookings for a specific course
@@ -265,12 +269,47 @@ export const getSessionAttendees = catchAsync(
       include: {
         bookings: {
           include: {
+            attachedDocuments: {
+              select: {
+                id: true,
+                category: true,
+                name: true,
+                number: true,
+                issuingCountry: true,
+                issueDate: true,
+                expiryDate: true,
+                fileUrl: true,
+                mimeType: true,
+                ocrStatus: true,
+                verificationStatus: true,
+                createdAt: true,
+              },
+            },
             professional: {
               select: {
                 id: true,
                 fullname: true,
+                firstName: true,
+                middleName: true,
+                lastName: true,
                 email: true,
+                profession: true,
+                subcategory: true,
                 profilePhotoUrl: true,
+                cvUrl: true,
+                resume: {
+                  select: {
+                    summary: true,
+                    skills: {
+                      select: {
+                        id: true,
+                        skillName: true,
+                        rating: true,
+                      },
+                    },
+                    seaService: true,
+                  },
+                },
               },
             },
           },
@@ -280,15 +319,41 @@ export const getSessionAttendees = catchAsync(
 
     if (!session) return next(new AppError('Session not found', 404));
 
-    const attendees = session.bookings.map((b) => ({
-      bookingId: b.id,
-      professionalId: b.professional.id,
-      fullname: b.professional.fullname,
-      email: b.professional.email,
-      photo: b.professional.profilePhotoUrl,
-      status: b.bookingStatus,
-      paymentStatus: b.paymentStatus,
-    }));
+    const attendees = session.bookings.map((b) => {
+      const resume = b.professional.resume;
+      const seaService = resume?.seaService || [];
+      const totalSeaTime = calculateTotalSeaTime(seaService);
+      const keySkillsAndCompetencies = resume?.skills || [];
+
+      return {
+        bookingId: b.id,
+        professionalId: b.professional.id,
+        fullname:
+          b.professional.fullname ||
+          [
+            b.professional.firstName,
+            b.professional.middleName,
+            b.professional.lastName,
+          ]
+            .filter(Boolean)
+            .join(' '),
+        email: b.professional.email,
+        photo: b.professional.profilePhotoUrl,
+        profession: b.professional.profession,
+        subcategory: b.professional.subcategory,
+        status: b.bookingStatus,
+        paymentStatus: b.paymentStatus,
+        attachedDocuments: b.attachedDocuments,
+        resume: {
+          cvUrl: b.professional.cvUrl,
+          summary: resume?.summary || null,
+          experienceSummary: getExperienceSummary(seaService),
+          totalSeaTime,
+          keySkillsAndCompetencies,
+          seaService,
+        },
+      };
+    });
 
     res.status(200).json({
       status: 'success',
