@@ -4,7 +4,10 @@ import * as recruiterAuthController from '../controllers/recruiterAuthController
 import * as kycController from '../controllers/kycController.js';
 import * as stripeController from '../controllers/trainerStripeController.js';
 import * as bookingController from '../controllers/trainerBookingController.js';
-import { protectRecruiter } from '../middlewares/recruiterAuthMiddleware.js';
+import {
+  protectRecruiter,
+  protectRecruiterKyc,
+} from '../middlewares/recruiterAuthMiddleware.js';
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage() });
@@ -131,7 +134,7 @@ router.patch('/personal-info', recruiterAuthController.setPersonalInfo);
  */
 router.post(
   '/kyc/upload-document-front',
-  protectRecruiter,
+  protectRecruiterKyc,
   upload.single('documentFront'),
   kycController.uploadKYCDocumentFront,
 );
@@ -168,7 +171,7 @@ router.post(
  */
 router.post(
   '/kyc/upload-document-back',
-  protectRecruiter,
+  protectRecruiterKyc,
   upload.single('documentBack'),
   kycController.uploadKYCDocumentBack,
 );
@@ -204,7 +207,7 @@ router.post(
  *       200:
  *         description: KYC details submitted. Please upload a selfie next.
  */
-router.post('/kyc/submit', protectRecruiter, kycController.submitKYC);
+router.post('/kyc/submit', protectRecruiterKyc, kycController.submitKYC);
 
 /**
  * @swagger
@@ -230,7 +233,7 @@ router.post('/kyc/submit', protectRecruiter, kycController.submitKYC);
  */
 router.post(
   '/kyc/upload-selfie',
-  protectRecruiter,
+  protectRecruiterKyc,
   upload.single('selfie'),
   kycController.uploadKYCSelfie,
 );

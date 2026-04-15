@@ -154,7 +154,7 @@ export const uploadKYCDocument = catchAsync(
  * Upload Selfie
  */
 export const uploadKYCSelfie = catchAsync(
-  async (req: Request, res: Response, next: NextFunction) => {
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
     const file = req.file;
     const { recruiterId } = req.body;
 
@@ -164,6 +164,12 @@ export const uploadKYCSelfie = catchAsync(
 
     if (!recruiterId) {
       return next(new AppError('recruiterId is required', 400));
+    }
+
+    if (req.user?.id && req.user.id !== recruiterId) {
+      return next(
+        new AppError('You can only upload KYC for your account', 403),
+      );
     }
 
     const sanitizedOriginalName = file.originalname.replace(
@@ -201,6 +207,12 @@ export const submitKYC = catchAsync(
 
     if (!recruiterId) {
       return next(new AppError('recruiterId is required', 400));
+    }
+
+    if (req.user?.id && req.user.id !== recruiterId) {
+      return next(
+        new AppError('You can only submit KYC for your account', 403),
+      );
     }
 
     const validationResult = submitKYCSchema.safeParse(req.body);

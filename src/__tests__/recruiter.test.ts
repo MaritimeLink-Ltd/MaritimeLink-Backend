@@ -123,7 +123,30 @@ describe('Recruiter & Trainer Flow E2E Tests', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.token).toBeDefined();
+      recruiterToken = res.body.token;
       expect(res.body.data.recruiter.status).toBe('PENDING');
+    });
+
+    it('should allow a pending recruiter to reach KYC document upload endpoints', async () => {
+      const frontRes = await request(app)
+        .post('/api/recruiter/kyc/upload-document-front')
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .field('recruiterId', recruiterId);
+
+      expect(frontRes.status).toBe(400);
+      expect(frontRes.body.message).toBe(
+        'Please upload the front of your document',
+      );
+
+      const backRes = await request(app)
+        .post('/api/recruiter/kyc/upload-document-back')
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .field('recruiterId', recruiterId);
+
+      expect(backRes.status).toBe(400);
+      expect(backRes.body.message).toBe(
+        'Please upload the back of your document',
+      );
     });
   });
 
@@ -154,6 +177,26 @@ describe('Recruiter & Trainer Flow E2E Tests', () => {
       expect(loginRes.status).toBe(200);
       expect(trainerToken).toBeDefined();
       expect(loginRes.body.data.recruiter.status).toBe('PENDING');
+
+      const frontRes = await request(app)
+        .post('/api/trainer/kyc/upload-document-front')
+        .set('Authorization', `Bearer ${trainerToken}`)
+        .field('recruiterId', trainerId);
+
+      expect(frontRes.status).toBe(400);
+      expect(frontRes.body.message).toBe(
+        'Please upload the front of your document',
+      );
+
+      const backRes = await request(app)
+        .post('/api/trainer/kyc/upload-document-back')
+        .set('Authorization', `Bearer ${trainerToken}`)
+        .field('recruiterId', trainerId);
+
+      expect(backRes.status).toBe(400);
+      expect(backRes.body.message).toBe(
+        'Please upload the back of your document',
+      );
 
       await prisma.recruiter.update({
         where: { id: trainerId },
