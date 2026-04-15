@@ -478,10 +478,10 @@ export const login = catchAsync(
       );
     }
 
-    if (recruiter.status !== 'APPROVED') {
+    if (['REJECTED', 'BLOCKED'].includes(recruiter.status)) {
       return next(
         new AppError(
-          `Your account is currently ${recruiter.status.toLowerCase()}. Please wait for admin approval.`,
+          `Your account is currently ${recruiter.status.toLowerCase()}. Please contact support.`,
           403,
         ),
       );

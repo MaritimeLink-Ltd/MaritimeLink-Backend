@@ -292,7 +292,7 @@ router.post('/complete-profile', recruiterController.completeProfile);
  * /api/recruiter/login:
  *   post:
  *     summary: Recruiter Login
- *     description: Authenticate and receive a JWT. Only verified and APPROVED recruiters can login.
+ *     description: Authenticate and receive a JWT. Verified recruiters can login while pending admin approval, but rejected or blocked accounts are denied.
  *     tags: [Recruiter]
  *     requestBody:
  *       required: true
@@ -321,7 +321,7 @@ router.post('/complete-profile', recruiterController.completeProfile);
  *       401:
  *         description: Invalid credentials
  *       403:
- *         description: Account PENDING or REJECTED
+ *         description: Account rejected or blocked
  */
 router.post('/login', recruiterController.login);
 
