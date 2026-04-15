@@ -205,12 +205,60 @@ export const getProfessionalById = catchAsync(
     const professional = await prisma.professional.findUnique({
       where: { id },
       include: {
-        kyc: true,
-        resume: true,
-        documents: true,
-        bookings: true,
-        savedCourses: true,
-        applications: true,
+        kyc: {
+          include: {
+            notes: {
+              include: { admin: { select: { id: true, email: true } } },
+              orderBy: { createdAt: 'desc' },
+            },
+          },
+        },
+        resume: {
+          include: {
+            skills: true,
+            licenses: true,
+            seaService: true,
+            education: true,
+            stcwCertificates: true,
+            medicalCertificates: true,
+            travelDocuments: true,
+            nextOfKin: true,
+            referees: true,
+          },
+        },
+        documents: {
+          orderBy: { createdAt: 'desc' },
+        },
+        bookings: {
+          include: {
+            course: true,
+            sessions: true,
+            attachedDocuments: true,
+          },
+          orderBy: { createdAt: 'desc' },
+        },
+        savedJobs: {
+          include: { job: true },
+          orderBy: { createdAt: 'desc' },
+        },
+        savedCourses: {
+          include: { course: true },
+          orderBy: { createdAt: 'desc' },
+        },
+        applications: {
+          include: {
+            job: true,
+            attachedDocuments: true,
+          },
+          orderBy: { createdAt: 'desc' },
+        },
+        alerts: {
+          orderBy: { createdAt: 'desc' },
+        },
+        invitations: {
+          include: { job: true },
+          orderBy: { createdAt: 'desc' },
+        },
       },
     });
 

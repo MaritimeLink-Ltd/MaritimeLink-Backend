@@ -9,10 +9,9 @@ export const getRecruiters = catchAsync(
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
     const skip = (page - 1) * limit;
-    const { role, status, tier } = req.query;
+    const { status, tier } = req.query;
 
-    const where: any = {}; // eslint-disable-line @typescript-eslint/no-explicit-any
-    if (role) where.role = role as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const where: any = { role: 'RECRUITMENT_AGENT' }; // eslint-disable-line @typescript-eslint/no-explicit-any
     if (status) where.status = status as any; // eslint-disable-line @typescript-eslint/no-explicit-any
     if (tier) where.tier = tier as any; // eslint-disable-line @typescript-eslint/no-explicit-any
 
