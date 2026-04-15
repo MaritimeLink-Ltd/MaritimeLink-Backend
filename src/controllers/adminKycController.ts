@@ -1,4 +1,4 @@
-import { Response } from 'express';
+import { NextFunction, Response } from 'express';
 import { prisma } from '../config/prisma.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { CustomRequest } from '../types/index.js';
@@ -187,7 +187,26 @@ export const getKycDetails = catchAsync(
       kyc = await prisma.professionalKyc.findUnique({
         where: { id },
         include: {
-          professional: true,
+          professional: {
+            include: {
+              documents: {
+                orderBy: { createdAt: 'desc' },
+              },
+              resume: {
+                include: {
+                  skills: true,
+                  licenses: true,
+                  seaService: true,
+                  education: true,
+                  stcwCertificates: true,
+                  medicalCertificates: true,
+                  travelDocuments: true,
+                  nextOfKin: true,
+                  referees: true,
+                },
+              },
+            },
+          },
           notes: {
             include: { admin: { select: { email: true } } },
             orderBy: { createdAt: 'desc' },
@@ -209,9 +228,25 @@ export const getKycDetails = catchAsync(
 
     if (!kyc) return next(new AppError('KYC record not found', 404));
 
+    const sanitizedKyc = stripSensitiveUserFields(kyc);
+    const user =
+      userType === 'PROFESSIONAL'
+        ? sanitizedKyc.professional
+        : sanitizedKyc.recruiter;
+    const documents =
+      userType === 'PROFESSIONAL'
+        ? sanitizedKyc.professional?.documents || []
+        : [];
+    const kycDocuments = buildKycDocuments(sanitizedKyc);
+
     res.status(200).json({
       status: 'success',
-      data: { kyc },
+      data: {
+        kyc: sanitizedKyc,
+        user,
+        documents,
+        kycDocuments,
+      },
     });
   },
 );
@@ -363,4 +398,49 @@ function getSLAStatus(createdAt: Date, updatedAt: Date, status: string) {
   return 'SLA Breached';
 }
 
-import { NextFunction } from 'express';
+const sensitiveUserFields = new Set([
+  'password',
+  'otpCode',
+  'otpExpiresAt',
+  'passwordResetToken',
+  'passwordResetExpires',
+  'phoneOtpCode',
+  'phoneOtpExpiresAt',
+]);
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function stripSensitiveUserFields(value: any): any {
+  if (Array.isArray(value)) return value.map(stripSensitiveUserFields);
+  if (!value || typeof value !== 'object' || value instanceof Date)
+    return value;
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([key]) => !sensitiveUserFields.has(key))
+      .map(([key, nestedValue]) => [
+        key,
+        stripSensitiveUserFields(nestedValue),
+      ]),
+  );
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildKycDocuments(kyc: any) {
+  return [
+    {
+      type: 'IDENTITY_DOCUMENT',
+      side: 'FRONT',
+      url: kyc.documentFrontUrl || kyc.documentUrl,
+    },
+    {
+      type: 'IDENTITY_DOCUMENT',
+      side: 'BACK',
+      url: kyc.documentBackUrl,
+    },
+    {
+      type: 'SELFIE',
+      side: null,
+      url: kyc.selfieUrl,
+    },
+  ].filter((document) => Boolean(document.url));
+}

@@ -328,13 +328,46 @@ router.get(
  *       - bearerAuth: []
  *     parameters:
  *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Page number for pagination
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *         description: Number of submissions per page
+ *       - in: query
  *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [PENDING, APPROVED, REJECTED, FLAGGED, BLOCKED]
+ *         description: Filter by KYC status
  *       - in: query
  *         name: userType
- *         schema: { enum: [PROFESSIONAL, RECRUITER, TRAINING_PROVIDER] }
+ *         schema:
+ *           type: string
+ *           enum: [PROFESSIONAL, RECRUITER, TRAINING_PROVIDER]
+ *         description: Filter by the submitted user's type
  *       - in: query
  *         name: riskLevel
- *         schema: { enum: [LOW, MEDIUM, HIGH] }
+ *         schema:
+ *           type: string
+ *           enum: [LOW, MEDIUM, HIGH]
+ *         description: Filter by KYC risk level
+ *       - in: query
+ *         name: timeframe
+ *         schema:
+ *           type: string
+ *           enum: [TODAY, 7D, 30D]
+ *         description: Filter by submission creation timeframe
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *         description: Search by name, organization, or email
  *     responses:
  *       200:
  *         description: List of KYC submissions
@@ -377,6 +410,15 @@ router.get('/kyc-submissions', adminKycController.getAllKYCSubmissions);
  *                   type: object
  *                   properties:
  *                     kyc: { type: object }
+ *                     user: { type: object }
+ *                     documents:
+ *                       type: array
+ *                       description: Professional document wallet records
+ *                       items: { type: object }
+ *                     kycDocuments:
+ *                       type: array
+ *                       description: KYC identity/selfie document URLs
+ *                       items: { type: object }
  */
 router.get('/kyc-submissions/:id', adminKycController.getKycDetails);
 
