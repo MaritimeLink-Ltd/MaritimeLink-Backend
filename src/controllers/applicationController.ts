@@ -223,6 +223,7 @@ export const getApplicationDetails = catchAsync(
             fullname: true,
             email: true,
             profession: true,
+            profilePhotoUrl: true,
             cvUrl: true,
             lastCoverLetter: true,
             idPassportUrl: true,
@@ -381,6 +382,7 @@ export const getJobApplicants = catchAsync(
             fullname: true,
             email: true,
             profession: true,
+            profilePhotoUrl: true,
             idPassportUrl: true, // For avatar
             cvUrl: true,
             kyc: { select: { status: true } },

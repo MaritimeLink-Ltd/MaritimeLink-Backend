@@ -207,13 +207,26 @@ export const getMyJobs = catchAsync(
 
     const jobs = await prisma.job.findMany({
       where: isAdmin ? { adminId: userId } : { recruiterId: userId },
+      include: {
+        _count: {
+          select: {
+            applications: true,
+          },
+        },
+      },
       orderBy: { createdAt: 'desc' },
     });
 
+    const jobsWithApplicantCounts = jobs.map((job) => ({
+      ...job,
+      applicantCount: job._count.applications,
+      applicantsCount: job._count.applications,
+    }));
+
     res.status(200).json({
       status: 'success',
-      results: jobs.length,
-      data: { jobs },
+      results: jobsWithApplicantCounts.length,
+      data: { jobs: jobsWithApplicantCounts },
     });
   },
 );
