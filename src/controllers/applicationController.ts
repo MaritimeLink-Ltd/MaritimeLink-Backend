@@ -24,6 +24,7 @@ const APPLICATION_STATUS_ALIASES: Record<string, ApplicationStatus> = {
   INTERVIEWED: ApplicationStatus.INTERVIEW,
   OFFER: ApplicationStatus.OFFER,
   ACCEPTED: ApplicationStatus.OFFER,
+  HIRED: ApplicationStatus.HIRED,
   REJECTED: ApplicationStatus.REJECTED,
   WITHDRAWN: ApplicationStatus.WITHDRAWN,
 };

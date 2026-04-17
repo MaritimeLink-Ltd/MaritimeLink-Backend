@@ -1149,7 +1149,7 @@ router.get(
  *             properties:
  *               status:
  *                 type: string
- *                 enum: [APPLIED, UNDER_REVIEW, REVIEWING, SHORTLISTED, INTERVIEW, INTERVIEWED, OFFER, ACCEPTED, REJECTED, WITHDRAWN]
+ *                 enum: [APPLIED, UNDER_REVIEW, REVIEWING, SHORTLISTED, INTERVIEW, INTERVIEWED, OFFER, ACCEPTED, HIRED, REJECTED, WITHDRAWN]
  *     responses:
  *       200:
  *         description: Status updated successfully

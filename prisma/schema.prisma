@@ -549,6 +549,7 @@ enum ApplicationStatus {
   SHORTLISTED
   INTERVIEW
   OFFER
+  HIRED
   REJECTED
   WITHDRAWN
 }
