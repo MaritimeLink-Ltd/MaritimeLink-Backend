@@ -1130,7 +1130,7 @@ router.get(
  * /api/recruiter/applicants/{id}/status:
  *   patch:
  *     summary: Update application status
- *     description: Recruiter can change applicant status to REVIEWING, SHORTLISTED, ACCEPTED, or REJECTED.
+ *     description: Recruiter can change applicant status. Frontend aliases REVIEWING, INTERVIEWED, and ACCEPTED are accepted and saved as UNDER_REVIEW, INTERVIEW, and OFFER.
  *     tags: [Recruiter Applications]
  *     security:
  *       - bearerAuth: []
@@ -1149,7 +1149,7 @@ router.get(
  *             properties:
  *               status:
  *                 type: string
- *                 enum: [REVIEWING, SHORTLISTED, ACCEPTED, REJECTED]
+ *                 enum: [APPLIED, UNDER_REVIEW, REVIEWING, SHORTLISTED, INTERVIEW, INTERVIEWED, OFFER, ACCEPTED, REJECTED, WITHDRAWN]
  *     responses:
  *       200:
  *         description: Status updated successfully

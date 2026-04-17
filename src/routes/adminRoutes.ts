@@ -765,7 +765,9 @@ router.get('/applicants/:id', applicationController.getApplicationDetails);
  *             type: object
  *             required: [status]
  *             properties:
- *               status: { type: string, enum: [REVIEWING, SHORTLISTED, ACCEPTED, REJECTED] }
+ *               status:
+ *                 type: string
+ *                 enum: [APPLIED, UNDER_REVIEW, REVIEWING, SHORTLISTED, INTERVIEW, INTERVIEWED, OFFER, ACCEPTED, REJECTED, WITHDRAWN]
  *     responses:
  *       200:
  *         description: Status updated

@@ -15,6 +15,25 @@ import {
   getExperienceSummary,
 } from '../utils/experienceUtils.js';
 
+const APPLICATION_STATUS_ALIASES: Record<string, ApplicationStatus> = {
+  APPLIED: ApplicationStatus.APPLIED,
+  UNDER_REVIEW: ApplicationStatus.UNDER_REVIEW,
+  REVIEWING: ApplicationStatus.UNDER_REVIEW,
+  SHORTLISTED: ApplicationStatus.SHORTLISTED,
+  INTERVIEW: ApplicationStatus.INTERVIEW,
+  INTERVIEWED: ApplicationStatus.INTERVIEW,
+  OFFER: ApplicationStatus.OFFER,
+  ACCEPTED: ApplicationStatus.OFFER,
+  REJECTED: ApplicationStatus.REJECTED,
+  WITHDRAWN: ApplicationStatus.WITHDRAWN,
+};
+
+const normalizeApplicationStatus = (status: unknown) => {
+  if (typeof status !== 'string') return null;
+
+  return APPLICATION_STATUS_ALIASES[status.trim().toUpperCase()] ?? null;
+};
+
 export const applyToJob = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const { id: jobId } = req.params;
@@ -306,9 +325,10 @@ export const updateApplicationStatus = catchAsync(
     const { id } = req.params;
     const { status } = req.body;
     const userId = req.user?.id;
+    const normalizedStatus = normalizeApplicationStatus(status);
 
     // Validate Status Enum
-    if (!Object.values(ApplicationStatus).includes(status)) {
+    if (!normalizedStatus) {
       return next(new AppError('Invalid status', 400));
     }
 
@@ -330,7 +350,7 @@ export const updateApplicationStatus = catchAsync(
 
     const updated = await prisma.jobApplication.update({
       where: { id },
-      data: { status },
+      data: { status: normalizedStatus },
     });
 
     // Log for Recruiter activity
@@ -348,7 +368,11 @@ export const updateApplicationStatus = catchAsync(
         targetId: application.id,
         targetType: 'JobApplication',
         status: 'SUCCESS',
-        metadata: { newStatus: status, jobId: application.jobId },
+        metadata: {
+          requestedStatus: status,
+          newStatus: normalizedStatus,
+          jobId: application.jobId,
+        },
       });
     }
 
@@ -363,14 +387,20 @@ export const updateApplicationStatus = catchAsync(
  * Get Job Applicants (Recruiter)
  */
 export const getJobApplicants = catchAsync(
-  async (req: CustomRequest, res: Response) => {
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
     const { id: jobId } = req.params;
 
     // Filters
     const { status } = req.query;
 
     const where: Prisma.JobApplicationWhereInput = { jobId };
-    if (status) where.status = status as ApplicationStatus;
+    if (status) {
+      const normalizedStatus = normalizeApplicationStatus(status);
+      if (!normalizedStatus) {
+        return next(new AppError('Invalid status', 400));
+      }
+      where.status = normalizedStatus;
+    }
 
     const applicants = await prisma.jobApplication.findMany({
       where,
