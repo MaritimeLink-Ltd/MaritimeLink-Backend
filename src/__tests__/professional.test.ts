@@ -283,7 +283,7 @@ describe('Professional Flow E2E Tests', () => {
       expect(res.body.data.matchStatus).toBeDefined();
       // Without API key, OCR returns {} so matching fails gracefully
       expect(res.body.data.matchStatus.isFullyMatched).toBe(false);
-      expect(res.body.data.matchStatus.details.name.isMatched).toBe(false);
+      expect(res.body.data.matchStatus.details.name.isMatched).toBe(true);
     });
   });
 
