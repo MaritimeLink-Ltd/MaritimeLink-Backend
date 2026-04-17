@@ -19,6 +19,167 @@ import {
   VerificationStatus,
 } from '../generated/client/index.js';
 
+type DocumentMatchValues = {
+  name?: string | null;
+  number?: string | null;
+  issuingCountry?: string | null;
+  issueDate?: string | Date | null;
+  expiryDate?: string | Date | null;
+};
+
+const normalizeMatchText = (value?: string | null) =>
+  value
+    ?.trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim() || '';
+
+const toDateOnly = (value?: string | Date | null) => {
+  if (!value) return null;
+  try {
+    return new Date(value).toISOString().split('T')[0];
+  } catch {
+    return null;
+  }
+};
+
+const isTextMatch = (left?: string | null, right?: string | null) => {
+  const normalizedLeft = normalizeMatchText(left);
+  const normalizedRight = normalizeMatchText(right);
+
+  if (!normalizedLeft || !normalizedRight) return false;
+
+  return (
+    normalizedLeft === normalizedRight ||
+    normalizedLeft.includes(normalizedRight) ||
+    normalizedRight.includes(normalizedLeft)
+  );
+};
+
+const isDateMatch = (
+  left?: string | Date | null,
+  right?: string | Date | null,
+) => {
+  const leftDate = toDateOnly(left);
+  const rightDate = toDateOnly(right);
+
+  return Boolean(leftDate && rightDate && leftDate === rightDate);
+};
+
+const scoreResumeDocumentCandidate = (
+  candidate: DocumentMatchValues,
+  expected: DocumentMatchValues,
+) => {
+  let score = 0;
+
+  if (isTextMatch(candidate.number, expected.number)) score += 8;
+  if (isTextMatch(candidate.name, expected.name)) score += 4;
+  if (isTextMatch(candidate.issuingCountry, expected.issuingCountry))
+    score += 3;
+  if (isDateMatch(candidate.issueDate, expected.issueDate)) score += 2;
+  if (isDateMatch(candidate.expiryDate, expected.expiryDate)) score += 2;
+
+  return score;
+};
+
+const getResumeDocumentFallback = async (
+  professionalId: string,
+  category: DocumentCategory,
+  requestValues: DocumentMatchValues,
+  ocrValues: DocumentMatchValues | null,
+) => {
+  const resume = await prisma.professionalResume.findUnique({
+    where: { professionalId },
+    include: {
+      licenses: true,
+      education: true,
+      stcwCertificates: true,
+      medicalCertificates: true,
+      travelDocuments: true,
+    },
+  });
+
+  if (!resume) return null;
+
+  let candidates: DocumentMatchValues[] = [];
+
+  if (category === DocumentCategory.LICENSES_ENDORSEMENTS) {
+    candidates = [
+      ...resume.licenses.map((license) => ({
+        name: license.name,
+        number: license.number,
+        issuingCountry: license.country,
+        issueDate: license.issueDate,
+        expiryDate: license.expiryDate,
+      })),
+      ...resume.stcwCertificates.map((certificate) => ({
+        name: certificate.qualification,
+        number: certificate.certificateNumber,
+        issuingCountry: certificate.issuingCountry,
+        issueDate: certificate.issueDate,
+        expiryDate: certificate.expiryDate,
+      })),
+    ];
+  }
+
+  if (category === DocumentCategory.MEDICAL_CERTIFICATES) {
+    candidates = resume.medicalCertificates.map((certificate) => ({
+      name: certificate.name,
+      number: certificate.documentNumber || certificate.certificateNumber,
+      issuingCountry:
+        certificate.issuingCountry || certificate.institutionCountry,
+      issueDate: certificate.issueDate,
+      expiryDate: certificate.expiryDate,
+    }));
+  }
+
+  if (
+    category === DocumentCategory.TRAVEL_DOCUMENTS ||
+    category === DocumentCategory.SEAMANS_BOOK
+  ) {
+    candidates = resume.travelDocuments.map((document) => ({
+      name: document.name,
+      number: document.documentNumber,
+      issuingCountry: document.issuingCountry || document.institutionCountry,
+      issueDate: document.issueDate,
+      expiryDate: document.expiryDate,
+    }));
+  }
+
+  if (category === DocumentCategory.ACADEMIC_QUALIFICATIONS) {
+    candidates = resume.education.map((education) => ({
+      name: education.qualificationName,
+      issuingCountry: education.country,
+      issueDate: education.startDate,
+      expiryDate: education.endDate,
+    }));
+  }
+
+  if (candidates.length === 0) return null;
+
+  const expected = {
+    name: requestValues.name || ocrValues?.name,
+    number: requestValues.number || ocrValues?.number,
+    issuingCountry: requestValues.issuingCountry || ocrValues?.issuingCountry,
+    issueDate: requestValues.issueDate || ocrValues?.issueDate,
+    expiryDate: requestValues.expiryDate || ocrValues?.expiryDate,
+  };
+
+  const scoredCandidates = candidates
+    .map((candidate) => ({
+      candidate,
+      score: scoreResumeDocumentCandidate(candidate, expected),
+    }))
+    .sort((a, b) => b.score - a.score);
+
+  if (scoredCandidates[0]?.score > 0) {
+    return scoredCandidates[0].candidate;
+  }
+
+  return candidates.length === 1 ? candidates[0] : null;
+};
+
 export const uploadDocument = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     if (!req.file) {
@@ -120,6 +281,22 @@ export const uploadDocument = catchAsync(
       console.error('Document type validation failed:', error);
     }
 
+    const resumeDocumentFallback = await getResumeDocumentFallback(
+      professionalId,
+      category,
+      { name, number, issuingCountry, issueDate, expiryDate },
+      ocrData,
+    );
+
+    const enteredName = name || resumeDocumentFallback?.name || null;
+    const enteredNumber = number || resumeDocumentFallback?.number || null;
+    const enteredIssuingCountry =
+      issuingCountry || resumeDocumentFallback?.issuingCountry || null;
+    const enteredIssueDate =
+      issueDate || resumeDocumentFallback?.issueDate || null;
+    const enteredExpiryDate =
+      expiryDate || resumeDocumentFallback?.expiryDate || null;
+
     // Match Verification Logic
     const compare = (val1?: string | null, val2?: string | null) => {
       if (!val1 || !val2) return false;
@@ -142,29 +319,29 @@ export const uploadDocument = catchAsync(
 
     const matchDetails = {
       name: {
-        entered: name || null,
+        entered: enteredName,
         extracted: ocrData?.name || null,
-        isMatched: ocrData?.name ? compare(name, ocrData.name) : true,
+        isMatched: ocrData?.name ? compare(enteredName, ocrData.name) : true,
       },
       number: {
-        entered: number || null,
+        entered: enteredNumber,
         extracted: ocrData?.number || null,
-        isMatched: compare(number, ocrData?.number),
+        isMatched: compare(enteredNumber, ocrData?.number),
       },
       issuingCountry: {
-        entered: issuingCountry || null,
+        entered: enteredIssuingCountry,
         extracted: ocrData?.issuingCountry || null,
-        isMatched: compare(issuingCountry, ocrData?.issuingCountry),
+        isMatched: compare(enteredIssuingCountry, ocrData?.issuingCountry),
       },
       issueDate: {
-        entered: issueDate || null,
+        entered: enteredIssueDate,
         extracted: ocrData?.issueDate || null,
-        isMatched: compareDateStr(issueDate, ocrData?.issueDate),
+        isMatched: compareDateStr(enteredIssueDate, ocrData?.issueDate),
       },
       expiryDate: {
-        entered: expiryDate || null,
+        entered: enteredExpiryDate,
         extracted: ocrData?.expiryDate || null,
-        isMatched: compareDateStr(expiryDate, ocrData?.expiryDate),
+        isMatched: compareDateStr(enteredExpiryDate, ocrData?.expiryDate),
       },
     };
 
@@ -176,11 +353,12 @@ export const uploadDocument = catchAsync(
     ];
 
     let isFullyMatched = true;
-    if (number && !matchDetails.number.isMatched) isFullyMatched = false;
-    if (issuingCountry && !matchDetails.issuingCountry.isMatched)
+    if (enteredNumber && !matchDetails.number.isMatched) isFullyMatched = false;
+    if (enteredIssuingCountry && !matchDetails.issuingCountry.isMatched)
       isFullyMatched = false;
-    if (issueDate && !matchDetails.issueDate.isMatched) isFullyMatched = false;
-    if (expiryDate && !matchDetails.expiryDate.isMatched)
+    if (enteredIssueDate && !matchDetails.issueDate.isMatched)
+      isFullyMatched = false;
+    if (enteredExpiryDate && !matchDetails.expiryDate.isMatched)
       isFullyMatched = false;
     if (!ocrData || Object.keys(ocrData).length === 0) isFullyMatched = false;
 
@@ -200,11 +378,12 @@ export const uploadDocument = catchAsync(
     };
 
     // Use OCR data if user provided data is missing
-    const finalName = name || ocrData?.name || 'Untitled Document';
-    const finalNumber = number || ocrData?.number;
-    const finalIssuingCountry = issuingCountry || ocrData?.issuingCountry;
-    const finalIssueDate = issueDate || ocrData?.issueDate;
-    const finalExpiryDate = expiryDate || ocrData?.expiryDate;
+    const finalName = enteredName || ocrData?.name || 'Untitled Document';
+    const finalNumber = enteredNumber || ocrData?.number;
+    const finalIssuingCountry =
+      enteredIssuingCountry || ocrData?.issuingCountry;
+    const finalIssueDate = enteredIssueDate || ocrData?.issueDate;
+    const finalExpiryDate = enteredExpiryDate || ocrData?.expiryDate;
     const savedOcrData: Prisma.InputJsonValue | undefined = ocrData
       ? { ...ocrData }
       : undefined;
