@@ -293,14 +293,13 @@ export const uploadDocument = catchAsync(
     const enteredIssuingCountry =
       issuingCountry || resumeDocumentFallback?.issuingCountry || null;
     const enteredIssueDate =
-      issueDate || resumeDocumentFallback?.issueDate || null;
+      toDateOnly(issueDate || resumeDocumentFallback?.issueDate) || null;
     const enteredExpiryDate =
-      expiryDate || resumeDocumentFallback?.expiryDate || null;
+      toDateOnly(expiryDate || resumeDocumentFallback?.expiryDate) || null;
 
     // Match Verification Logic
     const compare = (val1?: string | null, val2?: string | null) => {
-      if (!val1 || !val2) return false;
-      return val1.trim().toLowerCase() === val2.trim().toLowerCase();
+      return isTextMatch(val1, val2);
     };
 
     const compareDateStr = (
@@ -335,12 +334,12 @@ export const uploadDocument = catchAsync(
       },
       issueDate: {
         entered: enteredIssueDate,
-        extracted: ocrData?.issueDate || null,
+        extracted: toDateOnly(ocrData?.issueDate) || null,
         isMatched: compareDateStr(enteredIssueDate, ocrData?.issueDate),
       },
       expiryDate: {
         entered: enteredExpiryDate,
-        extracted: ocrData?.expiryDate || null,
+        extracted: toDateOnly(ocrData?.expiryDate) || null,
         isMatched: compareDateStr(enteredExpiryDate, ocrData?.expiryDate),
       },
     };

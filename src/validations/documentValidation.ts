@@ -1,14 +1,33 @@
 import { z } from 'zod';
 
-const DocumentCategoryEnum = z.enum([
-  'LICENSES_ENDORSEMENTS',
-  'MEDICAL_CERTIFICATES',
-  'TRAVEL_DOCUMENTS',
-  'SEAMANS_BOOK',
-  'ACADEMIC_QUALIFICATIONS',
-  'MISC_COMPANY_LETTERS',
-  'RECENT_APPRAISALS',
-]);
+const DOCUMENT_CATEGORY_ALIASES: Record<string, string> = {
+  STCW_CERTIFICATES: 'LICENSES_ENDORSEMENTS',
+  STCW_CERTIFICATE: 'LICENSES_ENDORSEMENTS',
+  STCW: 'LICENSES_ENDORSEMENTS',
+};
+
+const normalizeDocumentCategory = (value: unknown) => {
+  if (typeof value !== 'string') return value;
+
+  const normalized = value
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, '_');
+  return DOCUMENT_CATEGORY_ALIASES[normalized] || normalized;
+};
+
+const DocumentCategoryEnum = z.preprocess(
+  normalizeDocumentCategory,
+  z.enum([
+    'LICENSES_ENDORSEMENTS',
+    'MEDICAL_CERTIFICATES',
+    'TRAVEL_DOCUMENTS',
+    'SEAMANS_BOOK',
+    'ACADEMIC_QUALIFICATIONS',
+    'MISC_COMPANY_LETTERS',
+    'RECENT_APPRAISALS',
+  ]),
+);
 
 const documentDateSchema = z
   .string()
