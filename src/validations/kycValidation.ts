@@ -21,6 +21,9 @@ export const submitKYCSchema = z.object({
   documentFrontUrl: z.string().url('Invalid front document URL').optional(),
   documentBackUrl: z.string().url('Invalid back document URL').optional(),
   selfieUrl: z.string().url('Invalid selfie URL').optional(),
+  organizationVerified: z.boolean().optional(),
+  organizationRiskLevel: z.enum(['LOW', 'HIGH']).optional(),
+  organizationVerificationSource: z.string().optional(),
 });
 
 export type SubmitKYCInput = z.infer<typeof submitKYCSchema>;

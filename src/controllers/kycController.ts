@@ -14,6 +14,7 @@ import {
   compareCompanyDetails,
   fetchGeminiCompanyDetails,
 } from '../services/companyService.js';
+import { KycRiskLevel } from '../generated/client/index.js';
 
 /**
  * Helper to upload KYC doc and return signed URL (Recruiter)
@@ -236,6 +237,9 @@ export const submitKYC = catchAsync(
       documentUrl, // Legacy
       documentFrontUrl,
       documentBackUrl,
+      organizationVerified,
+      organizationRiskLevel,
+      organizationVerificationSource,
     } = validationResult.data;
 
     // Check if KYC already exists
@@ -268,6 +272,30 @@ export const submitKYC = catchAsync(
       recruiter ?? {},
       externalCompany,
     );
+    const selectedOrganizationRiskLevel =
+      organizationVerified === true
+        ? KycRiskLevel.LOW
+        : organizationVerified === false
+          ? KycRiskLevel.HIGH
+          : organizationRiskLevel === 'HIGH'
+            ? KycRiskLevel.HIGH
+            : companyMatch.riskLevel;
+    const selectedOrganizationMismatch =
+      organizationVerified === true
+        ? false
+        : organizationVerified === false
+          ? true
+          : companyMatch.mismatchDetected;
+    const selectedOrganizationMismatchDetails =
+      organizationVerified === false
+        ? JSON.stringify({
+            source: organizationVerificationSource || 'USER_DECLINED_LOOKUP',
+            reason:
+              'User declined the fetched public organization and continued with manually entered company details.',
+          })
+        : organizationVerified === true
+          ? null
+          : companyMatch.mismatchDetails;
 
     const kycData = {
       firstName,
@@ -281,9 +309,9 @@ export const submitKYC = catchAsync(
       documentFrontUrl: documentFrontUrl || (documentUrl as string),
       documentBackUrl,
       status: 'PENDING' as const,
-      riskLevel: companyMatch.riskLevel,
-      mismatchDetected: companyMatch.mismatchDetected,
-      mismatchDetails: companyMatch.mismatchDetails,
+      riskLevel: selectedOrganizationRiskLevel,
+      mismatchDetected: selectedOrganizationMismatch,
+      mismatchDetails: selectedOrganizationMismatchDetails,
     };
 
     if (existingKyc) {
