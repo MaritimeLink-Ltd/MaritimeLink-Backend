@@ -8,7 +8,7 @@ export const agentRegisterSchema = z
     confirmPassword: z.string(),
   })
   .refine((data) => data.password === data.confirmPassword, {
-    message: 'Passwords don\'t match',
+    message: "Passwords don't match",
     path: ['confirmPassword'],
   });
 
@@ -38,6 +38,11 @@ export const setCompanyDetailsSchema = z.object({
     .optional()
     .or(z.literal('')),
   companyLogo: z.string().url('Invalid logo URL').optional().or(z.literal('')),
+  organizationVerified: z.boolean().optional(),
+  organizationRiskLevel: z.enum(['LOW', 'HIGH']).optional(),
+  organizationVerificationSource: z.string().optional(),
+  organizationVerificationDecision: z.string().optional(),
+  organizationVerificationData: z.unknown().optional(),
 });
 
 export const setComplianceSchema = z.object({

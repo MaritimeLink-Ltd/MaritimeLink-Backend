@@ -6,8 +6,22 @@ import { CustomRequest } from '../types/index.js';
 import { KycRiskLevel } from '../generated/client/index.js';
 
 const resolveRecruiterRiskLevel = (recruiter: {
+  organizationRiskLevel?: KycRiskLevel | null;
   kyc: { riskLevel: KycRiskLevel } | null;
-}) => recruiter.kyc?.riskLevel ?? KycRiskLevel.LOW;
+}) =>
+  recruiter.kyc?.riskLevel === KycRiskLevel.HIGH ||
+  recruiter.organizationRiskLevel === KycRiskLevel.HIGH
+    ? KycRiskLevel.HIGH
+    : (recruiter.kyc?.riskLevel ??
+      recruiter.organizationRiskLevel ??
+      KycRiskLevel.LOW);
+
+const resolveRecruiterMismatch = (recruiter: {
+  organizationVerified?: boolean | null;
+  kyc: { mismatchDetected: boolean } | null;
+}) =>
+  Boolean(recruiter.kyc?.mismatchDetected) ||
+  recruiter.organizationVerified === false;
 
 export const getRecruiters = catchAsync(
   async (req: CustomRequest, res: Response) => {
@@ -35,7 +49,7 @@ export const getRecruiters = catchAsync(
     const recruitersWithRisk = recruiters.map((recruiter) => ({
       ...recruiter,
       riskLevel: resolveRecruiterRiskLevel(recruiter),
-      hasCompanyMismatch: recruiter.kyc?.mismatchDetected ?? false,
+      hasCompanyMismatch: resolveRecruiterMismatch(recruiter),
     }));
 
     res.status(200).json({
@@ -104,7 +118,11 @@ export const getRecruiterById = catchAsync(
     res.status(200).json({
       status: 'success',
       data: {
-        recruiter,
+        recruiter: {
+          ...recruiter,
+          riskLevel: resolveRecruiterRiskLevel(recruiter),
+          hasCompanyMismatch: resolveRecruiterMismatch(recruiter),
+        },
       },
     });
   },

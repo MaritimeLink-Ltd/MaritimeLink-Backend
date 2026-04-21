@@ -21,7 +21,12 @@ import { uploadToSupabase } from '../services/storageService.js';
 import { changePasswordSchema } from '../validations/passwordValidation.js';
 import { CustomRequest } from '../types/index.js';
 import { logActivity } from '../services/activityLogger.js';
-import { ActorType, ActionStatus } from '../generated/client/index.js';
+import {
+  ActorType,
+  ActionStatus,
+  KycRiskLevel,
+  Prisma,
+} from '../generated/client/index.js';
 
 import {
   agentRegisterSchema,
@@ -250,15 +255,73 @@ export const verifyPhone = catchAsync(
 export const setCompanyDetails = catchAsync(
   async (req: Request, res: Response) => {
     const validatedData = setCompanyDetailsSchema.parse(req.body);
-    const { recruiterId, ...companyData } = validatedData;
-    const externalCompany = await fetchGeminiCompanyDetails(companyData);
-    const companyMatch = compareCompanyDetails(companyData, externalCompany);
+    const {
+      recruiterId,
+      organizationVerified,
+      organizationRiskLevel,
+      organizationVerificationSource,
+      organizationVerificationDecision,
+      organizationVerificationData,
+      ...companyData
+    } = validatedData;
+    const organizationDecisionProvided =
+      typeof organizationVerified === 'boolean' || organizationRiskLevel;
+    const externalCompany = organizationDecisionProvided
+      ? null
+      : await fetchGeminiCompanyDetails(companyData);
+    const companyMatch = organizationDecisionProvided
+      ? {
+          mismatchDetected: organizationVerified === false,
+          mismatchDetails:
+            organizationVerified === false
+              ? JSON.stringify({
+                  source:
+                    organizationVerificationSource || 'USER_DECLINED_LOOKUP',
+                  reason:
+                    'User declined the fetched public organization and continued with manually entered company details.',
+                  verificationData: organizationVerificationData,
+                })
+              : null,
+          riskLevel:
+            organizationVerified === false
+              ? KycRiskLevel.HIGH
+              : KycRiskLevel.LOW,
+        }
+      : compareCompanyDetails(companyData, externalCompany);
+    const selectedOrganizationRiskLevel =
+      organizationVerified === true
+        ? KycRiskLevel.LOW
+        : organizationVerified === false
+          ? KycRiskLevel.HIGH
+          : organizationRiskLevel === 'HIGH'
+            ? KycRiskLevel.HIGH
+            : companyMatch.riskLevel;
 
     await prisma.recruiter.update({
       where: { id: recruiterId },
       data: {
         ...companyData,
         registrationStep: 5,
+        ...(organizationDecisionProvided
+          ? {
+              organizationVerified,
+              organizationRiskLevel: selectedOrganizationRiskLevel,
+              organizationVerificationSource:
+                organizationVerificationSource ||
+                (externalCompany ? 'GEMINI_GOOGLE_SEARCH' : null),
+              organizationVerificationDecision:
+                organizationVerificationDecision ||
+                (organizationVerified === true
+                  ? 'CONFIRMED_PUBLIC_LOOKUP'
+                  : organizationVerified === false
+                    ? 'DECLINED_PUBLIC_LOOKUP'
+                    : null),
+              organizationVerificationSelectedAt: new Date(),
+              organizationVerificationData: (organizationVerificationData ??
+                externalCompany ??
+                companyData) as Prisma.InputJsonValue,
+            }
+          : {}),
       },
     });
 
@@ -271,13 +334,29 @@ export const setCompanyDetails = catchAsync(
       await prisma.recruiterKyc.update({
         where: { recruiterId },
         data: {
-          ...(companyMatch.mismatchDetected
+          ...(organizationDecisionProvided
             ? {
-                riskLevel: companyMatch.riskLevel,
-                mismatchDetected: true,
-                mismatchDetails: companyMatch.mismatchDetails,
+                riskLevel: selectedOrganizationRiskLevel,
+                mismatchDetected: organizationVerified === false,
+                mismatchDetails:
+                  organizationVerified === false
+                    ? JSON.stringify({
+                        source:
+                          organizationVerificationSource ||
+                          'USER_DECLINED_LOOKUP',
+                        reason:
+                          'User declined the fetched public organization and continued with manually entered company details.',
+                        verificationData: organizationVerificationData,
+                      })
+                    : null,
               }
-            : {}),
+            : companyMatch.mismatchDetected
+              ? {
+                  riskLevel: companyMatch.riskLevel,
+                  mismatchDetected: true,
+                  mismatchDetails: companyMatch.mismatchDetails,
+                }
+              : {}),
         },
       });
     }
@@ -290,7 +369,8 @@ export const setCompanyDetails = catchAsync(
         companyVerification: {
           source: externalCompany ? 'GEMINI_GOOGLE_SEARCH' : null,
           mismatchDetected: companyMatch.mismatchDetected,
-          riskLevel: companyMatch.riskLevel,
+          riskLevel: selectedOrganizationRiskLevel,
+          organizationVerified,
         },
       },
     });
@@ -340,9 +420,33 @@ export const lookupCompanyDetails = catchAsync(
       return next(new AppError('Could not fetch company details', 404));
     }
 
+    const enteredCompany = {
+      website: typeof url === 'string' ? url : undefined,
+      organizationName:
+        typeof organizationName === 'string' ? organizationName : undefined,
+      address: typeof address === 'string' ? address : undefined,
+      companyCity: typeof companyCity === 'string' ? companyCity : undefined,
+      companyState: typeof companyState === 'string' ? companyState : undefined,
+      companyZip: typeof companyZip === 'string' ? companyZip : undefined,
+      companyCountry:
+        typeof companyCountry === 'string' ? companyCountry : undefined,
+      companyLinkedIn:
+        typeof companyLinkedIn === 'string' ? companyLinkedIn : undefined,
+    };
+    const companyVerification = compareCompanyDetails(enteredCompany, details);
+
     res.status(200).json({
       status: 'success',
-      data: { company: details },
+      data: {
+        company: details,
+        enteredCompany,
+        companyVerification: {
+          source: details.source || 'GEMINI_GOOGLE_SEARCH',
+          mismatchDetected: companyVerification.mismatchDetected,
+          mismatchDetails: companyVerification.mismatchDetails,
+          riskLevel: companyVerification.riskLevel,
+        },
+      },
     });
   },
 );
