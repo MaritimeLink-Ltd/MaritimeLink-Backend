@@ -71,6 +71,12 @@ router.get('/stats', adminDashboardController.getAdminDashboardStats);
  *                   professionals: 142
  */
 router.get('/activity', adminDashboardController.getPlatformActivity);
+router.get(
+  '/activity-report',
+  adminDashboardController.getPlatformActivityReport,
+);
+router.get('/transactions', adminDashboardController.getTransactionHistory);
+router.get('/notifications', adminDashboardController.getAdminNotifications);
 
 /**
  * @swagger

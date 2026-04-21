@@ -2,7 +2,103 @@ import { Response } from 'express';
 import { prisma } from '../config/prisma.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { CustomRequest } from '../types/index.js';
-import { RecruiterStatus } from '../generated/client/index.js';
+import {
+  PaymentStatus,
+  Prisma,
+  RecruiterStatus,
+} from '../generated/client/index.js';
+
+const statusColor = (status: string) => {
+  if (status === 'SUCCESS' || status === 'SUCCEEDED') {
+    return 'text-green-600 bg-green-50';
+  }
+  if (status === 'FAILED') return 'text-red-600 bg-red-50';
+  if (status === 'WARNING' || status === 'PENDING') {
+    return 'text-orange-600 bg-orange-50';
+  }
+  return 'text-blue-600 bg-blue-50';
+};
+
+const transactionStatusLabel = (status: string) => {
+  if (status === 'SUCCEEDED') return 'Completed';
+  if (status === 'PENDING') return 'Pending';
+  if (status === 'FAILED') return 'Failed';
+  if (status === 'REFUNDED') return 'Refunded';
+  return status;
+};
+
+const getReportStartDate = (range: string) => {
+  const now = new Date();
+  const startDate = new Date(now);
+
+  if (range === 'today') {
+    startDate.setHours(0, 0, 0, 0);
+    return startDate;
+  }
+
+  if (range === '30d') {
+    startDate.setDate(now.getDate() - 30);
+    return startDate;
+  }
+
+  startDate.setDate(now.getDate() - 7);
+  return startDate;
+};
+
+const formatBucketLabel = (date: Date, range: string) => {
+  if (range === 'today') {
+    return date.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    });
+  }
+
+  if (range === '30d') {
+    return date.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+    });
+  }
+
+  return date.toLocaleDateString('en-US', { weekday: 'short' });
+};
+
+const buildReportBuckets = (range: string) => {
+  const now = new Date();
+  const buckets: { label: string; start: Date; end: Date }[] = [];
+
+  if (range === 'today') {
+    const start = getReportStartDate('today');
+    for (let i = 0; i < 6; i += 1) {
+      const bucketStart = new Date(start);
+      bucketStart.setHours(i * 4, 0, 0, 0);
+      const bucketEnd = new Date(start);
+      bucketEnd.setHours((i + 1) * 4, 0, 0, 0);
+      buckets.push({
+        label: formatBucketLabel(bucketStart, range),
+        start: bucketStart,
+        end: i === 5 ? now : bucketEnd,
+      });
+    }
+    return buckets;
+  }
+
+  const days = range === '30d' ? 30 : 7;
+  for (let i = days - 1; i >= 0; i -= 1) {
+    const bucketStart = new Date(now);
+    bucketStart.setDate(now.getDate() - i);
+    bucketStart.setHours(0, 0, 0, 0);
+    const bucketEnd = new Date(bucketStart);
+    bucketEnd.setDate(bucketStart.getDate() + 1);
+    buckets.push({
+      label: formatBucketLabel(bucketStart, range),
+      start: bucketStart,
+      end: i === 0 ? now : bucketEnd,
+    });
+  }
+  return buckets;
+};
 
 /**
  * @desc    Get admin dashboard stats (top cards)
@@ -282,6 +378,273 @@ export const getAdminActionQueues = catchAsync(
         reviewQueue,
         systemAlerts,
       },
+    });
+  },
+);
+
+export const getPlatformActivityReport = catchAsync(
+  async (req: CustomRequest, res: Response) => {
+    const range = (req.query.range as string) || '7d';
+    const startDate = getReportStartDate(range);
+    const buckets = buildReportBuckets(range);
+
+    const [weekly, traffic, logs] = await Promise.all([
+      Promise.all(
+        buckets.map(async (bucket) => {
+          const [applications, jobs, courses] = await Promise.all([
+            prisma.jobApplication.count({
+              where: {
+                createdAt: { gte: bucket.start, lt: bucket.end },
+              },
+            }),
+            prisma.job.count({
+              where: {
+                createdAt: { gte: bucket.start, lt: bucket.end },
+              },
+            }),
+            prisma.course.count({
+              where: {
+                createdAt: { gte: bucket.start, lt: bucket.end },
+              },
+            }),
+          ]);
+
+          return {
+            day: bucket.label,
+            Applications: applications,
+            JobsPosted: jobs,
+            Courses: courses,
+          };
+        }),
+      ),
+      Promise.all(
+        buckets.map(async (bucket) => {
+          const users = await prisma.activityLog.groupBy({
+            by: ['actorId'],
+            where: {
+              createdAt: { gte: bucket.start, lt: bucket.end },
+            },
+          });
+
+          return {
+            time: bucket.label,
+            users: users.length,
+          };
+        }),
+      ),
+      prisma.activityLog.findMany({
+        where: { createdAt: { gte: startDate } },
+        take: 100,
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        weekly,
+        traffic,
+        logs: logs.map((log) => ({
+          id: log.id,
+          eventType: log.action,
+          user: `${log.actorType}${log.actorId ? ` ${log.actorId.slice(0, 8)}` : ''}`,
+          timestamp: log.createdAt,
+          status: log.status,
+          statusColor: statusColor(log.status),
+          raw: log,
+        })),
+      },
+    });
+  },
+);
+
+export const getTransactionHistory = catchAsync(
+  async (req: CustomRequest, res: Response) => {
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 25;
+    const skip = (page - 1) * limit;
+    const search = (req.query.search as string) || '';
+    const status = req.query.status as string;
+    const statusMap: Record<string, PaymentStatus> = {
+      Completed: PaymentStatus.SUCCEEDED,
+      Pending: PaymentStatus.PENDING,
+      Failed: PaymentStatus.FAILED,
+      Refunded: PaymentStatus.REFUNDED,
+      SUCCEEDED: PaymentStatus.SUCCEEDED,
+      PENDING: PaymentStatus.PENDING,
+      FAILED: PaymentStatus.FAILED,
+      REFUNDED: PaymentStatus.REFUNDED,
+    };
+
+    const where: Prisma.CourseBookingWhereInput = {
+      ...(status && status !== 'All'
+        ? { paymentStatus: statusMap[status] || undefined }
+        : {}),
+      ...(search
+        ? {
+            OR: [
+              { id: { contains: search, mode: 'insensitive' as const } },
+              {
+                course: {
+                  title: { contains: search, mode: 'insensitive' as const },
+                },
+              },
+              {
+                professional: {
+                  email: { contains: search, mode: 'insensitive' as const },
+                },
+              },
+              {
+                course: {
+                  recruiter: {
+                    organizationName: {
+                      contains: search,
+                      mode: 'insensitive' as const,
+                    },
+                  },
+                },
+              },
+            ],
+          }
+        : {}),
+    };
+
+    const [bookings, total] = await Promise.all([
+      prisma.courseBooking.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          professional: {
+            select: { fullname: true, email: true },
+          },
+          course: {
+            select: {
+              title: true,
+              recruiter: {
+                select: {
+                  organizationName: true,
+                  email: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+      prisma.courseBooking.count({ where }),
+    ]);
+
+    const transactions = bookings.map((booking) => {
+      const statusLabel = transactionStatusLabel(booking.paymentStatus);
+      const amount = Number(booking.amountPaid);
+      return {
+        id: booking.id,
+        userCompany:
+          booking.professional.fullname ||
+          booking.professional.email ||
+          booking.course.recruiter?.organizationName ||
+          booking.course.recruiter?.email ||
+          'Unknown',
+        type: 'Course Purchase',
+        date: booking.paidAt || booking.createdAt,
+        status: statusLabel,
+        statusColor: statusColor(booking.paymentStatus),
+        amount,
+        amountDisplay: `${booking.currency} ${amount.toFixed(2)}`,
+        amountColor:
+          booking.paymentStatus === 'FAILED'
+            ? 'text-red-600'
+            : 'text-green-600',
+        course: booking.course.title,
+        trainer:
+          booking.course.recruiter?.organizationName ||
+          booking.course.recruiter?.email ||
+          null,
+      };
+    });
+
+    res.status(200).json({
+      status: 'success',
+      results: transactions.length,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+      },
+      data: { transactions },
+    });
+  },
+);
+
+export const getAdminNotifications = catchAsync(
+  async (req: CustomRequest, res: Response) => {
+    const [pendingRecruiters, flaggedJobs, failedLogs, recentLogs] =
+      await Promise.all([
+        prisma.recruiter.count({ where: { status: 'PENDING' } }),
+        prisma.job.count({ where: { isFlagged: true } }),
+        prisma.activityLog.count({ where: { status: 'FAILED' } }),
+        prisma.activityLog.findMany({
+          take: 10,
+          orderBy: { createdAt: 'desc' },
+        }),
+      ]);
+
+    const notifications = [
+      {
+        id: 'admin-announcement',
+        type: 'announcement',
+        severity: 'info',
+        title: 'Admin Dashboard Update',
+        message:
+          'Live activity reports, transaction history, and dashboard alerts are now connected to platform data.',
+        createdAt: new Date(),
+      },
+      pendingRecruiters > 0
+        ? {
+            id: 'pending-recruiters',
+            type: 'warning',
+            severity: 'warning',
+            title: 'Recruiter Reviews Pending',
+            message: `${pendingRecruiters} recruiter accounts are waiting for review.`,
+            createdAt: new Date(),
+          }
+        : null,
+      flaggedJobs > 0
+        ? {
+            id: 'flagged-jobs',
+            type: 'info',
+            severity: 'info',
+            title: 'Marketplace Review',
+            message: `${flaggedJobs} job postings are flagged for manual review.`,
+            createdAt: new Date(),
+          }
+        : null,
+      failedLogs > 0
+        ? {
+            id: 'failed-activity',
+            type: 'error',
+            severity: 'error',
+            title: 'Failed Platform Actions',
+            message: `${failedLogs} failed activity log entries need attention.`,
+            createdAt: new Date(),
+          }
+        : null,
+      ...recentLogs.slice(0, 5).map((log) => ({
+        id: log.id,
+        type: log.status === 'FAILED' ? 'error' : 'success',
+        severity: log.status === 'FAILED' ? 'error' : 'success',
+        title: log.action,
+        message: `${log.actorType} action ${log.status.toLowerCase()}.`,
+        createdAt: log.createdAt,
+      })),
+    ].filter(Boolean);
+
+    res.status(200).json({
+      status: 'success',
+      results: notifications.length,
+      data: { notifications },
     });
   },
 );
