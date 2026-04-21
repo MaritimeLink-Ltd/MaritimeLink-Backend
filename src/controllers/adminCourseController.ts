@@ -4,6 +4,47 @@ import { catchAsync } from '../utils/catchAsync.js';
 import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
 
+const bookingDocumentSelect = {
+  id: true,
+  category: true,
+  name: true,
+  number: true,
+  issuingCountry: true,
+  issueDate: true,
+  expiryDate: true,
+  fileUrl: true,
+  mimeType: true,
+  ocrStatus: true,
+  verificationStatus: true,
+  createdAt: true,
+} as const;
+
+const bookedProfessionalSelect = {
+  id: true,
+  fullname: true,
+  firstName: true,
+  middleName: true,
+  lastName: true,
+  email: true,
+  profession: true,
+  subcategory: true,
+  profilePhotoUrl: true,
+  cvUrl: true,
+  resume: {
+    select: {
+      summary: true,
+      skills: {
+        select: {
+          id: true,
+          skillName: true,
+          rating: true,
+        },
+      },
+      seaService: true,
+    },
+  },
+} as const;
+
 /**
  * Get all courses for administration and moderation
  */
@@ -220,11 +261,10 @@ export const getAdminBookingById = catchAsync(
           },
         },
         professional: {
-          select: {
-            id: true,
-            fullname: true,
-            email: true,
-          },
+          select: bookedProfessionalSelect,
+        },
+        attachedDocuments: {
+          select: bookingDocumentSelect,
         },
         sessions: true,
       },
@@ -260,17 +300,21 @@ export const getAdminCourseBookings = catchAsync(
       where: { courseId },
       include: {
         professional: {
-          select: {
-            id: true,
-            fullname: true,
-            email: true,
-          },
+          select: bookedProfessionalSelect,
+        },
+        attachedDocuments: {
+          select: bookingDocumentSelect,
         },
         sessions: {
           select: {
+            id: true,
             startDate: true,
             endDate: true,
+            startTime: true,
+            endTime: true,
             location: true,
+            totalSeats: true,
+            availableSeats: true,
           },
         },
       },

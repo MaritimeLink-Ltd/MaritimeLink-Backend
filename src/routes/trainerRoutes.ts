@@ -460,4 +460,22 @@ router.post(
   bookingController.approveAttendee,
 );
 
+router.post(
+  '/sessions/:sessionId/attendees/:bookingId/reject',
+  protectRecruiter,
+  bookingController.rejectAttendee,
+);
+
+router.get(
+  '/bookings',
+  protectRecruiter,
+  bookingController.getAllTrainerBookings,
+);
+
+router.get(
+  '/bookings/:bookingId',
+  protectRecruiter,
+  bookingController.getTrainerBookingById,
+);
+
 export default router;

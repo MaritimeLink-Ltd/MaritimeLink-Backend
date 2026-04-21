@@ -13,6 +13,47 @@ import {
   getExperienceSummary,
 } from '../utils/experienceUtils.js';
 
+const bookingDocumentSelect = {
+  id: true,
+  category: true,
+  name: true,
+  number: true,
+  issuingCountry: true,
+  issueDate: true,
+  expiryDate: true,
+  fileUrl: true,
+  mimeType: true,
+  ocrStatus: true,
+  verificationStatus: true,
+  createdAt: true,
+} as const;
+
+const bookedProfessionalSelect = {
+  id: true,
+  fullname: true,
+  firstName: true,
+  middleName: true,
+  lastName: true,
+  email: true,
+  profession: true,
+  subcategory: true,
+  profilePhotoUrl: true,
+  cvUrl: true,
+  resume: {
+    select: {
+      summary: true,
+      skills: {
+        select: {
+          id: true,
+          skillName: true,
+          rating: true,
+        },
+      },
+      seaService: true,
+    },
+  },
+} as const;
+
 /**
  * Get all bookings for a specific course
  */
@@ -43,11 +84,10 @@ export const getCourseBookings = catchAsync(
       where: { courseId },
       include: {
         professional: {
-          select: {
-            id: true,
-            fullname: true,
-            email: true,
-          },
+          select: bookedProfessionalSelect,
+        },
+        attachedDocuments: {
+          select: bookingDocumentSelect,
         },
         sessions: {
           select: {
@@ -95,21 +135,25 @@ export const getAllTrainerBookings = catchAsync(
             title: true,
             category: true,
             location: true,
+            capacity: true,
           },
         },
         professional: {
-          select: {
-            id: true,
-            fullname: true,
-            email: true,
-          },
+          select: bookedProfessionalSelect,
+        },
+        attachedDocuments: {
+          select: bookingDocumentSelect,
         },
         sessions: {
           select: {
+            id: true,
             startDate: true,
             endDate: true,
             startTime: true,
             endTime: true,
+            location: true,
+            totalSeats: true,
+            availableSeats: true,
           },
         },
       },
@@ -146,11 +190,10 @@ export const getTrainerBookingById = catchAsync(
       include: {
         course: true,
         professional: {
-          select: {
-            id: true,
-            fullname: true,
-            email: true,
-          },
+          select: bookedProfessionalSelect,
+        },
+        attachedDocuments: {
+          select: bookingDocumentSelect,
         },
         sessions: true,
       },
@@ -270,47 +313,10 @@ export const getSessionAttendees = catchAsync(
         bookings: {
           include: {
             attachedDocuments: {
-              select: {
-                id: true,
-                category: true,
-                name: true,
-                number: true,
-                issuingCountry: true,
-                issueDate: true,
-                expiryDate: true,
-                fileUrl: true,
-                mimeType: true,
-                ocrStatus: true,
-                verificationStatus: true,
-                createdAt: true,
-              },
+              select: bookingDocumentSelect,
             },
             professional: {
-              select: {
-                id: true,
-                fullname: true,
-                firstName: true,
-                middleName: true,
-                lastName: true,
-                email: true,
-                profession: true,
-                subcategory: true,
-                profilePhotoUrl: true,
-                cvUrl: true,
-                resume: {
-                  select: {
-                    summary: true,
-                    skills: {
-                      select: {
-                        id: true,
-                        skillName: true,
-                        rating: true,
-                      },
-                    },
-                    seaService: true,
-                  },
-                },
-              },
+              select: bookedProfessionalSelect,
             },
           },
         },
@@ -430,6 +436,52 @@ export const approveAttendee = catchAsync(
       status: 'success',
       message:
         'Attendee approved successfully. Payout triggered if applicable.',
+      data: { booking: updatedBooking },
+    });
+  },
+);
+
+/**
+ * Reject a specific attendee by cancelling their booking.
+ */
+export const rejectAttendee = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const { bookingId } = req.params;
+    const recruiterId = req.user?.id;
+
+    if (!recruiterId) return next(new AppError('Unauthorized', 401));
+
+    const booking = await prisma.courseBooking.findFirst({
+      where: {
+        id: bookingId,
+        course: { recruiterId },
+      },
+    });
+
+    if (!booking) return next(new AppError('Booking not found', 404));
+
+    if (booking.bookingStatus === 'COMPLETED') {
+      return next(new AppError('Completed attendees cannot be rejected', 400));
+    }
+
+    const updatedBooking = await prisma.courseBooking.update({
+      where: { id: bookingId },
+      data: { bookingStatus: 'CANCELLED' },
+      include: {
+        course: true,
+        professional: {
+          select: bookedProfessionalSelect,
+        },
+        attachedDocuments: {
+          select: bookingDocumentSelect,
+        },
+        sessions: true,
+      },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Attendee rejected successfully.',
       data: { booking: updatedBooking },
     });
   },
