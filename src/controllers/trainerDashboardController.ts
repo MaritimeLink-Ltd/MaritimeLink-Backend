@@ -188,3 +188,109 @@ export const getTrainingCoursesOverview = catchAsync(
     });
   },
 );
+
+export const getTrainingNotifications = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const recruiterId = req.user?.id;
+    if (!recruiterId) return next(new AppError('User not authenticated', 401));
+
+    const [
+      pendingBookings,
+      coursesNoSessions,
+      nearlyFullCourses,
+      recentBookings,
+    ] = await Promise.all([
+      prisma.courseBooking.count({
+        where: { course: { recruiterId }, bookingStatus: 'PENDING' },
+      }),
+      prisma.course.count({
+        where: {
+          recruiterId,
+          status: CourseStatus.ACTIVE,
+          sessions: { none: { startDate: { gte: new Date() } } },
+        },
+      }),
+      prisma.course.findMany({
+        where: { recruiterId, status: CourseStatus.ACTIVE },
+        include: {
+          _count: {
+            select: { bookings: { where: { bookingStatus: 'CONFIRMED' } } },
+          },
+        },
+        take: 5,
+      }),
+      prisma.courseBooking.findMany({
+        where: { course: { recruiterId } },
+        take: 5,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          professional: {
+            select: { fullname: true, email: true },
+          },
+          course: {
+            select: { title: true },
+          },
+        },
+      }),
+    ]);
+
+    const capacityAlerts = nearlyFullCourses.filter(
+      (course) =>
+        course.capacity && course._count.bookings >= course.capacity * 0.8,
+    );
+
+    const notifications = [
+      {
+        id: 'trainer-announcement',
+        type: 'announcement',
+        severity: 'info',
+        title: 'Training Provider Dashboard Update',
+        message:
+          'Booking alerts, course capacity warnings, and scheduling notifications are now live.',
+        createdAt: new Date(),
+      },
+      pendingBookings > 0
+        ? {
+            id: 'pending-bookings',
+            type: 'success',
+            severity: 'success',
+            title: 'New Booking Requests',
+            message: `${pendingBookings} learners are waiting for booking confirmation.`,
+            createdAt: new Date(),
+          }
+        : null,
+      coursesNoSessions > 0
+        ? {
+            id: 'courses-no-sessions',
+            type: 'warning',
+            severity: 'warning',
+            title: 'Sessions Needed',
+            message: `${coursesNoSessions} active courses need upcoming sessions.`,
+            createdAt: new Date(),
+          }
+        : null,
+      ...capacityAlerts.map((course) => ({
+        id: `capacity-${course.id}`,
+        type: 'warning',
+        severity: 'warning',
+        title: 'Course Nearly Full',
+        message: `"${course.title}" is close to capacity.`,
+        createdAt: new Date(),
+      })),
+      ...recentBookings.map((booking) => ({
+        id: booking.id,
+        type: 'info',
+        severity: 'info',
+        title: 'Recent Course Booking',
+        message: `${booking.professional.fullname || booking.professional.email} booked "${booking.course.title}".`,
+        createdAt: booking.createdAt,
+      })),
+    ].filter(Boolean);
+
+    res.status(200).json({
+      status: 'success',
+      results: notifications.length,
+      data: { notifications },
+    });
+  },
+);

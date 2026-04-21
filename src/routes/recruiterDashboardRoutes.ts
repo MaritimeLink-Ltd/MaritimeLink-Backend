@@ -134,5 +134,9 @@ router.get(
   '/popular-searches',
   recruiterDashboardController.getPopularSearches,
 );
+router.get(
+  '/notifications',
+  recruiterDashboardController.getRecruiterNotifications,
+);
 
 export default router;

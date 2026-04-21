@@ -290,3 +290,94 @@ export const getPopularSearches = catchAsync(
     });
   },
 );
+
+export const getRecruiterNotifications = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const recruiterId = req.user?.id;
+    if (!recruiterId) return next(new AppError('User not authenticated', 401));
+
+    const now = new Date();
+    const threeDaysFromNow = new Date();
+    threeDaysFromNow.setDate(now.getDate() + 3);
+
+    const [newApplications, expiringJobs, zeroApplicantJobs, draftJobs] =
+      await Promise.all([
+        prisma.jobApplication.count({
+          where: { job: { recruiterId }, status: 'APPLIED' },
+        }),
+        prisma.job.findMany({
+          where: {
+            recruiterId,
+            status: JobStatus.ACTIVE,
+            closingDate: { lte: threeDaysFromNow, gte: now },
+          },
+          take: 5,
+          orderBy: { closingDate: 'asc' },
+        }),
+        prisma.job.count({
+          where: {
+            recruiterId,
+            status: JobStatus.ACTIVE,
+            applications: { none: {} },
+          },
+        }),
+        prisma.job.count({ where: { recruiterId, status: JobStatus.DRAFT } }),
+      ]);
+
+    const notifications = [
+      {
+        id: 'recruiter-announcement',
+        type: 'announcement',
+        severity: 'info',
+        title: 'Recruiter Dashboard Update',
+        message:
+          'Candidate matching, job action items, and notifications are connected to your live jobs.',
+        createdAt: new Date(),
+      },
+      newApplications > 0
+        ? {
+            id: 'new-applications',
+            type: 'success',
+            severity: 'success',
+            title: 'New Applications',
+            message: `${newApplications} applicants are waiting for review.`,
+            createdAt: new Date(),
+          }
+        : null,
+      zeroApplicantJobs > 0
+        ? {
+            id: 'zero-applicant-jobs',
+            type: 'warning',
+            severity: 'warning',
+            title: 'Jobs Need Attention',
+            message: `${zeroApplicantJobs} active jobs have no applicants yet.`,
+            createdAt: new Date(),
+          }
+        : null,
+      draftJobs > 0
+        ? {
+            id: 'draft-jobs',
+            type: 'info',
+            severity: 'info',
+            title: 'Draft Jobs',
+            message: `${draftJobs} draft jobs are ready to complete or publish.`,
+            createdAt: new Date(),
+          }
+        : null,
+      ...expiringJobs.map((job) => ({
+        id: `expiring-${job.id}`,
+        type: 'warning',
+        severity: 'warning',
+        title: 'Job Expiring Soon',
+        message: `"${job.title}" expires soon. Renew it to keep receiving applications.`,
+        createdAt: new Date(),
+      })),
+    ].filter(Boolean);
+
+    res.status(200).json({
+      status: 'success',
+      results: notifications.length,
+      data: { notifications },
+    });
+  },
+);

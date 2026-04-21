@@ -101,5 +101,9 @@ router.get('/action-items', trainerDashboardController.getTrainingActionItems);
  *                     status: "ACTIVE"
  */
 router.get('/courses', trainerDashboardController.getTrainingCoursesOverview);
+router.get(
+  '/notifications',
+  trainerDashboardController.getTrainingNotifications,
+);
 
 export default router;
