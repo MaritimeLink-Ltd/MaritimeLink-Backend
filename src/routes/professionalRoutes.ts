@@ -384,6 +384,20 @@ router.patch('/reset-password/:token', authController.resetPassword);
  */
 router.patch('/update-password', protect, authController.updatePassword);
 
+router.get('/me', protect, authController.getMyAccount);
+router.patch('/availability', protect, authController.updateAvailability);
+router.post('/feedback', protect, authController.submitFeedback);
+router.get('/membership', protect, authController.getMembership);
+router.patch('/membership', protect, authController.updateMembership);
+router.patch(
+  '/profile-photo',
+  protect,
+  upload.single('photo'),
+  authController.updateMyProfilePhoto,
+);
+router.delete('/profile-photo', protect, authController.deleteMyProfilePhoto);
+router.delete('/account', protect, authController.deleteMyAccount);
+
 /**
  * @swagger
  * /api/professional/documents/upload:

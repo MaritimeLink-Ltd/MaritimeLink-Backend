@@ -192,6 +192,213 @@ export const uploadProfilePhoto = catchAsync(
   },
 );
 
+export const updateMyProfilePhoto = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const professionalId = req.user?.id;
+    const file = req.file;
+
+    if (!professionalId) {
+      return next(new AppError('Professional ID is required', 400));
+    }
+
+    if (!file) {
+      return next(new AppError('Please upload a profile photo', 400));
+    }
+
+    const sanitizedOriginalName = file.originalname.replace(
+      /[^a-zA-Z0-9.]/g,
+      '_',
+    );
+    const fileName = `profile-photos/${professionalId}-${Date.now()}-${sanitizedOriginalName}`;
+    const publicUrl = await uploadToSupabase(file, fileName);
+
+    await prisma.professional.update({
+      where: { id: professionalId },
+      data: {
+        profilePhotoUrl: publicUrl,
+      },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Profile photo updated successfully.',
+      data: {
+        url: publicUrl,
+        profilePhotoUrl: publicUrl,
+      },
+    });
+  },
+);
+
+export const deleteMyProfilePhoto = catchAsync(
+  async (req: CustomRequest, res: Response) => {
+    const professional = await prisma.professional.update({
+      where: { id: req.user?.id },
+      data: { profilePhotoUrl: null },
+      select: {
+        id: true,
+        profilePhotoUrl: true,
+      },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Profile photo deleted successfully.',
+      data: { professional },
+    });
+  },
+);
+
+export const getMyAccount = catchAsync(
+  async (req: CustomRequest, res: Response) => {
+    const professional = await prisma.professional.findUnique({
+      where: { id: req.user?.id },
+      select: {
+        id: true,
+        firstName: true,
+        middleName: true,
+        lastName: true,
+        fullname: true,
+        email: true,
+        profession: true,
+        subcategory: true,
+        profilePhotoUrl: true,
+        status: true,
+        tier: true,
+        availableForWork: true,
+        membershipUpdatedAt: true,
+        createdAt: true,
+      },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      data: { professional },
+    });
+  },
+);
+
+export const updateAvailability = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const { availableForWork } = req.body;
+
+    if (typeof availableForWork !== 'boolean') {
+      return next(new AppError('availableForWork must be true or false', 400));
+    }
+
+    const professional = await prisma.professional.update({
+      where: { id: req.user?.id },
+      data: { availableForWork },
+      select: {
+        id: true,
+        availableForWork: true,
+      },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Availability updated successfully.',
+      data: { professional },
+    });
+  },
+);
+
+export const submitFeedback = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const message =
+      typeof req.body.message === 'string' ? req.body.message.trim() : '';
+
+    if (!message) {
+      return next(new AppError('Feedback message is required', 400));
+    }
+
+    const feedback = await prisma.professionalFeedback.create({
+      data: {
+        professionalId: req.user!.id,
+        message,
+      },
+    });
+
+    res.status(201).json({
+      status: 'success',
+      message: 'Feedback submitted successfully.',
+      data: { feedback },
+    });
+  },
+);
+
+export const getMembership = catchAsync(
+  async (req: CustomRequest, res: Response) => {
+    const professional = await prisma.professional.findUnique({
+      where: { id: req.user?.id },
+      select: {
+        tier: true,
+        membershipUpdatedAt: true,
+      },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        membership: {
+          tier: professional?.tier ?? 'FREE',
+          membershipUpdatedAt: professional?.membershipUpdatedAt ?? null,
+          plans: [
+            { id: 'FREE', name: 'Free', price: 0, interval: 'month' },
+            {
+              id: 'PRO',
+              name: 'Maritime Premium',
+              price: 19.99,
+              interval: 'month',
+            },
+          ],
+        },
+      },
+    });
+  },
+);
+
+export const updateMembership = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const tier = req.body.tier || req.body.planId;
+
+    if (!['FREE', 'PRO'].includes(tier)) {
+      return next(new AppError('Membership tier must be FREE or PRO', 400));
+    }
+
+    const professional = await prisma.professional.update({
+      where: { id: req.user?.id },
+      data: {
+        tier,
+        membershipUpdatedAt: new Date(),
+      },
+      select: {
+        tier: true,
+        membershipUpdatedAt: true,
+      },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Membership updated successfully.',
+      data: { membership: professional },
+    });
+  },
+);
+
+export const deleteMyAccount = catchAsync(
+  async (req: CustomRequest, res: Response) => {
+    await prisma.professional.delete({
+      where: { id: req.user?.id },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Professional account deleted successfully.',
+    });
+  },
+);
+
 /**
  * Step 5: Select Role (Subcategory)
  */

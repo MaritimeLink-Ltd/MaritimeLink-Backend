@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client-js"
   output   = "../src/generated/client"
@@ -14,45 +8,730 @@ datasource db {
 }
 
 model Professional {
-  id            String    @id @default(uuid())
-  firstName     String?
-  middleName    String?
-  lastName      String?
-  fullname      String?   // Keeping as optional for backward compatibility
-  email         String    @unique
-  password      String
-  profession    JobCategory?
-  subcategory   String?   // e.g., "Deck Officer" (Role)
-  profilePhotoUrl String?
-  idPassportUrl String?
-  bio           String?
-  isVerified    Boolean   @default(false)
-  registrationStep Int    @default(1)
-  otpCode       String?
-  otpExpiresAt  DateTime?
-  
+  id                   String                 @id @default(uuid())
+  fullname             String?
+  email                String                 @unique
+  password             String
+  profession           JobCategory?
+  idPassportUrl        String?
+  bio                  String?
+  isVerified           Boolean                @default(false)
+  otpCode              String?
+  otpExpiresAt         DateTime?
   passwordResetToken   String?
   passwordResetExpires DateTime?
-  
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
   cvUrl                String?
-  lastCoverLetter      String?   @db.Text
+  lastCoverLetter      String?
+  firstName            String?
+  lastName             String?
+  middleName           String?
+  profilePhotoUrl      String?
+  registrationStep     Int                    @default(1)
+  subcategory          String?
+  lastActive           DateTime               @default(now())
+  status               ProfessionalStatus     @default(PENDING)
+  tier                 UserTier               @default(FREE)
+  availableForWork     Boolean                @default(false)
+  membershipUpdatedAt  DateTime?
+  alerts               Alert[]
+  conversations        Conversation[]
+  bookings             CourseBooking[]
+  applications         JobApplication[]
+  invitations          JobInvitation[]
+  documents            ProfessionalDocument[]
+  feedback             ProfessionalFeedback[]
+  kyc                  ProfessionalKyc?
+  resume               ProfessionalResume?
+  savedCourses         SavedCourse[]
+  savedJobs            SavedJob[]
+}
 
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  status        ProfessionalStatus @default(PENDING)
-  tier          UserTier           @default(FREE)
-  lastActive    DateTime           @default(now())
+model ProfessionalFeedback {
+  id             String       @id @default(uuid())
+  professionalId String
+  message        String
+  createdAt      DateTime     @default(now())
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
 
-  resume        ProfessionalResume?
-  savedJobs     SavedJob[]
-  savedCourses  SavedCourse[]
-  conversations Conversation[]
-  kyc           ProfessionalKyc?
-  documents     ProfessionalDocument[]
-  bookings      CourseBooking[]
-  applications  JobApplication[]
-  alerts        Alert[]
-  invitations   JobInvitation[]
+  @@map("professional_feedback")
+}
+
+model Recruiter {
+  id                                 String          @id @default(uuid())
+  email                              String          @unique
+  password                           String
+  role                               RecruiterRole
+  isVerified                         Boolean         @default(false)
+  otpCode                            String?
+  otpExpiresAt                       DateTime?
+  passwordResetToken                 String?
+  passwordResetExpires               DateTime?
+  organizationName                   String?
+  address                            String?
+  website                            String?
+  orgEmail                           String?
+  idPassportUrl                      String?
+  status                             RecruiterStatus @default(PENDING)
+  createdAt                          DateTime        @default(now())
+  updatedAt                          DateTime        @updatedAt
+  companyCity                        String?
+  companyCountry                     String?
+  companyLinkedIn                    String?
+  companyState                       String?
+  companyZip                         String?
+  firstName                          String?
+  lastName                           String?
+  middleName                         String?
+  otherRole                          String?
+  personalRole                       String?
+  phoneNumber                        String?
+  phoneOtpCode                       String?
+  phoneOtpExpiresAt                  DateTime?
+  phoneVerified                      Boolean         @default(false)
+  registrationStep                   Int             @default(1)
+  agreedToTerms                      Boolean         @default(false)
+  howDidYouHear                      String?
+  isAuthorized                       Boolean         @default(false)
+  phoneCode                          String?
+  companyLogo                        String?
+  lastActive                         DateTime        @default(now())
+  tier                               UserTier        @default(FREE)
+  companyId                          String?
+  stripeAccountId                    String?
+  stripeOnboardingComplete           Boolean         @default(false)
+  profilePhotoUrl                    String?
+  organizationRiskLevel              KycRiskLevel?
+  organizationVerificationData       Json?
+  organizationVerificationDecision   String?
+  organizationVerificationSelectedAt DateTime?
+  organizationVerificationSource     String?
+  organizationVerified               Boolean?
+  company                            Company?        @relation(fields: [companyId], references: [id])
+  companyMember                      CompanyMember?
+  conversations                      Conversation[]
+  courses                            Course[]
+  jobs                               Job[]
+  kyc                                RecruiterKyc?
+}
+
+model Company {
+  id                  String                @id @default(uuid())
+  name                String
+  domain              String?               @unique
+  type                RecruiterRole
+  logoUrl             String?
+  address             String?
+  city                String?
+  state               String?
+  zip                 String?
+  country             String?
+  website             String?
+  email               String?
+  linkedIn            String?
+  isClaimed           Boolean               @default(false)
+  isVerified          Boolean               @default(false)
+  tier                UserTier              @default(FREE)
+  claimDate           DateTime?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  lastActive          DateTime              @default(now())
+  recruiters          Recruiter[]
+  members             CompanyMember[]
+  mergeRequestsSource CompanyMergeRequest[] @relation("SourceCompany")
+  mergeRequestsTarget CompanyMergeRequest[] @relation("TargetCompany")
+  courses             Course[]
+  jobs                Job[]
+
+  @@map("companies")
+}
+
+model CompanyMember {
+  id          String            @id @default(uuid())
+  companyId   String
+  recruiterId String            @unique
+  role        CompanyMemberRole @default(RECRUITER)
+  status      String            @default("ACTIVE")
+  joinedAt    DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+  company     Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  recruiter   Recruiter         @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, recruiterId])
+  @@map("company_members")
+}
+
+model CompanyMergeRequest {
+  id              String             @id @default(uuid())
+  sourceCompanyId String
+  targetCompanyId String
+  requestedById   String
+  status          MergeRequestStatus @default(PENDING)
+  reason          String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  sourceCompany   Company            @relation("SourceCompany", fields: [sourceCompanyId], references: [id])
+  targetCompany   Company            @relation("TargetCompany", fields: [targetCompanyId], references: [id])
+
+  @@map("company_merge_requests")
+}
+
+model ProfessionalResume {
+  id                  String                           @id @default(uuid())
+  professionalId      String                           @unique
+  category            JobCategory?
+  subcategory         String?
+  address             String?
+  city                String?
+  state               String?
+  postcode            String?
+  country             String?
+  phoneCode           String?
+  phoneNumber         String?
+  emailAddress        String?
+  dateOfBirth         DateTime?
+  summary             String?
+  gender              String?
+  height              Float?
+  weight              Float?
+  bmi                 Float?
+  eyeColor            String?
+  overallSize         String?
+  shoeSize            String?
+  createdAt           DateTime                         @default(now())
+  updatedAt           DateTime                         @updatedAt
+  education           ProfessionalEducation[]
+  licenses            ProfessionalLicense[]
+  medicalCertificates ProfessionalMedicalCertificate[]
+  nextOfKin           ProfessionalNextOfKin[]
+  referees            ProfessionalReferee[]
+  professional        Professional                     @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  seaService          ProfessionalSeaServiceLog[]
+  skills              ProfessionalSkill[]
+  stcwCertificates    ProfessionalSTCWCertificate[]
+  travelDocuments     ProfessionalTravelDocument[]
+
+  @@map("professional_resumes")
+}
+
+model ProfessionalSkill {
+  id        String             @id @default(uuid())
+  resumeId  String
+  skillName String
+  rating    Int?               @default(0)
+  resume    ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  @@map("professional_skills")
+}
+
+model ProfessionalLicense {
+  id            String             @id @default(uuid())
+  resumeId      String
+  name          String
+  number        String?
+  country       String?
+  issueDate     DateTime?
+  expiryDate    DateTime?
+  isEndorsement Boolean?           @default(false)
+  isCertificate Boolean?           @default(false)
+  resume        ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  @@map("professional_licenses")
+}
+
+model ProfessionalSeaServiceLog {
+  id          String             @id @default(uuid())
+  resumeId    String
+  companyName String
+  role        String?
+  vesselName  String?
+  imoNumber   String?
+  flag        String?
+  vesselType  String?
+  dwt         String?
+  meType      String?
+  kwtType     String?
+  joiningDate DateTime?
+  tillDate    DateTime?
+  resume      ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  @@map("professional_sea_service_logs")
+}
+
+model ProfessionalEducation {
+  id                String             @id @default(uuid())
+  resumeId          String
+  qualificationName String
+  institution       String?
+  grade             String?
+  startDate         DateTime?
+  endDate           DateTime?
+  city              String?
+  country           String?
+  resume            ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  @@map("professional_educations")
+}
+
+model ProfessionalSTCWCertificate {
+  id                String             @id @default(uuid())
+  resumeId          String
+  qualification     String
+  certificateNumber String?
+  issuingCountry    String?
+  issueDate         DateTime?
+  expiryDate        DateTime?
+  resume            ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  @@map("professional_stcw_certs")
+}
+
+model ProfessionalMedicalCertificate {
+  id                 String             @id @default(uuid())
+  resumeId           String
+  name               String
+  certificateNumber  String?
+  issuingCountry     String?
+  issueDate          DateTime?
+  expiryDate         DateTime?
+  city               String?
+  documentNumber     String?
+  institutionCountry String?
+  resume             ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  @@map("professional_medical_certs")
+}
+
+model ProfessionalTravelDocument {
+  id                 String             @id @default(uuid())
+  resumeId           String
+  name               String
+  documentNumber     String?
+  issuingCountry     String?
+  issueDate          DateTime?
+  expiryDate         DateTime?
+  city               String?
+  institutionCountry String?
+  resume             ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  @@map("professional_travel_docs")
+}
+
+model ProfessionalNextOfKin {
+  id           String             @id @default(uuid())
+  resumeId     String
+  name         String
+  relationship String?
+  countryCode  String?
+  phoneNumber  String?
+  email        String?
+  resume       ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  @@map("professional_next_of_kin")
+}
+
+model ProfessionalReferee {
+  id          String             @id @default(uuid())
+  resumeId    String
+  name        String
+  position    String?
+  countryCode String?
+  phoneNumber String?
+  email       String?
+  companyName String?
+  resume      ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
+  @@map("professional_referees")
+}
+
+model Admin {
+  id                   String        @id @default(uuid())
+  email                String        @unique
+  password             String
+  role                 AdminRole     @default(SUPER_ADMIN)
+  passwordResetToken   String?
+  passwordResetExpires DateTime?
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+  caseNotes            CaseNote[]
+  courses              Course[]
+  jobs                 Job[]
+  kycNotes             KycNote[]
+  assignedCases        SupportCase[] @relation("AssignedCases")
+
+  @@map("admins")
+}
+
+model Job {
+  id           String           @id @default(uuid())
+  title        String
+  location     String
+  category     JobCategory
+  contractType JobType
+  salary       String
+  description  String
+  recruiterId  String?
+  adminId      String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  isFlagged    Boolean          @default(false)
+  status       JobStatus        @default(ACTIVE)
+  companyId    String?
+  riskLevel    KycRiskLevel     @default(LOW)
+  closingDate  DateTime?
+  applications JobApplication[]
+  invitations  JobInvitation[]
+  admin        Admin?           @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  company      Company?         @relation(fields: [companyId], references: [id])
+  recruiter    Recruiter?       @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
+  savedBy      SavedJob[]
+
+  @@map("jobs")
+}
+
+model JobApplication {
+  id                String                 @id @default(uuid())
+  jobId             String
+  professionalId    String
+  status            ApplicationStatus      @default(APPLIED)
+  coverLetter       String?
+  resumeSnapshot    Json?
+  createdAt         DateTime               @default(now())
+  updatedAt         DateTime               @updatedAt
+  cvUrl             String?
+  coverLetterUrl    String?
+  job               Job                    @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  professional      Professional           @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  attachedDocuments ProfessionalDocument[] @relation("ApplicationDocuments")
+
+  @@unique([jobId, professionalId])
+  @@index([status])
+  @@map("job_applications")
+}
+
+model SavedJob {
+  id             String       @id @default(uuid())
+  professionalId String
+  jobId          String
+  createdAt      DateTime     @default(now())
+  job            Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@unique([professionalId, jobId])
+  @@map("saved_jobs")
+}
+
+model Course {
+  id                    String          @id @default(uuid())
+  title                 String
+  location              String?
+  category              String
+  contractType          String?
+  description           String
+  recruiterId           String?
+  adminId               String?
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+  currency              String          @default("GBP")
+  price                 Decimal         @db.Decimal(10, 2)
+  stripePriceId         String?
+  stripeProductId       String?
+  capacity              Int?
+  certificationProvided String?
+  courseType            CourseType      @default(INTERNAL)
+  curriculum            String?
+  enrolledCount         Int             @default(0)
+  externalUrl           String?
+  flagReason            String?
+  isFlagged             Boolean         @default(false)
+  requirements          String?
+  status                CourseStatus    @default(ACTIVE)
+  duration              String?
+  issuingAuthority      String?
+  trainingType          String?
+  companyId             String?
+  riskLevel             KycRiskLevel    @default(LOW)
+  bookings              CourseBooking[]
+  sessions              CourseSession[]
+  admin                 Admin?          @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  company               Company?        @relation(fields: [companyId], references: [id])
+  recruiter             Recruiter?      @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
+  savedBy               SavedCourse[]
+
+  @@map("courses")
+}
+
+model CourseSession {
+  id                 String          @id @default(uuid())
+  courseId           String
+  startDate          DateTime
+  endDate            DateTime
+  startTime          String?
+  endTime            String?
+  location           String
+  instructor         String?
+  totalSeats         Int
+  availableSeats     Int
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  enrollmentDeadline DateTime?
+  course             Course          @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  bookings           CourseBooking[] @relation("BookingSessions")
+
+  @@map("course_sessions")
+}
+
+model CourseBooking {
+  id                    String                 @id @default(uuid())
+  professionalId        String
+  courseId              String
+  bookingStatus         BookingStatus          @default(PENDING)
+  paymentStatus         PaymentStatus          @default(PENDING)
+  stripePaymentIntentId String?                @unique
+  stripeSessionId       String?                @unique
+  amountPaid            Decimal                @db.Decimal(10, 2)
+  currency              String                 @default("GBP")
+  bookedAt              DateTime               @default(now())
+  paidAt                DateTime?
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+  platformFee           Decimal?               @db.Decimal(10, 2)
+  trainerPayout         Decimal?               @db.Decimal(10, 2)
+  course                Course                 @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  professional          Professional           @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  attachedDocuments     ProfessionalDocument[] @relation("BookingDocuments")
+  sessions              CourseSession[]        @relation("BookingSessions")
+
+  @@map("course_bookings")
+}
+
+model SavedCourse {
+  id             String       @id @default(uuid())
+  professionalId String
+  courseId       String
+  createdAt      DateTime     @default(now())
+  course         Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@unique([professionalId, courseId])
+  @@map("saved_courses")
+}
+
+model Conversation {
+  id             String       @id @default(uuid())
+  professionalId String
+  recruiterId    String
+  lastMessageAt  DateTime     @default(now())
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  recruiter      Recruiter    @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
+  messages       Message[]
+
+  @@unique([professionalId, recruiterId])
+  @@index([professionalId])
+  @@index([recruiterId])
+  @@index([lastMessageAt])
+  @@map("conversations")
+}
+
+model Message {
+  id             String        @id @default(uuid())
+  conversationId String
+  senderType     MessageSender
+  senderId       String
+  content        String
+  isRead         Boolean       @default(false)
+  readAt         DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@index([isRead])
+  @@map("messages")
+}
+
+model RecruiterKyc {
+  id               String          @id @default(uuid())
+  recruiterId      String          @unique
+  firstName        String
+  lastName         String
+  dateOfBirth      DateTime
+  documentType     KYCDocumentType
+  documentNumber   String
+  expiryDate       DateTime
+  issueCountry     String
+  documentUrl      String?
+  selfieUrl        String?
+  status           RecruiterStatus @default(PENDING)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  mismatchDetails  String?
+  mismatchDetected Boolean         @default(false)
+  ocrConfidence    Float?
+  reviewStep       Int             @default(3)
+  riskLevel        KycRiskLevel    @default(LOW)
+  documentBackUrl  String?
+  documentFrontUrl String?
+  notes            KycNote[]
+  recruiter        Recruiter       @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
+
+  @@map("recruiter_kyc")
+}
+
+model ProfessionalKyc {
+  id               String          @id @default(uuid())
+  professionalId   String          @unique
+  firstName        String
+  lastName         String
+  dateOfBirth      DateTime
+  documentType     KYCDocumentType
+  documentNumber   String
+  expiryDate       DateTime
+  issueCountry     String
+  selfieUrl        String?
+  status           RecruiterStatus @default(PENDING)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  mismatchDetails  String?
+  mismatchDetected Boolean         @default(false)
+  ocrConfidence    Float?
+  reviewStep       Int             @default(3)
+  riskLevel        KycRiskLevel    @default(LOW)
+  documentBackUrl  String?
+  documentFrontUrl String?
+  notes            KycNote[]
+  professional     Professional    @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@map("professional_kyc")
+}
+
+model KycNote {
+  id                String           @id @default(uuid())
+  content           String
+  adminId           String
+  professionalKycId String?
+  recruiterKycId    String?
+  createdAt         DateTime         @default(now())
+  admin             Admin            @relation(fields: [adminId], references: [id])
+  professionalKyc   ProfessionalKyc? @relation(fields: [professionalKycId], references: [id], onDelete: Cascade)
+  recruiterKyc      RecruiterKyc?    @relation(fields: [recruiterKycId], references: [id], onDelete: Cascade)
+
+  @@map("kyc_notes")
+}
+
+model ProfessionalDocument {
+  id                 String             @id @default(uuid())
+  professionalId     String
+  category           DocumentCategory
+  name               String
+  number             String?
+  issuingCountry     String?
+  issueDate          DateTime?
+  expiryDate         DateTime?
+  fileUrl            String
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  mimeType           String?
+  ocrData            Json?
+  ocrStatus          OCRStatus          @default(PENDING)
+  verificationStatus VerificationStatus @default(PENDING)
+  professional       Professional       @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  jobApplications    JobApplication[]   @relation("ApplicationDocuments")
+  courseBookings     CourseBooking[]    @relation("BookingDocuments")
+
+  @@map("professional_documents")
+}
+
+model ActivityLog {
+  id         String       @id @default(uuid())
+  action     String
+  actorId    String
+  actorType  ActorType
+  targetId   String?
+  targetType String?
+  ipAddress  String?
+  userAgent  String?
+  status     ActionStatus
+  metadata   Json?
+  createdAt  DateTime     @default(now())
+
+  @@index([createdAt])
+  @@index([actorId])
+  @@index([action])
+  @@map("activity_logs")
+}
+
+model SupportCase {
+  id           String       @id @default(uuid())
+  caseId       String       @unique
+  subject      String
+  description  String
+  priority     CasePriority @default(MEDIUM)
+  status       CaseStatus   @default(OPEN)
+  category     String
+  userId       String?
+  userType     ActorType?
+  assignedToId String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  notes        CaseNote[]
+  assignedTo   Admin?       @relation("AssignedCases", fields: [assignedToId], references: [id])
+
+  @@index([status])
+  @@index([priority])
+  @@index([userId])
+  @@map("support_cases")
+}
+
+model CaseNote {
+  id          String      @id @default(uuid())
+  caseId      String
+  adminId     String?
+  content     String
+  isInternal  Boolean     @default(true)
+  createdAt   DateTime    @default(now())
+  authorId    String?
+  admin       Admin?      @relation(fields: [adminId], references: [id])
+  supportCase SupportCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@map("case_notes")
+}
+
+model Alert {
+  id             String       @id @default(uuid())
+  professionalId String
+  type           String
+  title          String
+  message        String
+  isRead         Boolean      @default(false)
+  readAt         DateTime?
+  metadata       Json?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@index([professionalId])
+  @@index([isRead])
+  @@index([createdAt])
+  @@map("alerts")
+}
+
+model JobInvitation {
+  id             String           @id @default(uuid())
+  jobId          String
+  professionalId String
+  recruiterId    String
+  status         InvitationStatus @default(PENDING)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  job            Job              @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  professional   Professional     @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@unique([jobId, professionalId])
+  @@map("job_invitations")
 }
 
 enum JobCategory {
@@ -146,339 +825,22 @@ enum PaymentStatus {
 }
 
 enum CourseType {
-  INTERNAL  // Posted by training providers on platform
-  EXTERNAL  // Manually added by admins, redirects to external URL
+  INTERNAL
+  EXTERNAL
 }
 
 enum CourseStatus {
-  DRAFT      // Not published yet
-  ACTIVE     // Published and accepting bookings
-  FULL       // Capacity reached
-  COMPLETED  // Course finished
-  CANCELLED  // Course cancelled
-  REMOVED    // Removed by admin
-}
-
-model Recruiter {
-  id               String          @id @default(uuid())
-  firstName         String?
-  middleName        String?
-  lastName          String?
-  email            String          @unique
-  password         String
-  role             RecruiterRole
-  
-  phoneCode         String?
-  phoneNumber       String?
-  phoneVerified    Boolean         @default(false)
-  phoneOtpCode      String?
-  phoneOtpExpiresAt DateTime?
-
-  isVerified      Boolean         @default(false)
-  otpCode         String?
-  otpExpiresAt    DateTime?
-  
-  passwordResetToken   String?
-  passwordResetExpires DateTime?
-
-  personalRole     String?         // From "Tell Us About Yourself" step
-  otherRole        String?         // If "Other" role is selected
-  
-  registrationStep Int             @default(1)
-
-  // Compliance & Trust (Step 6)
-  isAuthorized     Boolean         @default(false)
-  agreedToTerms    Boolean         @default(false)
-  howDidYouHear    String?
-
-  // Organizational Details (Step 5)
-  organizationName String?
-  address          String?
-  companyCity      String?
-  companyState     String?
-  companyZip       String?
-  companyLogo      String?         // Added for Company Preview feature
-  profilePhotoUrl  String?
-  idPassportUrl    String?
-  companyCountry   String?
-  website          String?
-  companyLinkedIn  String?
-  orgEmail         String?
-
-
-  stripeAccountId        String?
-  stripeOnboardingComplete Boolean @default(false)
-  
-  status           RecruiterStatus @default(PENDING)
-  tier             UserTier        @default(FREE)
-  lastActive       DateTime        @default(now())
-  
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
-
-  kyc              RecruiterKyc?
-  jobs             Job[]
-  courses          Course[]
-  conversations    Conversation[]
-
-  companyId        String?
-  company          Company?        @relation(fields: [companyId], references: [id])
-  companyMember    CompanyMember?
-}
-
-model Company {
-  id               String          @id @default(uuid())
-  name             String
-  domain           String?         @unique
-  type             RecruiterRole
-  logoUrl          String?
-  
-  // Contact & Location
-  address          String?
-  city             String?
-  state            String?
-  zip              String?
-  country          String?
-  website          String?
-  email            String?
-  linkedIn         String?
-  
-  isClaimed        Boolean         @default(false)
-  isVerified       Boolean         @default(false)
-  tier             UserTier        @default(FREE)
-  claimDate        DateTime?
-  
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
-  lastActive       DateTime        @default(now())
-
-  members          CompanyMember[]
-  recruiters       Recruiter[]
-  jobs             Job[]
-  courses          Course[]
-  
-  mergeRequestsSource CompanyMergeRequest[] @relation("SourceCompany")
-  mergeRequestsTarget CompanyMergeRequest[] @relation("TargetCompany")
-
-  @@map("companies")
-}
-
-model CompanyMember {
-  id               String          @id @default(uuid())
-  companyId        String
-  company          Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  
-  recruiterId      String          @unique
-  recruiter        Recruiter       @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
-  
-  role             CompanyMemberRole @default(RECRUITER)
-  status           String            @default("ACTIVE") // ACTIVE, PENDING
-  
-  joinedAt         DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
-
-  @@unique([companyId, recruiterId])
-  @@map("company_members")
-}
-
-model CompanyMergeRequest {
-  id               String             @id @default(uuid())
-  sourceCompanyId  String
-  sourceCompany    Company            @relation("SourceCompany", fields: [sourceCompanyId], references: [id])
-  targetCompanyId  String
-  targetCompany    Company            @relation("TargetCompany", fields: [targetCompanyId], references: [id])
-  
-  requestedById    String
-  status           MergeRequestStatus @default(PENDING)
-  reason           String?            @db.Text
-  
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
-
-  @@map("company_merge_requests")
+  DRAFT
+  ACTIVE
+  FULL
+  COMPLETED
+  CANCELLED
+  REMOVED
 }
 
 enum MessageSender {
   PROFESSIONAL
   RECRUITER
-}
-model ProfessionalResume {
-  id                  String   @id @default(uuid())
-  professionalId      String   @unique
-  professional        Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
-
-  // Category info
-  category            JobCategory?
-  subcategory         String?
-
-  // Personal Info
-  address             String?
-  city                String?
-  state               String?
-  postcode            String?
-  country             String?
-  phoneCode           String?
-  phoneNumber         String?
-  emailAddress        String?
-  dateOfBirth        DateTime?
-
-  // Professional Summary
-  summary             String?  @db.Text
-
-  // Biometrics
-  gender              String?
-  height              Float?
-  weight              Float?
-  bmi                 Float?
-  eyeColor            String?
-  overallSize         String?
-  shoeSize            String?
-
-  // Relations
-  skills              ProfessionalSkill[]
-  licenses            ProfessionalLicense[]
-  seaService          ProfessionalSeaServiceLog[]
-  education           ProfessionalEducation[]
-  stcwCertificates    ProfessionalSTCWCertificate[]
-  medicalCertificates ProfessionalMedicalCertificate[]
-  travelDocuments     ProfessionalTravelDocument[]
-  nextOfKin           ProfessionalNextOfKin[]
-  referees            ProfessionalReferee[]
-
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
-
-  @@map("professional_resumes")
-}
-
-model ProfessionalSkill {
-  id               String             @id @default(uuid())
-  resumeId         String
-  resume           ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
-  skillName        String
-  rating           Int?               @default(0)
-
-  @@map("professional_skills")
-}
-
-model ProfessionalLicense {
-  id               String             @id @default(uuid())
-  resumeId         String
-  resume           ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
-  name             String
-  number           String?
-  country          String?
-  issueDate        DateTime?
-  expiryDate       DateTime?
-  isEndorsement    Boolean?           @default(false)
-  isCertificate    Boolean?           @default(false)
-
-  @@map("professional_licenses")
-}
-
-model ProfessionalSeaServiceLog {
-  id               String             @id @default(uuid())
-  resumeId         String
-  resume           ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
-  companyName      String
-  role             String?
-  vesselName       String?
-  imoNumber        String?
-  flag             String?
-  vesselType       String?
-  dwt              String?
-  meType           String?
-  kwtType          String?
-  joiningDate      DateTime?
-  tillDate         DateTime?
-
-  @@map("professional_sea_service_logs")
-}
-
-model ProfessionalEducation {
-  id               String             @id @default(uuid())
-  resumeId         String
-  resume           ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
-  qualificationName String
-  institution      String?
-  city             String?
-  country          String?
-  grade            String?
-  startDate        DateTime?
-  endDate          DateTime?
-
-  @@map("professional_educations")
-}
-
-model ProfessionalSTCWCertificate {
-  id               String             @id @default(uuid())
-  resumeId         String
-  resume           ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
-  qualification    String
-  certificateNumber String?
-  issuingCountry   String?
-  issueDate        DateTime?
-  expiryDate       DateTime?
-
-  @@map("professional_stcw_certs")
-}
-
-model ProfessionalMedicalCertificate {
-  id               String             @id @default(uuid())
-  resumeId         String
-  resume           ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
-  name             String
-  certificateNumber String? // Legacy field, keeping for compatibility
-  documentNumber   String?
-  issuingCountry   String?
-  city             String?
-  institutionCountry String?
-  issueDate        DateTime?
-  expiryDate       DateTime?
-
-  @@map("professional_medical_certs")
-}
-
-model ProfessionalTravelDocument {
-  id               String             @id @default(uuid())
-  resumeId         String
-  resume           ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
-  name             String
-  documentNumber   String?
-  issuingCountry   String?
-  city             String?
-  institutionCountry String?
-  issueDate        DateTime?
-  expiryDate       DateTime?
-
-  @@map("professional_travel_docs")
-}
-
-model ProfessionalNextOfKin {
-  id               String             @id @default(uuid())
-  resumeId         String
-  resume           ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
-  name             String
-  relationship     String?
-  countryCode      String?
-  phoneNumber      String?
-  email            String?
-
-  @@map("professional_next_of_kin")
-}
-
-model ProfessionalReferee {
-  id               String             @id @default(uuid())
-  resumeId         String
-  resume           ProfessionalResume @relation(fields: [resumeId], references: [id], onDelete: Cascade)
-  name             String
-  position         String?
-  companyName      String?
-  countryCode      String?
-  phoneNumber      String?
-  email            String?
-
-  @@map("professional_referees")
 }
 
 enum AdminRole {
@@ -487,343 +849,15 @@ enum AdminRole {
   MODERATOR
 }
 
-model Admin {
-  id               String      @id @default(uuid())
-  email            String      @unique
-  password         String
-  role             AdminRole   @default(SUPER_ADMIN)
-  
-  passwordResetToken   String?
-  passwordResetExpires DateTime?
-
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
-
-  jobs             Job[]
-  courses          Course[]
-  
-  assignedCases    SupportCase[] @relation("AssignedCases")
-  caseNotes        CaseNote[]
-  kycNotes         KycNote[]
-
-   @@map("admins")
-}
-
-model Job {
-  id           String      @id @default(uuid())
-  title        String
-  location     String
-  category     JobCategory
-  contractType JobType
-  salary       String
-  description  String      @db.Text
-  
-  recruiterId  String?
-  recruiter    Recruiter?  @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
-  
-  adminId      String?
-  admin        Admin?      @relation(fields: [adminId], references: [id], onDelete: Cascade)
-
-  savedBy      SavedJob[]
-
-  isFlagged    Boolean     @default(false)
-  status       JobStatus   @default(ACTIVE)
-  riskLevel    KycRiskLevel @default(LOW)
-  closingDate   DateTime?
-  
-  applications JobApplication[]
-  invitations  JobInvitation[]
-
-  companyId    String?
-  company      Company?    @relation(fields: [companyId], references: [id])
-
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-
-  @@map("jobs")
-}
-
 enum ApplicationStatus {
   APPLIED
   UNDER_REVIEW
   SHORTLISTED
   INTERVIEW
   OFFER
-  HIRED
   REJECTED
   WITHDRAWN
-}
-
-model JobApplication {
-  id             String            @id @default(uuid())
-  jobId          String
-  job            Job               @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  
-  professionalId String
-  professional   Professional      @relation(fields: [professionalId], references: [id], onDelete: Cascade)
-  
-  status         ApplicationStatus @default(APPLIED)
-  coverLetter    String?           @db.Text
-  coverLetterUrl String?
-  cvUrl          String?
-  attachedDocuments ProfessionalDocument[] @relation("ApplicationDocuments")
-  
-  // Snapshot of resume at time of application (optional, but good practice)
-  resumeSnapshot Json?
-
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
-
-  @@unique([jobId, professionalId])
-  @@index([status])
-  @@map("job_applications")
-}
-
-model SavedJob {
-  id             String       @id @default(uuid())
-  professionalId String
-  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
-  jobId          String
-  job            Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  createdAt      DateTime     @default(now())
-
-  @@unique([professionalId, jobId])
-  @@map("saved_jobs")
-}
-
-model Course {
-  id           String      @id @default(uuid())
-  title        String
-  location     String?
-  category     String
-  contractType String?
-  description  String      @db.Text
-  price        Decimal     @db.Decimal(10, 2)
-  currency     String      @default("GBP")
-  stripeProductId String?
-  stripePriceId   String?
-  
-  // New fields for enhanced functionality
-  courseType          CourseType   @default(INTERNAL)
-  trainingType        String?      // Refresher, Upgrade, Initial, Other
-  issuingAuthority    String?
-  duration            String?
-  externalUrl         String?      // For EXTERNAL courses
-  status              CourseStatus @default(ACTIVE)
-  isFlagged           Boolean      @default(false)
-  riskLevel           KycRiskLevel @default(LOW)
-  flagReason          String?
-  capacity            Int?         // Total course capacity
-  enrolledCount       Int          @default(0)
-  certificationProvided String?    // Certificate type offered
-  curriculum          String?      @db.Text
-  requirements        String?      @db.Text
-  
-  recruiterId  String?
-  recruiter    Recruiter?  @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
-  
-  adminId      String?
-  admin        Admin?      @relation(fields: [adminId], references: [id], onDelete: Cascade)
-
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-
-  sessions     CourseSession[]
-  bookings     CourseBooking[]
-  savedBy      SavedCourse[]
-
-  companyId    String?
-  company      Company?    @relation(fields: [companyId], references: [id])
-
-  @@map("courses")
-}
-
-model CourseSession {
-  id               String   @id @default(uuid())
-  courseId         String
-  course           Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  
-  startDate          DateTime
-  endDate            DateTime
-  startTime          String?
-  endTime            String?
-  location           String
-  instructor         String?
-  totalSeats         Int
-  availableSeats     Int
-  enrollmentDeadline DateTime?
-
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-
-  bookings         CourseBooking[] @relation("BookingSessions")
-
-  @@map("course_sessions")
-}
-
-model CourseBooking {
-  id                    String         @id @default(uuid())
-  professionalId        String
-  professional          Professional   @relation(fields: [professionalId], references: [id], onDelete: Cascade)
-  
-  courseId              String
-  course                Course         @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  
-  sessions              CourseSession[] @relation("BookingSessions")
-  attachedDocuments     ProfessionalDocument[] @relation("BookingDocuments")
-  
-  bookingStatus         BookingStatus  @default(PENDING)
-  paymentStatus         PaymentStatus  @default(PENDING)
-  
-  stripePaymentIntentId String?        @unique
-  stripeSessionId       String?        @unique
-  
-  amountPaid            Decimal        @db.Decimal(10, 2)
-  currency              String         @default("GBP")
-  
-  // Revenue tracking (12% platform, 88% trainer)
-  platformFee           Decimal?       @db.Decimal(10, 2)
-  trainerPayout         Decimal?       @db.Decimal(10, 2)
-  
-  bookedAt              DateTime       @default(now())
-  paidAt                DateTime?
-  
-  createdAt             DateTime       @default(now())
-  updatedAt             DateTime       @updatedAt
-
-  @@map("course_bookings")
-}
-
-model SavedCourse {
-  id             String       @id @default(uuid())
-  professionalId String
-  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
-  courseId       String
-  course         Course       @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  createdAt      DateTime     @default(now())
-
-  @@unique([professionalId, courseId])
-  @@map("saved_courses")
-}
-
-model Conversation {
-  id                String   @id @default(uuid())
-  professionalId    String
-  professional      Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
-  recruiterId       String
-  recruiter         Recruiter @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
-  
-  lastMessageAt     DateTime @default(now())
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  
-  messages          Message[]
-  
-  @@unique([professionalId, recruiterId])
-  @@index([professionalId])
-  @@index([recruiterId])
-  @@index([lastMessageAt])
-  @@map("conversations")
-}
-
-model Message {
-  id              String        @id @default(uuid())
-  conversationId  String
-  conversation    Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  
-  senderType      MessageSender
-  senderId        String
-  content         String        @db.Text
-  
-  isRead          Boolean       @default(false)
-  readAt          DateTime?
-  
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  
-  @@index([conversationId, createdAt])
-  @@index([isRead])
-  @@map("messages")
-}
-
-model RecruiterKyc {
-  id               String          @id @default(uuid())
-  recruiterId      String          @unique
-  recruiter        Recruiter       @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
-  
-  firstName        String
-  lastName         String
-  dateOfBirth      DateTime
-  documentType     KYCDocumentType
-  documentNumber   String
-  expiryDate       DateTime
-  issueCountry     String
-  documentUrl      String?         // Legacy field
-  documentFrontUrl String?         // Individual Front side
-  documentBackUrl  String?         // Individual Back side
-  selfieUrl        String?
-  
-  status           RecruiterStatus @default(PENDING)
-  riskLevel        KycRiskLevel    @default(LOW)
-  ocrConfidence    Float?
-  mismatchDetected Boolean         @default(false)
-  mismatchDetails  String?
-  reviewStep       Int             @default(3) // 1: Account, 2: Uploaded, 3: Review, 4: Cleared
-  
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
-
-  notes            KycNote[]
-
-  @@map("recruiter_kyc")
-}
-
-model ProfessionalKyc {
-  id               String          @id @default(uuid())
-  professionalId   String          @unique
-  professional     Professional    @relation(fields: [professionalId], references: [id], onDelete: Cascade)
-  
-  firstName        String
-  lastName         String
-  dateOfBirth      DateTime
-  documentType     KYCDocumentType
-  documentNumber   String
-  expiryDate       DateTime
-  issueCountry     String
-  documentFrontUrl String?
-  documentBackUrl  String?
-  selfieUrl        String?
-  
-  status           RecruiterStatus @default(PENDING)
-  riskLevel        KycRiskLevel    @default(LOW)
-  ocrConfidence    Float?
-  mismatchDetected Boolean         @default(false)
-  mismatchDetails  String?
-  reviewStep       Int             @default(3)
-  
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
-
-  notes            KycNote[]
-
-  @@map("professional_kyc")
-}
-
-model KycNote {
-  id               String           @id @default(uuid())
-  content          String           @db.Text
-  adminId          String
-  admin            Admin            @relation(fields: [adminId], references: [id])
-  
-  professionalKycId String?
-  professionalKyc   ProfessionalKyc? @relation(fields: [professionalKycId], references: [id], onDelete: Cascade)
-  
-  recruiterKycId    String?
-  recruiterKyc      RecruiterKyc?    @relation(fields: [recruiterKycId], references: [id], onDelete: Cascade)
-  
-  createdAt        DateTime         @default(now())
-
-  @@map("kyc_notes")
+  HIRED
 }
 
 enum DocumentCategory {
@@ -836,34 +870,6 @@ enum DocumentCategory {
   RECENT_APPRAISALS
   CV_RESUME
   COVER_LETTER
-}
-
-model ProfessionalDocument {
-  id              String           @id @default(uuid())
-  professionalId  String
-  professional    Professional     @relation(fields: [professionalId], references: [id], onDelete: Cascade)
-  
-  category        DocumentCategory
-  name            String
-  number          String?
-  issuingCountry  String?
-  issueDate       DateTime?
-  expiryDate      DateTime?
-  fileUrl         String
-  mimeType        String?          // Helper regarding file type for Gemini
-  
-  // OCR & Verification
-  ocrData         Json?            // Extracted data from Gemini
-  ocrStatus       OCRStatus        @default(PENDING)
-  verificationStatus VerificationStatus @default(PENDING)
-  
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-
-  jobApplications JobApplication[] @relation("ApplicationDocuments")
-  courseBookings  CourseBooking[]  @relation("BookingDocuments")
-
-  @@map("professional_documents")
 }
 
 enum OCRStatus {
@@ -893,26 +899,6 @@ enum ActorType {
   SYSTEM
 }
 
-model ActivityLog {
-  id          String      @id @default(uuid())
-  action      String
-  actorId     String
-  actorType   ActorType
-  targetId    String?
-  targetType  String?
-  ipAddress   String?
-  userAgent   String?
-  status      ActionStatus
-  metadata    Json?
-  
-  createdAt   DateTime    @default(now())
-
-  @@map("activity_logs")
-  @@index([createdAt])
-  @@index([actorId])
-  @@index([action])
-}
-
 enum CasePriority {
   HIGH
   MEDIUM
@@ -924,86 +910,4 @@ enum CaseStatus {
   IN_PROGRESS
   RESOLVED
   CLOSED
-}
-
-model SupportCase {
-  id            String       @id @default(uuid()) // Internal UUID
-  caseId        String       @unique              // Human readable ID e.g. SC-1024
-  subject       String
-  description   String       @db.Text
-  priority      CasePriority @default(MEDIUM)
-  status        CaseStatus   @default(OPEN)
-  category      String
-  
-  userId        String?
-  userType      ActorType?   // RECRUITER or PROFESSIONAL
-  
-  assignedToId  String?
-  assignedTo    Admin?       @relation("AssignedCases", fields: [assignedToId], references: [id])
-  
-  notes         CaseNote[]
-  
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-
-  @@map("support_cases")
-  @@index([status])
-  @@index([priority])
-  @@index([userId])
-}
-
-model CaseNote {
-  id            String       @id @default(uuid())
-  caseId        String
-  supportCase   SupportCase  @relation(fields: [caseId], references: [id], onDelete: Cascade)
-  
-  adminId       String?
-  admin         Admin?       @relation(fields: [adminId], references: [id])
-  
-  // For user replies
-  authorId      String?      // Can be same as userId of the case
-  
-  content       String       @db.Text
-  isInternal    Boolean      @default(true)
-  
-  createdAt     DateTime     @default(now())
-
-  @@map("case_notes")
-}
-
-model Alert {
-  id             String       @id @default(uuid())
-  professionalId String
-  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
-  
-  type           String       // e.g., "CERTIFICATE_EXPIRY", "JOB_APPLICATION", "TRAINING_BOOKING", "MESSAGE"
-  title          String
-  message        String
-  isRead         Boolean      @default(false)
-  readAt         DateTime?
-  
-  metadata       Json?        // To store related entity IDs (jobId, bookingId, etc.)
-  
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime      @updatedAt
-
-  @@map("alerts")
-  @@index([professionalId])
-  @@index([isRead])
-  @@index([createdAt])
-}
-
-model JobInvitation {
-  id             String       @id @default(uuid())
-  jobId          String
-  job            Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  professionalId String
-  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
-  recruiterId    String
-  status         InvitationStatus @default(PENDING)
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-
-  @@unique([jobId, professionalId])
-  @@map("job_invitations")
 }

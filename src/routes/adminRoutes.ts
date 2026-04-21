@@ -878,6 +878,20 @@ router.get('/trainers', adminTrainerController.getTrainers);
 
 /**
  * @swagger
+ * /api/admin/trainers/payout-stats:
+ *   get:
+ *     summary: Get consolidated trainer payout statistics
+ *     tags: [Admin Payouts]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get(
+  '/trainers/payout-stats',
+  adminTrainerPayoutController.getTrainerPayoutStats,
+);
+
+/**
+ * @swagger
  * /api/admin/trainers/{id}:
  *   get:
  *     summary: Get single trainer details
@@ -936,20 +950,6 @@ router.get('/trainers/:id', adminTrainerController.getTrainerById);
 router.post(
   '/trainers/:id/initiate-stripe',
   adminTrainerPayoutController.initiateTrainerStripe,
-);
-
-/**
- * @swagger
- * /api/admin/trainers/payout-stats:
- *   get:
- *     summary: Get consolidated trainer payout statistics
- *     tags: [Admin Payouts]
- *     security:
- *       - bearerAuth: []
- */
-router.get(
-  '/trainers/payout-stats',
-  adminTrainerPayoutController.getTrainerPayoutStats,
 );
 
 /**
