@@ -404,38 +404,50 @@ export const approveAttendee = catchAsync(
       );
     }
 
-    // Update status to COMPLETED (signifies completion and payout trigger)
+    const platformFee = Number(booking.amountPaid) * 0.18;
+    const trainerPayout = Number(booking.amountPaid) * 0.82;
+
+    if (booking.paymentStatus === 'SUCCEEDED') {
+      const trainer = booking.course.recruiter;
+      if (!trainer?.stripeAccountId || !trainer?.stripeOnboardingComplete) {
+        return next(
+          new AppError(
+            'Trainer Stripe onboarding is not complete. Connect Stripe before releasing payout.',
+            400,
+          ),
+        );
+      }
+
+      await stripeService.createTransfer({
+        amount: trainerPayout,
+        currency: booking.currency,
+        destinationAccountId: trainer.stripeAccountId,
+        bookingId: booking.id,
+      });
+    }
+
+    // Update status to COMPLETED only after payout succeeds or if no payment is due.
     const updatedBooking = await prisma.courseBooking.update({
       where: { id: bookingId },
-      data: { bookingStatus: 'COMPLETED' },
+      data: {
+        bookingStatus: 'COMPLETED',
+        platformFee:
+          booking.paymentStatus === 'SUCCEEDED'
+            ? platformFee
+            : booking.platformFee,
+        trainerPayout:
+          booking.paymentStatus === 'SUCCEEDED'
+            ? trainerPayout
+            : booking.trainerPayout,
+      },
     });
-
-    // Trigger Payout Logic
-    if (updatedBooking.paymentStatus === 'SUCCEEDED') {
-      const trainer = booking.course.recruiter;
-      if (trainer?.stripeAccountId && trainer?.stripeOnboardingComplete) {
-        try {
-          const amount = Number(booking.amountPaid) * 0.82;
-          await stripeService.createTransfer({
-            amount,
-            currency: booking.currency,
-            destinationAccountId: trainer.stripeAccountId,
-            bookingId: booking.id,
-          });
-          console.log(
-            `Transferred ${amount} to trainer ${trainer.stripeAccountId}`,
-          );
-        } catch (err) {
-          console.error('Approval-triggered payout failed:', err);
-          // In real app, we would mark this for retry or notify admin
-        }
-      }
-    }
 
     res.status(200).json({
       status: 'success',
       message:
-        'Attendee approved successfully. Payout triggered if applicable.',
+        booking.paymentStatus === 'SUCCEEDED'
+          ? 'Attendee approved successfully. Payout released.'
+          : 'Attendee approved successfully.',
       data: { booking: updatedBooking },
     });
   },
@@ -464,9 +476,21 @@ export const rejectAttendee = catchAsync(
       return next(new AppError('Completed attendees cannot be rejected', 400));
     }
 
+    let refundProcessed = false;
+    if (
+      booking.paymentStatus === 'SUCCEEDED' &&
+      booking.stripePaymentIntentId
+    ) {
+      await stripeService.refundPayment(booking.stripePaymentIntentId);
+      refundProcessed = true;
+    }
+
     const updatedBooking = await prisma.courseBooking.update({
       where: { id: bookingId },
-      data: { bookingStatus: 'CANCELLED' },
+      data: {
+        bookingStatus: 'CANCELLED',
+        paymentStatus: refundProcessed ? 'REFUNDED' : booking.paymentStatus,
+      },
       include: {
         course: true,
         professional: {
@@ -481,8 +505,10 @@ export const rejectAttendee = catchAsync(
 
     res.status(200).json({
       status: 'success',
-      message: 'Attendee rejected successfully.',
-      data: { booking: updatedBooking },
+      message: refundProcessed
+        ? 'Attendee rejected successfully. Payment refunded.'
+        : 'Attendee rejected successfully.',
+      data: { booking: updatedBooking, refundProcessed },
     });
   },
 );
