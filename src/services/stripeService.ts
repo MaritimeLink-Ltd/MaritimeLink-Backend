@@ -322,6 +322,13 @@ export const stripeService = {
   },
 
   /**
+   * Retrieve a connected account directly from Stripe.
+   */
+  async retrieveAccount(stripeAccountId: string) {
+    return stripe.accounts.retrieve(stripeAccountId);
+  },
+
+  /**
    * Handle Stripe webhook events
    */
   async handleWebhook(signature: string, rawBody: Buffer) {

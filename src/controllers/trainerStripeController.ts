@@ -84,12 +84,49 @@ export const getOnboardingStatus = catchAsync(
       );
     }
 
+    let onboardingComplete = trainer.stripeOnboardingComplete;
+    let stripeAccountStatus = null;
+
+    if (trainer.stripeAccountId) {
+      try {
+        const account = await stripeService.retrieveAccount(
+          trainer.stripeAccountId,
+        );
+        const requirements = account.requirements;
+        const stripeOnboardingComplete = Boolean(
+          account.details_submitted && account.payouts_enabled,
+        );
+
+        stripeAccountStatus = {
+          detailsSubmitted: Boolean(account.details_submitted),
+          chargesEnabled: Boolean(account.charges_enabled),
+          payoutsEnabled: Boolean(account.payouts_enabled),
+          disabledReason: requirements?.disabled_reason ?? null,
+          currentlyDue: requirements?.currently_due ?? [],
+          eventuallyDue: requirements?.eventually_due ?? [],
+        };
+
+        if (stripeOnboardingComplete && !trainer.stripeOnboardingComplete) {
+          await prisma.recruiter.update({
+            where: { id: trainer.id },
+            data: { stripeOnboardingComplete: true },
+          });
+        }
+
+        onboardingComplete =
+          trainer.stripeOnboardingComplete || stripeOnboardingComplete;
+      } catch (error) {
+        console.error('Failed to refresh Stripe account status:', error);
+      }
+    }
+
     res.status(200).json({
       status: 'success',
       data: {
         stripeAccountId: trainer.stripeAccountId,
-        onboardingComplete: trainer.stripeOnboardingComplete,
-        onboardingRequired: !trainer.stripeOnboardingComplete,
+        onboardingComplete,
+        onboardingRequired: !onboardingComplete,
+        stripeAccountStatus,
       },
     });
   },
