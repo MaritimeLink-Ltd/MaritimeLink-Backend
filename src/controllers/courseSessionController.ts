@@ -48,9 +48,40 @@ export const getCourseSessions = catchAsync(
   async (req: Request, res: Response) => {
     const { courseId } = req.params;
 
-    const sessions = await prisma.courseSession.findMany({
+    const rawSessions = await prisma.courseSession.findMany({
       where: { courseId },
+      include: {
+        bookings: {
+          select: {
+            id: true,
+            bookingStatus: true,
+            paymentStatus: true,
+            amountPaid: true,
+          },
+        },
+      },
       orderBy: { startDate: 'asc' },
+    });
+    const sessions = rawSessions.map(({ bookings, ...session }) => {
+      const activeBookings = bookings.filter((booking) =>
+        ['CONFIRMED', 'COMPLETED'].includes(booking.bookingStatus),
+      );
+      const pendingBookings = bookings.filter(
+        (booking) => booking.bookingStatus === 'PENDING',
+      );
+      const paidBookings = bookings.filter(
+        (booking) => booking.paymentStatus === 'SUCCEEDED',
+      );
+
+      return {
+        ...session,
+        bookedCount: activeBookings.length,
+        pendingBookings: pendingBookings.length,
+        revenue: paidBookings.reduce(
+          (sum, booking) => sum + Number(booking.amountPaid),
+          0,
+        ),
+      };
     });
 
     res.status(200).json({

@@ -1742,6 +1742,16 @@ router.get('/bookings/:bookingId', protectAdmin, async (req, res, next) => {
   return getAdminBookingById(req, res, next);
 });
 
+router.post(
+  '/bookings/:bookingId/release-payout',
+  protectAdmin,
+  async (req, res, next) => {
+    const { releaseBookingPayout } =
+      await import('../controllers/adminCourseController.js');
+    return releaseBookingPayout(req, res, next);
+  },
+);
+
 // --- COMPANY MANAGEMENT ROUTES ---
 
 /**

@@ -169,6 +169,16 @@ export const getMyCourses = catchAsync(
       where: isAdmin ? { adminId: userId } : { recruiterId: userId },
       include: {
         sessions: {
+          include: {
+            bookings: {
+              select: {
+                id: true,
+                bookingStatus: true,
+                paymentStatus: true,
+                amountPaid: true,
+              },
+            },
+          },
           orderBy: { startDate: 'asc' },
         },
       },

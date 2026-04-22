@@ -3,6 +3,7 @@ import { prisma } from '../config/prisma.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
+import { stripeService } from '../services/stripeService.js';
 
 const bookingDocumentSelect = {
   id: true,
@@ -277,6 +278,80 @@ export const getAdminBookingById = catchAsync(
     res.status(200).json({
       status: 'success',
       data: { booking },
+    });
+  },
+);
+
+/**
+ * Release a paid course booking payout to the trainer.
+ */
+export const releaseBookingPayout = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const { bookingId } = req.params;
+
+    const booking = await prisma.courseBooking.findUnique({
+      where: { id: bookingId },
+      include: {
+        course: {
+          include: {
+            recruiter: {
+              select: {
+                stripeAccountId: true,
+                stripeOnboardingComplete: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (!booking) {
+      return next(new AppError('Booking not found', 404));
+    }
+
+    if (booking.bookingStatus === 'COMPLETED') {
+      return next(
+        new AppError('Booking is already completed and payout processed', 400),
+      );
+    }
+
+    if (booking.paymentStatus !== 'SUCCEEDED') {
+      return next(new AppError('Only paid bookings can be released', 400));
+    }
+
+    const trainer = booking.course?.recruiter;
+    if (!trainer?.stripeAccountId || !trainer?.stripeOnboardingComplete) {
+      return next(
+        new AppError(
+          'Trainer Stripe onboarding is not complete. Connect Stripe before releasing payout.',
+          400,
+        ),
+      );
+    }
+
+    const platformFee = Number(booking.amountPaid) * 0.18;
+    const trainerPayout = Number(booking.amountPaid) * 0.82;
+
+    await stripeService.createTransfer({
+      amount: trainerPayout,
+      currency: booking.currency,
+      destinationAccountId: trainer.stripeAccountId,
+      bookingId: booking.id,
+    });
+
+    const updatedBooking = await prisma.courseBooking.update({
+      where: { id: booking.id },
+      data: {
+        bookingStatus: 'COMPLETED',
+        platformFee,
+        trainerPayout,
+      },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Payout released successfully.',
+      data: { booking: updatedBooking },
     });
   },
 );
