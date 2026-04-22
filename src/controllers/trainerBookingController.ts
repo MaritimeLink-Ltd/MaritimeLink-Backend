@@ -211,6 +211,76 @@ export const getTrainerBookingById = catchAsync(
 );
 
 /**
+ * Get a booked professional profile for trainer attendee review.
+ */
+export const getTrainerProfessionalById = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const { professionalId } = req.params;
+    const recruiterId = req.user?.id;
+
+    if (!recruiterId) {
+      return next(new AppError('Unauthorized', 401));
+    }
+
+    const professional = await prisma.professional.findFirst({
+      where: {
+        id: professionalId,
+        bookings: {
+          some: {
+            course: {
+              recruiterId,
+            },
+          },
+        },
+      },
+      include: {
+        kyc: true,
+        resume: {
+          include: {
+            skills: true,
+            licenses: true,
+            seaService: true,
+            education: true,
+            stcwCertificates: true,
+            medicalCertificates: true,
+            travelDocuments: true,
+            nextOfKin: true,
+            referees: true,
+          },
+        },
+        documents: {
+          orderBy: { createdAt: 'desc' },
+        },
+        bookings: {
+          where: {
+            course: {
+              recruiterId,
+            },
+          },
+          include: {
+            course: true,
+            sessions: true,
+            attachedDocuments: {
+              select: bookingDocumentSelect,
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+    });
+
+    if (!professional) {
+      return next(new AppError('Professional not found', 404));
+    }
+
+    res.status(200).json({
+      status: 'success',
+      data: { professional },
+    });
+  },
+);
+
+/**
  * Update booking status
  */
 export const updateBookingStatus = catchAsync(

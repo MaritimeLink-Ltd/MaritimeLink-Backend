@@ -485,6 +485,12 @@ router.post(
 );
 
 router.get(
+  '/professionals/:professionalId',
+  protectRecruiter,
+  bookingController.getTrainerProfessionalById,
+);
+
+router.get(
   '/bookings',
   protectRecruiter,
   bookingController.getAllTrainerBookings,
