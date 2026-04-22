@@ -54,6 +54,48 @@ export const initiateOnboarding = catchAsync(
 );
 
 /**
+ * Get Stripe Connect onboarding status for a trainer
+ */
+export const getOnboardingStatus = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const recruiterId = req.user?.id;
+
+    if (!recruiterId) {
+      return next(new AppError('Unauthorized', 401));
+    }
+
+    const trainer = await prisma.recruiter.findUnique({
+      where: { id: recruiterId },
+      select: {
+        id: true,
+        role: true,
+        stripeAccountId: true,
+        stripeOnboardingComplete: true,
+      },
+    });
+
+    if (!trainer) {
+      return next(new AppError('Trainer not found', 404));
+    }
+
+    if (trainer.role !== 'TRAINING_AGENT') {
+      return next(
+        new AppError('Only trainers can access payout onboarding', 403),
+      );
+    }
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        stripeAccountId: trainer.stripeAccountId,
+        onboardingComplete: trainer.stripeOnboardingComplete,
+        onboardingRequired: !trainer.stripeOnboardingComplete,
+      },
+    });
+  },
+);
+
+/**
  * Refresh Stripe onboarding link
  */
 export const refreshOnboarding = catchAsync(

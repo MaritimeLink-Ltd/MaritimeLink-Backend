@@ -54,7 +54,7 @@ export const stripeService = {
     const courseProduct = products.data.find((p) => p.name === 'Course');
 
     if (!courseProduct) {
-      throw new Error('Product named \'Course\' not found in Stripe dashboard.');
+      throw new Error("Product named 'Course' not found in Stripe dashboard.");
     }
 
     const prices = await stripe.prices.list({
@@ -315,8 +315,8 @@ export const stripeService = {
   async createAccountLink(stripeAccountId: string) {
     return stripe.accountLinks.create({
       account: stripeAccountId,
-      refresh_url: `${env.FRONTEND_URL}/recruiter/payouts/reauth`,
-      return_url: `${env.FRONTEND_URL}/recruiter/payouts/success`,
+      refresh_url: `${env.FRONTEND_URL}/trainingprovider/payouts/reauth`,
+      return_url: `${env.FRONTEND_URL}/trainingprovider/payouts/success`,
       type: 'account_onboarding',
     });
   },

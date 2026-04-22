@@ -240,6 +240,24 @@ router.post(
 
 /**
  * @swagger
+ * /api/trainer/stripe/status:
+ *   get:
+ *     summary: Get Stripe Connect onboarding status
+ *     tags: [Trainer Stripe]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Stripe onboarding status returned.
+ */
+router.get(
+  '/stripe/status',
+  protectRecruiter,
+  stripeController.getOnboardingStatus,
+);
+
+/**
+ * @swagger
  * /api/trainer/stripe/onboarding:
  *   post:
  *     summary: Initiate Stripe Connect onboarding

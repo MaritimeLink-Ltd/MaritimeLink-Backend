@@ -50,6 +50,7 @@ export const initiateTrainerStripe = catchAsync(
     res.status(200).json({
       status: 'success',
       data: {
+        stripeAccountId,
         onboardingUrl: accountLink.url,
       },
     });
