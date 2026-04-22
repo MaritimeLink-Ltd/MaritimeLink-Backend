@@ -96,13 +96,15 @@ export const getCourses = catchAsync(
 export const getCourseSessions = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const { courseId } = req.params;
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
 
     const course = await prisma.course.findUnique({
       where: { id: courseId },
       include: {
         sessions: {
           where: {
-            startDate: { gte: new Date() },
+            endDate: { gte: startOfToday },
           },
           orderBy: { startDate: 'asc' },
         },

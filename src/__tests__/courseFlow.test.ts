@@ -31,6 +31,7 @@ describe('Course Management System Integration Tests', () => {
   let trainerToken: string;
   let courseId: string;
   let sessionId: string;
+  let todaySessionId: string;
   let bookingId: string;
 
   const testEmailProf = `prof_flow_${Date.now()}@example.com`;
@@ -128,6 +129,26 @@ describe('Course Management System Integration Tests', () => {
     });
     courseId = course.id;
     sessionId = course.sessions[0].id;
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(today);
+    todayEnd.setHours(23, 59, 59, 999);
+
+    const todaySession = await prisma.courseSession.create({
+      data: {
+        courseId,
+        startDate: today,
+        endDate: todayEnd,
+        startTime: '09:00',
+        endTime: '17:00',
+        location: 'Classroom B',
+        instructor: 'Capt. Today',
+        totalSeats: 10,
+        availableSeats: 10,
+      },
+    });
+    todaySessionId = todaySession.id;
   });
 
   afterAll(async () => {
@@ -164,8 +185,10 @@ describe('Course Management System Integration Tests', () => {
         .set('Authorization', `Bearer ${professionalToken}`);
 
       expect(res.status).toBe(200);
-      expect(res.body.data.sessions.length).toBe(1);
-      expect(res.body.data.sessions[0].id).toBe(sessionId);
+      expect(res.body.data.sessions.length).toBe(2);
+      expect(
+        res.body.data.sessions.map((session: { id: string }) => session.id),
+      ).toEqual(expect.arrayContaining([sessionId, todaySessionId]));
     });
 
     it('Professional should initiate checkout (create PaymentIntent)', async () => {
