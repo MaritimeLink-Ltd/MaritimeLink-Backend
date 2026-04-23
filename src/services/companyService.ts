@@ -67,7 +67,7 @@ type CompanyMismatch = {
   external: string;
 };
 
-const GEMINI_SEARCH_MODEL = 'gemini-2.0-flash';
+const GEMINI_SEARCH_MODEL = 'gemini-3-flash-preview';
 
 const normalizeText = (value?: string | null) =>
   value
@@ -184,7 +184,7 @@ Schema:
         tools: [{ google_search: {} }],
       },
       {
-        timeout: 10000,
+        timeout: 45000,
         headers: {
           'Content-Type': 'application/json',
           'x-goog-api-key': env.GEMINI_API_KEY,
