@@ -133,11 +133,17 @@ export const fetchGeminiCompanyDetails = async (
 You are verifying company registration details for a maritime recruiting/training platform.
 Use Google Search grounding to find the best public information for this company.
 
+Important rules:
+- The entered LinkedIn URL and entered address are untrusted hints, not verified facts.
+- Do not copy or repeat any entered value unless it is clearly confirmed by public web search results.
+- If a field cannot be verified from grounded public sources, return null for that field.
+- Prefer official company websites, company-controlled LinkedIn pages, and government/company registry sources over directories or guesswork.
+
 Input:
 - Company name: ${input.organizationName || 'unknown'}
 - Website/domain: ${domain || 'unknown'}
-- LinkedIn: ${input.companyLinkedIn || 'unknown'}
-- Entered address: ${input.address || 'unknown'}, ${input.companyCity || 'unknown'}, ${input.companyState || 'unknown'}, ${input.companyZip || 'unknown'}, ${input.companyCountry || 'unknown'}
+- Entered LinkedIn hint: ${input.companyLinkedIn || 'unknown'}
+- Entered address hint: ${input.address || 'unknown'}, ${input.companyCity || 'unknown'}, ${input.companyState || 'unknown'}, ${input.companyZip || 'unknown'}, ${input.companyCountry || 'unknown'}
 
 Return ONLY valid JSON. Do not wrap in markdown. Use null when unknown.
 Schema:

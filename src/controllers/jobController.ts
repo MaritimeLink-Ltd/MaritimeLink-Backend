@@ -11,6 +11,12 @@ import {
   updateJobSchema,
 } from '../validations/jobValidation.js';
 
+const normalizeFieldValue = (value: unknown) => {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === 'string') return value.trim();
+  return value ?? null;
+};
+
 /**
  * Create a new job post
  */
@@ -263,6 +269,26 @@ export const updateJob = catchAsync(
     }
 
     const { closingDate } = validatedData;
+    const changedFields = Object.entries(validatedData).reduce<string[]>(
+      (fields, [key, value]) => {
+        const previousValue =
+          key === 'closingDate'
+            ? job.closingDate
+            : job[key as keyof typeof job];
+        const nextValue =
+          key === 'closingDate' && value ? new Date(value) : value;
+
+        if (
+          normalizeFieldValue(previousValue) !== normalizeFieldValue(nextValue)
+        ) {
+          fields.push(key);
+        }
+
+        return fields;
+      },
+      [],
+    );
+
     const updatedJob = await prisma.job.update({
       where: { id },
       data: {
@@ -270,6 +296,54 @@ export const updateJob = catchAsync(
         closingDate: closingDate ? new Date(closingDate) : undefined,
       },
     });
+
+    if (changedFields.length > 0) {
+      const applicants = await prisma.jobApplication.findMany({
+        where: { jobId: id },
+        select: {
+          id: true,
+          professionalId: true,
+        },
+      });
+
+      if (applicants.length > 0) {
+        const io = req.app.get('io');
+        const recruiterName = job.recruiterId
+          ? (
+              await prisma.recruiter.findUnique({
+                where: { id: job.recruiterId },
+                select: { organizationName: true },
+              })
+            )?.organizationName || 'The recruiter'
+          : 'MaritimeLink Admin';
+
+        const alerts = await Promise.all(
+          applicants.map((application) =>
+            prisma.alert.create({
+              data: {
+                professionalId: application.professionalId,
+                type: 'JOB_UPDATED',
+                title: 'Job Updated',
+                message: `${recruiterName} updated a job you applied for: "${updatedJob.title}".`,
+                metadata: {
+                  jobId: updatedJob.id,
+                  applicationId: application.id,
+                  changedFields,
+                },
+              },
+            }),
+          ),
+        );
+
+        if (io) {
+          alerts.forEach((alert) => {
+            io.to(alert.professionalId).emit('professional_alert', {
+              alert,
+            });
+          });
+        }
+      }
+    }
 
     res.status(200).json({
       status: 'success',
