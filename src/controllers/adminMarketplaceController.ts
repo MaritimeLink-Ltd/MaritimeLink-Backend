@@ -234,6 +234,7 @@ export const getMarketplaceOversight = catchAsync(
       return {
         id: r.id,
         name: r.organizationName || r.email,
+        email: r.email,
         company: r.company?.name || 'N/A',
         totalActive: activeCount,
         totalPosted: r._count.jobs,

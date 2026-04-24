@@ -354,6 +354,42 @@ export const updateApplicationStatus = catchAsync(
       data: { status: normalizedStatus },
     });
 
+    const statusMessages: Record<ApplicationStatus, string> = {
+      [ApplicationStatus.APPLIED]: 'Your application was marked as applied.',
+      [ApplicationStatus.UNDER_REVIEW]: 'Your application is now under review.',
+      [ApplicationStatus.SHORTLISTED]: 'Good news. You have been shortlisted.',
+      [ApplicationStatus.INTERVIEW]:
+        'Your application has moved to interview stage.',
+      [ApplicationStatus.OFFER]: 'You received an offer for this job.',
+      [ApplicationStatus.HIRED]:
+        'Congratulations. You have been marked as hired.',
+      [ApplicationStatus.REJECTED]:
+        'Your application was not selected this time.',
+      [ApplicationStatus.WITHDRAWN]:
+        'Your application was marked as withdrawn.',
+    };
+
+    const alert = await prisma.alert.create({
+      data: {
+        professionalId: application.professionalId,
+        type: 'JOB_APPLICATION_STATUS',
+        title: 'Application Status Updated',
+        message: `${statusMessages[normalizedStatus]} Job: "${application.job.title}".`,
+        metadata: {
+          applicationId: application.id,
+          jobId: application.jobId,
+          status: normalizedStatus,
+        },
+      },
+    });
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to(application.professionalId).emit('professional_alert', {
+        alert,
+      });
+    }
+
     // Log for Recruiter activity
     if (userId) {
       const actorType = ['SUPER_ADMIN', 'ADMIN'].includes(

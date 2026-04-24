@@ -456,7 +456,8 @@ export const approveAttendee = catchAsync(
       },
       include: {
         course: {
-          include: {
+          select: {
+            title: true,
             recruiter: {
               select: { stripeAccountId: true, stripeOnboardingComplete: true },
             },
@@ -511,6 +512,31 @@ export const approveAttendee = catchAsync(
             : booking.trainerPayout,
       },
     });
+
+    const approvalAlert = await prisma.alert.create({
+      data: {
+        professionalId: booking.professionalId,
+        type: 'COURSE_BOOKING_STATUS',
+        title: 'Course Booking Approved',
+        message:
+          booking.paymentStatus === 'SUCCEEDED'
+            ? `Your booking for "${booking.course.title}" was approved and completed.`
+            : `Your booking for "${booking.course.title}" was approved.`,
+        metadata: {
+          bookingId: booking.id,
+          courseTitle: booking.course.title,
+          status: 'COMPLETED',
+          payoutReleased: booking.paymentStatus === 'SUCCEEDED',
+        },
+      },
+    });
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to(booking.professionalId).emit('professional_alert', {
+        alert: approvalAlert,
+      });
+    }
 
     res.status(200).json({
       status: 'success',
@@ -572,6 +598,32 @@ export const rejectAttendee = catchAsync(
         sessions: true,
       },
     });
+
+    const rejectionAlert = await prisma.alert.create({
+      data: {
+        professionalId: booking.professionalId,
+        type: 'COURSE_BOOKING_STATUS',
+        title: refundProcessed
+          ? 'Course Booking Rejected and Refunded'
+          : 'Course Booking Rejected',
+        message: refundProcessed
+          ? `Your booking for "${updatedBooking.course.title}" was rejected and your payment was refunded.`
+          : `Your booking for "${updatedBooking.course.title}" was rejected.`,
+        metadata: {
+          bookingId: booking.id,
+          courseTitle: updatedBooking.course.title,
+          status: 'CANCELLED',
+          refundProcessed,
+        },
+      },
+    });
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to(booking.professionalId).emit('professional_alert', {
+        alert: rejectionAlert,
+      });
+    }
 
     res.status(200).json({
       status: 'success',
