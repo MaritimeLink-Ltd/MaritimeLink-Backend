@@ -44,6 +44,9 @@ export const createCourseDraftSchema = createCourseSchema.omit({
 });
 
 export const updateJobSchema = createJobSchema.partial();
+export const updateJobStatusSchema = z.object({
+  status: z.enum(['DRAFT', 'ACTIVE', 'FILLED', 'EXPIRED', 'REMOVED']),
+});
 export const updateCourseSchema = createCourseSchema.partial().extend({
   isFlagged: z.boolean().optional(),
   flagReason: z.string().optional(),

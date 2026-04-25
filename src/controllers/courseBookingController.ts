@@ -18,17 +18,70 @@ export const checkout = catchAsync(
     }
 
     // Get course details
+    const normalizedSessionIds = Array.isArray(sessionIds)
+      ? [...new Set(sessionIds.filter(Boolean))]
+      : [];
+
+    if (normalizedSessionIds.length === 0) {
+      return next(new AppError('Please select at least one session', 400));
+    }
+
     const course = await prisma.course.findUnique({
       where: { id: courseId },
       include: {
         sessions: {
-          where: { id: { in: sessionIds } },
+          where: { id: { in: normalizedSessionIds } },
+          include: {
+            bookings: {
+              select: {
+                id: true,
+                bookingStatus: true,
+              },
+            },
+          },
         },
       },
     });
 
     if (!course) {
       return next(new AppError('Course not found', 404));
+    }
+
+    if (course.status !== 'ACTIVE' && course.status !== 'FULL') {
+      return next(new AppError('This course is not open for booking', 400));
+    }
+
+    if (course.sessions.length !== normalizedSessionIds.length) {
+      return next(
+        new AppError('One or more selected sessions were not found', 400),
+      );
+    }
+
+    const now = new Date();
+    for (const session of course.sessions) {
+      const reservedSeats = session.bookings.filter((booking) =>
+        ['PENDING', 'CONFIRMED', 'COMPLETED'].includes(booking.bookingStatus),
+      ).length;
+      const availableSeats = Math.max(0, session.totalSeats - reservedSeats);
+      const isExpired = new Date(session.endDate).getTime() < now.getTime();
+
+      if (isExpired) {
+        return next(
+          new AppError(
+            `Selected session has already expired: ${session.location || session.id}`,
+            400,
+          ),
+        );
+      }
+
+      if (availableSeats <= 0) {
+        return next(
+          new AppError(
+            `Selected session is already full: ${session.location || session.id}`,
+            400,
+          ),
+        );
+      }
     }
 
     // Check if user already has a pending or confirmed booking for these sessions
@@ -64,7 +117,7 @@ export const checkout = catchAsync(
         bookingStatus: 'PENDING',
         paymentStatus: 'PENDING',
         sessions: {
-          connect: sessionIds.map((id: string) => ({ id })),
+          connect: normalizedSessionIds.map((id: string) => ({ id })),
         },
         ...(documentIds &&
           documentIds.length > 0 && {

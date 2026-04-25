@@ -397,13 +397,13 @@ export const stripeService = {
       where: { id: bookingId },
       data: {
         paymentStatus: 'SUCCEEDED',
-        bookingStatus: 'CONFIRMED',
+        bookingStatus: 'PENDING',
         stripePaymentIntentId: session.payment_intent as string,
         paidAt: new Date(),
       },
     });
 
-    console.log(`Booking ${bookingId} confirmed`);
+    console.log(`Booking ${bookingId} paid and awaiting trainer approval`);
   },
 
   /**
@@ -419,7 +419,7 @@ export const stripeService = {
         where: { id: booking.id },
         data: {
           paymentStatus: 'SUCCEEDED',
-          bookingStatus: 'CONFIRMED',
+          bookingStatus: 'PENDING',
           paidAt: new Date(),
         },
       });

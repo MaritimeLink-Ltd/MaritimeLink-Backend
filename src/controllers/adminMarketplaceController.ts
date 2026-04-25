@@ -99,21 +99,22 @@ export const getMarketplaceOversight = catchAsync(
     const { type, search } = req.query; // type: JOBS or COURSES
 
     if (type === 'COURSES') {
-      const providers = await prisma.recruiter.findMany({
-        where: {
-          role: 'TRAINING_AGENT',
-          ...(search && {
-            OR: [
-              {
-                organizationName: {
-                  contains: search as string,
-                  mode: 'insensitive',
-                },
+      const where: Prisma.RecruiterWhereInput = {
+        role: 'TRAINING_AGENT',
+        ...(search && {
+          OR: [
+            {
+              organizationName: {
+                contains: search as string,
+                mode: 'insensitive',
               },
-              { email: { contains: search as string, mode: 'insensitive' } },
-            ],
-          }),
-        },
+            },
+            { email: { contains: search as string, mode: 'insensitive' } },
+          ],
+        }),
+      };
+      const providers = await prisma.recruiter.findMany({
+        where,
         skip,
         take: limit,
         select: {
@@ -157,6 +158,7 @@ export const getMarketplaceOversight = catchAsync(
         return {
           id: p.id,
           name: p.organizationName || p.email,
+          email: p.email,
           company: p.company?.name || 'N/A',
           totalActive: activeCount,
           totalPosted: p._count.courses,
@@ -166,33 +168,38 @@ export const getMarketplaceOversight = catchAsync(
         };
       });
 
-      const total = await prisma.recruiter.count({
-        where: { role: 'TRAINING_AGENT' },
-      });
+      const total = await prisma.recruiter.count({ where });
 
       return res.status(200).json({
         status: 'success',
         total,
+        pagination: {
+          page,
+          limit,
+          total,
+          pages: Math.max(1, Math.ceil(total / limit)),
+        },
         data: { oversight: formatted },
       });
     }
 
     // Default to JOBS
-    const recruiters = await prisma.recruiter.findMany({
-      where: {
-        role: 'RECRUITMENT_AGENT',
-        ...(search && {
-          OR: [
-            {
-              organizationName: {
-                contains: search as string,
-                mode: 'insensitive',
-              },
+    const where: Prisma.RecruiterWhereInput = {
+      role: 'RECRUITMENT_AGENT',
+      ...(search && {
+        OR: [
+          {
+            organizationName: {
+              contains: search as string,
+              mode: 'insensitive',
             },
-            { email: { contains: search as string, mode: 'insensitive' } },
-          ],
-        }),
-      },
+          },
+          { email: { contains: search as string, mode: 'insensitive' } },
+        ],
+      }),
+    };
+    const recruiters = await prisma.recruiter.findMany({
+      where,
       skip,
       take: limit,
       select: {
@@ -244,13 +251,17 @@ export const getMarketplaceOversight = catchAsync(
       };
     });
 
-    const total = await prisma.recruiter.count({
-      where: { role: 'RECRUITMENT_AGENT' },
-    });
+    const total = await prisma.recruiter.count({ where });
 
     res.status(200).json({
       status: 'success',
       total,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.max(1, Math.ceil(total / limit)),
+      },
       data: { oversight: formatted },
     });
   },

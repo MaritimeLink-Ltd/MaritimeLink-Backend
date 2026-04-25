@@ -1,6 +1,11 @@
 import { Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma.js';
-import { Prisma, JobCategory, JobType } from '../generated/client/index.js';
+import {
+  Prisma,
+  JobCategory,
+  JobType,
+  JobStatus,
+} from '../generated/client/index.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
@@ -9,12 +14,35 @@ import { ActorType } from '../generated/client/index.js';
 import {
   createJobSchema,
   updateJobSchema,
+  updateJobStatusSchema,
 } from '../validations/jobValidation.js';
 
 const normalizeFieldValue = (value: unknown) => {
   if (value instanceof Date) return value.toISOString();
   if (typeof value === 'string') return value.trim();
   return value ?? null;
+};
+
+const resolveEffectiveJobStatus = <
+  T extends { status: JobStatus; closingDate?: Date | null },
+>(
+  job: T,
+): T & { status: JobStatus } => {
+  if (
+    job.status === JobStatus.ACTIVE &&
+    job.closingDate &&
+    new Date(job.closingDate).getTime() < Date.now()
+  ) {
+    return {
+      ...job,
+      status: JobStatus.EXPIRED,
+    };
+  }
+
+  return {
+    ...job,
+    status: job.status,
+  };
 };
 
 /**
@@ -62,6 +90,9 @@ export const getJobs = catchAsync(async (req: CustomRequest, res: Response) => {
 
   // Build filters
   const where: Prisma.JobWhereInput = {};
+  where.status = {
+    in: [JobStatus.ACTIVE, JobStatus.FILLED, JobStatus.EXPIRED],
+  };
 
   if (category) {
     where.category = category as JobCategory;
@@ -112,12 +143,15 @@ export const getJobs = catchAsync(async (req: CustomRequest, res: Response) => {
   });
 
   const total = await prisma.job.count({ where });
+  const jobsWithEffectiveStatus = jobs.map((job) =>
+    resolveEffectiveJobStatus(job),
+  );
 
   res.status(200).json({
     status: 'success',
-    results: jobs.length,
+    results: jobsWithEffectiveStatus.length,
     total,
-    data: { jobs },
+    data: { jobs: jobsWithEffectiveStatus },
   });
 });
 
@@ -189,7 +223,7 @@ export const getJobById = catchAsync(
     res.status(200).json({
       status: 'success',
       data: {
-        job,
+        job: resolveEffectiveJobStatus(job),
         hasApplied,
         applicationStatus,
         applicationId,
@@ -224,7 +258,7 @@ export const getMyJobs = catchAsync(
     });
 
     const jobsWithApplicantCounts = jobs.map((job) => ({
-      ...job,
+      ...resolveEffectiveJobStatus(job),
       applicantCount: job._count.applications,
       applicantsCount: job._count.applications,
     }));
@@ -233,6 +267,47 @@ export const getMyJobs = catchAsync(
       status: 'success',
       results: jobsWithApplicantCounts.length,
       data: { jobs: jobsWithApplicantCounts },
+    });
+  },
+);
+
+/**
+ * Update only the status of a job post
+ */
+export const updateJobStatus = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const { id } = req.params;
+    const { status } = updateJobStatusSchema.parse(req.body);
+    const userId = req.user?.id;
+    const userRole = req.user?.role;
+
+    const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'].includes(
+      userRole || '',
+    );
+
+    const job = await prisma.job.findUnique({
+      where: { id },
+    });
+
+    if (!job) {
+      return next(new AppError('Job not found', 404));
+    }
+
+    if (isAdmin) {
+      if (job.adminId !== userId)
+        return next(new AppError('Unauthorized', 403));
+    } else if (job.recruiterId !== userId) {
+      return next(new AppError('Unauthorized', 403));
+    }
+
+    const updatedJob = await prisma.job.update({
+      where: { id },
+      data: { status },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      data: { job: resolveEffectiveJobStatus(updatedJob) },
     });
   },
 );

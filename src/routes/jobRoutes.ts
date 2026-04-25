@@ -133,6 +133,40 @@ router.patch('/:id', protectAdminOrRecruiter, jobController.updateJob);
 
 /**
  * @swagger
+ * /api/jobs/{id}/status:
+ *   patch:
+ *     summary: Update only the status of a job post
+ *     tags: [Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [status]
+ *             properties:
+ *               status:
+ *                 type: string
+ *                 enum: [DRAFT, ACTIVE, FILLED, EXPIRED, REMOVED]
+ *     responses:
+ *       200:
+ *         description: Job status updated successfully
+ */
+router.patch(
+  '/:id/status',
+  protectAdminOrRecruiter,
+  jobController.updateJobStatus,
+);
+
+/**
+ * @swagger
  * /api/jobs/{id}:
  *   delete:
  *     summary: Delete a job post

@@ -96,15 +96,19 @@ export const getCourses = catchAsync(
 export const getCourseSessions = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const { courseId } = req.params;
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
+    const now = new Date();
 
     const course = await prisma.course.findUnique({
       where: { id: courseId },
       include: {
         sessions: {
-          where: {
-            endDate: { gte: startOfToday },
+          include: {
+            bookings: {
+              select: {
+                id: true,
+                bookingStatus: true,
+              },
+            },
           },
           orderBy: { startDate: 'asc' },
         },
@@ -115,19 +119,35 @@ export const getCourseSessions = catchAsync(
       return next(new AppError('Course not found', 404));
     }
 
-    const sessions = course.sessions.map((s) => ({
-      id: s.id,
-      eventDate: s.startDate,
-      startDate: s.startDate,
-      endDate: s.endDate,
-      startTime: s.startTime,
-      endTime: s.endTime,
-      totalSeats: s.totalSeats,
-      bookedSeats: s.totalSeats - s.availableSeats,
-      availableSeats: s.availableSeats,
-      location: s.location,
-      status: s.availableSeats > 0 ? 'AVAILABLE' : 'FULL',
-    }));
+    const sessions = course.sessions.map((s) => {
+      const reservedSeats = s.bookings.filter((booking) =>
+        ['PENDING', 'CONFIRMED', 'COMPLETED'].includes(booking.bookingStatus),
+      ).length;
+      const availableSeats = Math.max(
+        0,
+        Number(s.totalSeats || 0) - reservedSeats,
+      );
+      const isExpired = new Date(s.endDate).getTime() < now.getTime();
+      const status = isExpired
+        ? 'EXPIRED'
+        : availableSeats > 0
+          ? 'AVAILABLE'
+          : 'FULL';
+
+      return {
+        id: s.id,
+        eventDate: s.startDate,
+        startDate: s.startDate,
+        endDate: s.endDate,
+        startTime: s.startTime,
+        endTime: s.endTime,
+        totalSeats: s.totalSeats,
+        bookedSeats: reservedSeats,
+        availableSeats,
+        location: s.location,
+        status,
+      };
+    });
 
     res.status(200).json({
       status: 'success',
