@@ -276,17 +276,9 @@ export const getRecruiterJobs = catchAsync(
  */
 export const getPopularSearches = catchAsync(
   async (req: CustomRequest, res: Response) => {
-    // For now, return mock data as requested or derive from ActivityLog if enough data exists
-    const popularSearches = [
-      { term: 'Chief Engineer', count: 156 },
-      { term: '3rd Officer', count: 98 },
-      { term: 'Offshore Supply Vessel', count: 67 },
-      { term: 'LNG Tanker', count: 45 },
-    ];
-
     res.status(200).json({
       status: 'success',
-      data: { popularSearches },
+      data: { popularSearches: [] },
     });
   },
 );

@@ -8,10 +8,6 @@ import {
   messageTraineeSchema,
 } from '../validations/jobValidation.js';
 import { stripeService } from '../services/stripeService.js';
-import {
-  calculateTotalSeaTime,
-  getExperienceSummary,
-} from '../utils/experienceUtils.js';
 
 const bookingDocumentSelect = {
   id: true,
@@ -38,20 +34,6 @@ const bookedProfessionalSelect = {
   profession: true,
   subcategory: true,
   profilePhotoUrl: true,
-  cvUrl: true,
-  resume: {
-    select: {
-      summary: true,
-      skills: {
-        select: {
-          id: true,
-          skillName: true,
-          rating: true,
-        },
-      },
-      seaService: true,
-    },
-  },
 } as const;
 
 /**
@@ -235,22 +217,6 @@ export const getTrainerProfessionalById = catchAsync(
       },
       include: {
         kyc: true,
-        resume: {
-          include: {
-            skills: true,
-            licenses: true,
-            seaService: true,
-            education: true,
-            stcwCertificates: true,
-            medicalCertificates: true,
-            travelDocuments: true,
-            nextOfKin: true,
-            referees: true,
-          },
-        },
-        documents: {
-          orderBy: { createdAt: 'desc' },
-        },
         bookings: {
           where: {
             course: {
@@ -307,7 +273,6 @@ export const updateBookingStatus = catchAsync(
       return next(new AppError('Booking not found', 404));
     }
 
-    const previousStatus = booking.bookingStatus;
     const newStatus = validatedData.status;
 
     const updatedBooking = await prisma.courseBooking.update({
@@ -325,37 +290,6 @@ export const updateBookingStatus = catchAsync(
         },
       },
     });
-
-    // Handle Payout on Approval
-    if (
-      newStatus === 'CONFIRMED' &&
-      previousStatus !== 'CONFIRMED' &&
-      updatedBooking.paymentStatus === 'SUCCEEDED'
-    ) {
-      const trainer = updatedBooking.course.recruiter;
-      if (trainer?.stripeAccountId && trainer?.stripeOnboardingComplete) {
-        try {
-          // Payout 82% to trainer
-          const totalAmount = Number(updatedBooking.amountPaid);
-          const trainerAmount = totalAmount * 0.82;
-
-          await stripeService.createTransfer({
-            amount: trainerAmount,
-            currency: updatedBooking.currency,
-            destinationAccountId: trainer.stripeAccountId,
-            bookingId: updatedBooking.id,
-          });
-
-          // Track in ledger if needed (conceptual)
-          console.log(
-            `Pushed ${trainerAmount} to trainer ${trainer.stripeAccountId}`,
-          );
-        } catch (error) {
-          console.error('Payout failed:', error);
-          // In production, we'd log this to a failed_payouts table for retry
-        }
-      }
-    }
 
     res.status(200).json({
       status: 'success',
@@ -396,11 +330,6 @@ export const getSessionAttendees = catchAsync(
     if (!session) return next(new AppError('Session not found', 404));
 
     const attendees = session.bookings.map((b) => {
-      const resume = b.professional.resume;
-      const seaService = resume?.seaService || [];
-      const totalSeaTime = calculateTotalSeaTime(seaService);
-      const keySkillsAndCompetencies = resume?.skills || [];
-
       return {
         bookingId: b.id,
         professionalId: b.professional.id,
@@ -420,14 +349,6 @@ export const getSessionAttendees = catchAsync(
         status: b.bookingStatus,
         paymentStatus: b.paymentStatus,
         attachedDocuments: b.attachedDocuments,
-        resume: {
-          cvUrl: b.professional.cvUrl,
-          summary: resume?.summary || null,
-          experienceSummary: getExperienceSummary(seaService),
-          totalSeaTime,
-          keySkillsAndCompetencies,
-          seaService,
-        },
       };
     });
 

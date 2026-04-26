@@ -60,7 +60,7 @@ export const cancelBookingSchema = z.object({
 });
 
 export const updateBookingStatusSchema = z.object({
-  status: z.enum(['PENDING', 'CONFIRMED', 'COMPLETED', 'CANCELLED']),
+  status: z.enum(['PENDING', 'COMPLETED', 'CANCELLED']),
   notes: z.string().max(1000).optional(),
 });
 

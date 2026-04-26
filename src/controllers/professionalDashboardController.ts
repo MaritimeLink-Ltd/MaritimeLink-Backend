@@ -104,22 +104,66 @@ export const getDashboardOverview = catchAsync(
       documentWalletStatus = 'Review Required';
     }
 
-    // 5. Job Matches (Based on profession category)
-    const jobMatchesCount = await prisma.job.count({
+    // 5. Jobs available to this professional (same availability rules as professional jobs feed)
+    const availableJobsCount = await prisma.job.count({
       where: {
-        category: professional.profession || undefined,
+        status: 'ACTIVE',
         isFlagged: false,
+        OR: [{ closingDate: null }, { closingDate: { gte: new Date() } }],
       },
     });
 
-    // 6. Recommended Courses
-    const recommendedCoursesCount = await prisma.course.count({
+    // 6. Courses available to this professional (same availability rules as browse courses)
+    const rawCourses = await prisma.course.findMany({
       where: {
-        category: professional.profession?.toString() || undefined,
         status: 'ACTIVE',
-        isFlagged: false,
+        bookings: {
+          none: {
+            professionalId,
+            bookingStatus: { in: ['PENDING', 'CONFIRMED', 'COMPLETED'] },
+          },
+        },
+      },
+      include: {
+        sessions: {
+          include: {
+            bookings: {
+              select: {
+                bookingStatus: true,
+              },
+            },
+          },
+        },
       },
     });
+
+    const now = new Date();
+    const availableCoursesCount = rawCourses.filter((course) =>
+      course.sessions.some((session) => {
+        const endsAt = new Date(session.endDate);
+        const deadline = session.enrollmentDeadline
+          ? new Date(session.enrollmentDeadline)
+          : null;
+        const sessionClosed =
+          endsAt.getTime() < now.getTime() ||
+          Boolean(deadline && deadline.getTime() < now.getTime());
+
+        const reservedSeats = session.bookings.filter((booking) =>
+          ['PENDING', 'CONFIRMED', 'COMPLETED'].includes(
+            String(booking.bookingStatus || ''),
+          ),
+        ).length;
+        const availableSeats = Math.max(
+          0,
+          Math.min(
+            Number(session.availableSeats || session.totalSeats || 0),
+            Number(session.totalSeats || 0) - reservedSeats,
+          ),
+        );
+
+        return !sessionClosed && availableSeats > 0;
+      }),
+    ).length;
 
     res.status(200).json({
       status: 'success',
@@ -132,8 +176,8 @@ export const getDashboardOverview = catchAsync(
           },
           resumeCompletionPercentage,
           documentWalletStatus,
-          jobMatchesCount,
-          recommendedCoursesCount,
+          jobMatchesCount: availableJobsCount,
+          recommendedCoursesCount: availableCoursesCount,
         },
       },
     });

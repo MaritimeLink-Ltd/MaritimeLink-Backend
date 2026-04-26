@@ -41,8 +41,8 @@ export const getTrainingDashboardStats = catchAsync(
       },
     });
 
-    // 4. Demand Signals (Mocked or refined logic)
-    const demandSignalsCount = 4; // Mock value as per requirement
+    // 4. Demand signals are not wired to real data yet; avoid showing dummy counts.
+    const demandSignalsCount = 0;
 
     res.status(200).json({
       status: 'success',
@@ -93,7 +93,13 @@ export const getTrainingActionItems = catchAsync(
       where: { recruiterId, status: CourseStatus.ACTIVE },
       include: {
         _count: {
-          select: { bookings: { where: { bookingStatus: 'CONFIRMED' } } },
+          select: {
+            bookings: {
+              where: {
+                bookingStatus: { in: ['PENDING', 'CONFIRMED', 'COMPLETED'] },
+              },
+            },
+          },
         },
       },
     });
@@ -127,14 +133,6 @@ export const getTrainingActionItems = catchAsync(
       });
     }
 
-    // 4. High demand alerts (Mocked)
-    actionItems.push({
-      type: 'HIGH_DEMAND',
-      message:
-        'High demand detected in Aberdeen - 67 professionals need renewal in 30 days',
-      action: 'ADD_SESSION',
-    });
-
     res.status(200).json({
       status: 'success',
       results: actionItems.length,
@@ -157,7 +155,13 @@ export const getTrainingCoursesOverview = catchAsync(
       where: { recruiterId },
       include: {
         _count: {
-          select: { bookings: { where: { bookingStatus: 'CONFIRMED' } } },
+          select: {
+            bookings: {
+              where: {
+                bookingStatus: { in: ['PENDING', 'CONFIRMED', 'COMPLETED'] },
+              },
+            },
+          },
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -214,7 +218,13 @@ export const getTrainingNotifications = catchAsync(
         where: { recruiterId, status: CourseStatus.ACTIVE },
         include: {
           _count: {
-            select: { bookings: { where: { bookingStatus: 'CONFIRMED' } } },
+            select: {
+              bookings: {
+                where: {
+                  bookingStatus: { in: ['PENDING', 'CONFIRMED', 'COMPLETED'] },
+                },
+              },
+            },
           },
         },
         take: 5,
