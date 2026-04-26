@@ -230,7 +230,11 @@ export const getMyApplications = catchAsync(
 export const getApplicationDetails = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const { id } = req.params;
-    // const userId = req.user?.id; // Could be Pro, Recruiter, or Admin
+    const userId = req.user?.id;
+    const userRole = req.user?.role;
+    const isAdminViewer = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'].includes(
+      userRole || '',
+    );
 
     const application = await prisma.jobApplication.findUnique({
       where: { id },
@@ -269,16 +273,49 @@ export const getApplicationDetails = catchAsync(
 
     if (!application) return next(new AppError('Application not found', 404));
 
+    if (!isAdminViewer && application.job.recruiterId !== userId) {
+      return next(new AppError('Not authorized to view this application', 403));
+    }
+
     // Calculate derived UI data
-    const seaService = application.professional.resume?.seaService || [];
+    const snapshotResume =
+      application.resumeSnapshot &&
+      typeof application.resumeSnapshot === 'object' &&
+      !Array.isArray(application.resumeSnapshot)
+        ? (application.resumeSnapshot as Record<string, unknown>)
+        : null;
+    type ResumeSeaService = NonNullable<
+      typeof application.professional.resume
+    >['seaService'];
+    const snapshotSeaService = Array.isArray(snapshotResume?.seaService)
+      ? (snapshotResume.seaService as ResumeSeaService)
+      : [];
+    const seaService = isAdminViewer
+      ? application.professional.resume?.seaService || snapshotSeaService
+      : snapshotSeaService;
     const experienceSummary = getExperienceSummary(seaService);
     const isVerified =
       application.professional.kyc?.status === RecruiterStatus.APPROVED;
 
+    const responseApplication = isAdminViewer
+      ? application
+      : {
+          ...application,
+          professional: {
+            id: application.professional.id,
+            fullname: application.professional.fullname,
+            email: application.professional.email,
+            profession: application.professional.profession,
+            profilePhotoUrl: application.professional.profilePhotoUrl,
+            idPassportUrl: application.professional.idPassportUrl,
+            kyc: application.professional.kyc,
+          },
+        };
+
     res.status(200).json({
       status: 'success',
       data: {
-        application,
+        application: responseApplication,
         derived: {
           experienceSummary,
           isVerified,
