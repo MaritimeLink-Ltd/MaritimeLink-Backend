@@ -87,12 +87,32 @@ export const getJobs = catchAsync(async (req: CustomRequest, res: Response) => {
   const skip = (page - 1) * limit;
 
   const { category, jobType, datePosted } = req.query;
+  const userRole = req.user?.role;
+  const isInternalViewer = [
+    'SUPER_ADMIN',
+    'ADMIN',
+    'MODERATOR',
+    'RECRUITER',
+  ].includes(userRole || '');
 
   // Build filters
   const where: Prisma.JobWhereInput = {};
-  where.status = {
-    in: [JobStatus.ACTIVE, JobStatus.FILLED, JobStatus.EXPIRED],
-  };
+
+  if (isInternalViewer) {
+    where.status = {
+      in: [JobStatus.ACTIVE, JobStatus.FILLED, JobStatus.EXPIRED],
+    };
+  } else {
+    where.status = JobStatus.ACTIVE;
+    where.OR = [
+      { closingDate: null },
+      {
+        closingDate: {
+          gte: new Date(),
+        },
+      },
+    ];
+  }
 
   if (category) {
     where.category = category as JobCategory;
@@ -142,16 +162,21 @@ export const getJobs = catchAsync(async (req: CustomRequest, res: Response) => {
     orderBy: { createdAt: 'desc' },
   });
 
-  const total = await prisma.job.count({ where });
   const jobsWithEffectiveStatus = jobs.map((job) =>
     resolveEffectiveJobStatus(job),
   );
+  const filteredJobs = isInternalViewer
+    ? jobsWithEffectiveStatus
+    : jobsWithEffectiveStatus.filter((job) => job.status === JobStatus.ACTIVE);
+  const total = isInternalViewer
+    ? await prisma.job.count({ where })
+    : await prisma.job.count({ where });
 
   res.status(200).json({
     status: 'success',
-    results: jobsWithEffectiveStatus.length,
+    results: filteredJobs.length,
     total,
-    data: { jobs: jobsWithEffectiveStatus },
+    data: { jobs: filteredJobs },
   });
 });
 
@@ -162,6 +187,13 @@ export const getJobById = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const { id } = req.params;
     const userId = req.user?.id;
+    const userRole = req.user?.role;
+    const isInternalViewer = [
+      'SUPER_ADMIN',
+      'ADMIN',
+      'MODERATOR',
+      'RECRUITER',
+    ].includes(userRole || '');
 
     const job = await prisma.job.findUnique({
       where: { id },
@@ -181,6 +213,11 @@ export const getJobById = catchAsync(
     });
 
     if (!job) {
+      return next(new AppError('Job not found', 404));
+    }
+
+    const effectiveJob = resolveEffectiveJobStatus(job);
+    if (!isInternalViewer && effectiveJob.status !== JobStatus.ACTIVE) {
       return next(new AppError('Job not found', 404));
     }
 
@@ -223,7 +260,7 @@ export const getJobById = catchAsync(
     res.status(200).json({
       status: 'success',
       data: {
-        job: resolveEffectiveJobStatus(job),
+        job: effectiveJob,
         hasApplied,
         applicationStatus,
         applicationId,
