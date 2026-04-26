@@ -6,6 +6,27 @@ import { CustomRequest } from '../types/index.js';
 import { cancelBookingSchema } from '../validations/jobValidation.js';
 import { stripeService } from '../services/stripeService.js';
 
+const sessionBookingConsumesSeat = (bookingStatus?: string | null) =>
+  ['PENDING', 'CONFIRMED', 'COMPLETED'].includes(String(bookingStatus || ''));
+
+const isSessionClosedForEnrollment = (
+  session: {
+    endDate: Date | string;
+    enrollmentDeadline?: Date | string | null;
+  },
+  now: Date,
+) => {
+  const endsAt = new Date(session.endDate);
+  const deadline = session.enrollmentDeadline
+    ? new Date(session.enrollmentDeadline)
+    : null;
+
+  return (
+    endsAt.getTime() < now.getTime() ||
+    Boolean(deadline && deadline.getTime() < now.getTime())
+  );
+};
+
 /**
  * Get all courses for professionals with advanced filtering
  */
@@ -52,13 +73,21 @@ export const getCourses = catchAsync(
       where.duration = { contains: duration as string, mode: 'insensitive' };
     }
 
-    const courses = await prisma.course.findMany({
+    const rawCourses = await prisma.course.findMany({
       where,
-      skip,
-      take: limit,
       include: {
         recruiter: {
           select: { organizationName: true },
+        },
+        sessions: {
+          include: {
+            bookings: {
+              select: {
+                bookingStatus: true,
+              },
+            },
+          },
+          orderBy: { startDate: 'asc' },
         },
         savedBy: professionalId
           ? {
@@ -70,9 +99,30 @@ export const getCourses = catchAsync(
       orderBy: { createdAt: 'desc' },
     });
 
-    const total = await prisma.course.count({ where });
+    const now = new Date();
+    const courses = rawCourses.filter((course) =>
+      course.sessions.some((session) => {
+        const reservedSeats = session.bookings.filter((booking) =>
+          sessionBookingConsumesSeat(booking.bookingStatus),
+        ).length;
+        const availableSeats = Math.max(
+          0,
+          Math.min(
+            Number(session.availableSeats || session.totalSeats || 0),
+            Number(session.totalSeats || 0) - reservedSeats,
+          ),
+        );
 
-    const formattedCourses = courses.map((course) => {
+        return (
+          !isSessionClosedForEnrollment(session, now) && availableSeats > 0
+        );
+      }),
+    );
+
+    const total = courses.length;
+    const pagedCourses = courses.slice(skip, skip + limit);
+
+    const formattedCourses = pagedCourses.map((course) => {
       const { savedBy, recruiter, ...rest } = course;
       return {
         ...rest,
@@ -121,14 +171,17 @@ export const getCourseSessions = catchAsync(
 
     const sessions = course.sessions.map((s) => {
       const reservedSeats = s.bookings.filter((booking) =>
-        ['PENDING', 'CONFIRMED', 'COMPLETED'].includes(booking.bookingStatus),
+        sessionBookingConsumesSeat(booking.bookingStatus),
       ).length;
       const availableSeats = Math.max(
         0,
-        Number(s.totalSeats || 0) - reservedSeats,
+        Math.min(
+          Number(s.availableSeats || s.totalSeats || 0),
+          Number(s.totalSeats || 0) - reservedSeats,
+        ),
       );
-      const isExpired = new Date(s.endDate).getTime() < now.getTime();
-      const status = isExpired
+      const isClosed = isSessionClosedForEnrollment(s, now);
+      const status = isClosed
         ? 'EXPIRED'
         : availableSeats > 0
           ? 'AVAILABLE'
@@ -232,6 +285,21 @@ export const cancelBooking = catchAsync(
         paymentStatus: refundProcessed ? 'REFUNDED' : booking.paymentStatus,
       },
     });
+
+    if (booking.sessions && booking.sessions.length > 0) {
+      await Promise.all(
+        booking.sessions.map((session) =>
+          prisma.courseSession.update({
+            where: { id: session.id },
+            data: {
+              availableSeats: {
+                increment: 1,
+              },
+            },
+          }),
+        ),
+      );
+    }
 
     // Decrement enrolled count
     if (booking.course) {

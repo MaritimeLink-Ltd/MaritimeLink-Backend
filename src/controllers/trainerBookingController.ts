@@ -599,6 +599,21 @@ export const rejectAttendee = catchAsync(
       },
     });
 
+    if (updatedBooking.sessions.length > 0) {
+      await Promise.all(
+        updatedBooking.sessions.map((session) =>
+          prisma.courseSession.update({
+            where: { id: session.id },
+            data: {
+              availableSeats: {
+                increment: 1,
+              },
+            },
+          }),
+        ),
+      );
+    }
+
     const rejectionAlert = await prisma.alert.create({
       data: {
         professionalId: booking.professionalId,

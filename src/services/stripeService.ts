@@ -432,15 +432,35 @@ export const stripeService = {
   async handlePaymentFailed(paymentIntent: Stripe.PaymentIntent) {
     const booking = await prisma.courseBooking.findFirst({
       where: { stripePaymentIntentId: paymentIntent.id },
+      include: {
+        sessions: {
+          select: { id: true },
+        },
+      },
     });
 
     if (booking) {
-      await prisma.courseBooking.update({
-        where: { id: booking.id },
-        data: {
-          paymentStatus: 'FAILED',
-          bookingStatus: 'CANCELLED',
-        },
+      await prisma.$transaction(async (tx) => {
+        await tx.courseBooking.update({
+          where: { id: booking.id },
+          data: {
+            paymentStatus: 'FAILED',
+            bookingStatus: 'CANCELLED',
+          },
+        });
+
+        await Promise.all(
+          booking.sessions.map((session) =>
+            tx.courseSession.update({
+              where: { id: session.id },
+              data: {
+                availableSeats: {
+                  increment: 1,
+                },
+              },
+            }),
+          ),
+        );
       });
     }
   },

@@ -4,6 +4,27 @@ import { catchAsync } from '../utils/catchAsync.js';
 import { AppError } from '../utils/AppError.js';
 import { stripeService } from '../services/stripeService.js';
 import { CustomRequest } from '../types/index.js';
+import { Prisma } from '../generated/client/index.js';
+
+const seatHoldingStatuses = ['PENDING', 'CONFIRMED', 'COMPLETED'];
+
+const isSessionClosedForEnrollment = (
+  session: {
+    endDate: Date | string;
+    enrollmentDeadline?: Date | string | null;
+  },
+  now: Date,
+) => {
+  const endsAt = new Date(session.endDate);
+  const deadline = session.enrollmentDeadline
+    ? new Date(session.enrollmentDeadline)
+    : null;
+
+  return (
+    endsAt.getTime() < now.getTime() ||
+    Boolean(deadline && deadline.getTime() < now.getTime())
+  );
+};
 
 /**
  * Create a booking and a Stripe Payment Intent (for Stripe Elements)
@@ -26,137 +47,224 @@ export const checkout = catchAsync(
       return next(new AppError('Please select at least one session', 400));
     }
 
-    const course = await prisma.course.findUnique({
-      where: { id: courseId },
-      include: {
-        sessions: {
-          where: { id: { in: normalizedSessionIds } },
+    let booking:
+      | {
+          id: string;
+          courseId: string;
+          amountPaid: Prisma.Decimal;
+          currency: string;
+        }
+      | undefined;
+    let course:
+      | {
+          title: string;
+          price: Prisma.Decimal;
+          currency: string;
+        }
+      | undefined;
+
+    try {
+      booking = await prisma.$transaction(async (tx) => {
+        const dbCourse = await tx.course.findUnique({
+          where: { id: courseId },
           include: {
-            bookings: {
-              select: {
-                id: true,
-                bookingStatus: true,
+            sessions: {
+              where: { id: { in: normalizedSessionIds } },
+              include: {
+                bookings: {
+                  select: {
+                    bookingStatus: true,
+                  },
+                },
               },
             },
           },
-        },
-      },
-    });
+        });
 
-    if (!course) {
-      return next(new AppError('Course not found', 404));
-    }
+        if (!dbCourse) {
+          throw new AppError('Course not found', 404);
+        }
 
-    if (course.status !== 'ACTIVE' && course.status !== 'FULL') {
-      return next(new AppError('This course is not open for booking', 400));
-    }
+        if (dbCourse.status !== 'ACTIVE' && dbCourse.status !== 'FULL') {
+          throw new AppError('This course is not open for booking', 400);
+        }
 
-    if (course.sessions.length !== normalizedSessionIds.length) {
-      return next(
-        new AppError('One or more selected sessions were not found', 400),
-      );
-    }
-
-    const now = new Date();
-    for (const session of course.sessions) {
-      const reservedSeats = session.bookings.filter((booking) =>
-        ['PENDING', 'CONFIRMED', 'COMPLETED'].includes(booking.bookingStatus),
-      ).length;
-      const availableSeats = Math.max(0, session.totalSeats - reservedSeats);
-      const isExpired = new Date(session.endDate).getTime() < now.getTime();
-
-      if (isExpired) {
-        return next(
-          new AppError(
-            `Selected session has already expired: ${session.location || session.id}`,
+        if (dbCourse.sessions.length !== normalizedSessionIds.length) {
+          throw new AppError(
+            'One or more selected sessions were not found',
             400,
-          ),
-        );
-      }
+          );
+        }
 
-      if (availableSeats <= 0) {
-        return next(
-          new AppError(
-            `Selected session is already full: ${session.location || session.id}`,
+        const existing = await tx.courseBooking.findFirst({
+          where: {
+            professionalId,
+            courseId,
+            bookingStatus: { in: ['PENDING', 'CONFIRMED'] },
+          },
+        });
+
+        if (existing && existing.bookingStatus === 'CONFIRMED') {
+          throw new AppError(
+            'You already have a confirmed booking for this course',
             400,
-          ),
-        );
-      }
-    }
+          );
+        }
 
-    // Check if user already has a pending or confirmed booking for these sessions
-    // (Simplified check for brevity, but ideally check session overlap)
-    const existing = await prisma.courseBooking.findFirst({
-      where: {
-        professionalId,
-        courseId,
-        bookingStatus: { in: ['PENDING', 'CONFIRMED'] },
-      },
-    });
+        const now = new Date();
+        for (const session of dbCourse.sessions) {
+          const reservedSeats = session.bookings.filter((candidate) =>
+            seatHoldingStatuses.includes(candidate.bookingStatus),
+          ).length;
+          const derivedAvailableSeats = Math.max(
+            0,
+            Number(session.totalSeats || 0) - reservedSeats,
+          );
+          const syncedAvailableSeats = Math.max(
+            0,
+            Math.min(
+              Number(session.availableSeats ?? derivedAvailableSeats),
+              derivedAvailableSeats,
+            ),
+          );
 
-    if (existing && existing.bookingStatus === 'CONFIRMED') {
-      return next(
-        new AppError(
-          'You already have a confirmed booking for this course',
-          400,
-        ),
-      );
-    }
+          if (Number(session.availableSeats) !== syncedAvailableSeats) {
+            await tx.courseSession.update({
+              where: { id: session.id },
+              data: { availableSeats: syncedAvailableSeats },
+            });
+          }
 
-    // Calculate amount
-    const amount = Number(course.price);
-    const currency = course.currency || 'GBP';
+          if (isSessionClosedForEnrollment(session, now)) {
+            throw new AppError(
+              `Selected session can no longer be booked: ${session.location || session.id}`,
+              400,
+            );
+          }
 
-    // Create a pending booking in the database
-    const booking = await prisma.courseBooking.create({
-      data: {
-        professionalId,
-        courseId,
-        amountPaid: amount,
-        currency,
-        bookingStatus: 'PENDING',
-        paymentStatus: 'PENDING',
-        sessions: {
-          connect: normalizedSessionIds.map((id: string) => ({ id })),
-        },
-        ...(documentIds &&
-          documentIds.length > 0 && {
-            attachedDocuments: {
-              connect: documentIds.map((id: string) => ({ id })),
+          if (syncedAvailableSeats <= 0) {
+            throw new AppError(
+              `Selected session is already full: ${session.location || session.id}`,
+              400,
+            );
+          }
+        }
+
+        for (const session of dbCourse.sessions) {
+          const reserveResult = await tx.courseSession.updateMany({
+            where: {
+              id: session.id,
+              availableSeats: { gte: 1 },
             },
-          }),
-      },
-    });
+            data: {
+              availableSeats: {
+                decrement: 1,
+              },
+            },
+          });
+
+          if (reserveResult.count !== 1) {
+            throw new AppError(
+              `Selected session is no longer available: ${session.location || session.id}`,
+              409,
+            );
+          }
+        }
+
+        course = {
+          title: dbCourse.title,
+          price: dbCourse.price,
+          currency: dbCourse.currency || 'GBP',
+        };
+
+        return tx.courseBooking.create({
+          data: {
+            professionalId,
+            courseId,
+            amountPaid: Number(dbCourse.price),
+            currency: dbCourse.currency || 'GBP',
+            bookingStatus: 'PENDING',
+            paymentStatus: 'PENDING',
+            sessions: {
+              connect: normalizedSessionIds.map((id: string) => ({ id })),
+            },
+            ...(documentIds &&
+              documentIds.length > 0 && {
+                attachedDocuments: {
+                  connect: documentIds.map((id: string) => ({ id })),
+                },
+              }),
+          },
+          select: {
+            id: true,
+            courseId: true,
+            amountPaid: true,
+            currency: true,
+          },
+        });
+      });
+    } catch (error) {
+      return next(error);
+    }
 
     // Create Payment Intent
-    const paymentIntent = await stripeService.createPaymentIntent({
-      amount,
-      currency,
-      description: `Course booking: ${course.title}`,
-      metadata: {
-        bookingId: booking.id,
-        courseId,
-        professionalId,
-      },
-    });
-
-    // Update booking with PI ID
-    await prisma.courseBooking.update({
-      where: { id: booking.id },
-      data: { stripePaymentIntentId: paymentIntent.id },
-    });
-
-    res.status(200).json({
-      status: 'success',
-      data: {
-        bookingId: booking.id,
+    try {
+      const amount = Number(course?.price || booking.amountPaid);
+      const currency = course?.currency || booking.currency || 'GBP';
+      const paymentIntent = await stripeService.createPaymentIntent({
         amount,
         currency,
-        paymentIntentId: paymentIntent.id,
-        clientSecret: paymentIntent.client_secret,
-        paymentStatus: 'requires_payment_method',
-      },
-    });
+        description: `Course booking: ${course?.title || courseId}`,
+        metadata: {
+          bookingId: booking.id,
+          courseId,
+          professionalId,
+        },
+      });
+
+      // Update booking with PI ID
+      await prisma.courseBooking.update({
+        where: { id: booking.id },
+        data: { stripePaymentIntentId: paymentIntent.id },
+      });
+
+      res.status(200).json({
+        status: 'success',
+        data: {
+          bookingId: booking.id,
+          amount,
+          currency,
+          paymentIntentId: paymentIntent.id,
+          clientSecret: paymentIntent.client_secret,
+          paymentStatus: 'requires_payment_method',
+        },
+      });
+    } catch (error) {
+      await prisma.$transaction(async (tx) => {
+        await tx.courseBooking.delete({
+          where: { id: booking.id },
+        });
+
+        await Promise.all(
+          normalizedSessionIds.map((id: string) =>
+            tx.courseSession.update({
+              where: { id },
+              data: {
+                availableSeats: {
+                  increment: 1,
+                },
+              },
+            }),
+          ),
+        );
+      });
+
+      return next(
+        error instanceof AppError
+          ? error
+          : new AppError('Failed to start checkout for this booking', 500),
+      );
+    }
   },
 );
 

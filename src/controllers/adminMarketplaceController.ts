@@ -14,6 +14,37 @@ import csv from 'csv-parser';
 import { AppError } from '../utils/AppError.js';
 import { JobType } from '../generated/client/index.js';
 
+const resolveTimeframeStart = (timeframe?: string) => {
+  const now = new Date();
+  const start = new Date(now);
+  const normalized = String(timeframe || '30d').toLowerCase();
+
+  if (normalized === 'today') {
+    start.setHours(0, 0, 0, 0);
+    return start;
+  }
+
+  if (normalized === '7d' || normalized === '7days') {
+    start.setDate(now.getDate() - 7);
+    return start;
+  }
+
+  start.setDate(now.getDate() - 30);
+  return start;
+};
+
+type MarketplaceOversightRow = {
+  id: string;
+  name: string;
+  email: string;
+  company: string;
+  totalActive: number;
+  totalPosted: number;
+  totalInteractions: number;
+  flaggedCount: number;
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH';
+};
+
 /**
  * @desc    Get Marketplace Statistics for top cards
  * @route   GET /api/admin/marketplace/stats
@@ -21,40 +52,49 @@ import { JobType } from '../generated/client/index.js';
  */
 export const getMarketplaceStats = catchAsync(
   async (req: CustomRequest, res: Response) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const timeframeStart = resolveTimeframeStart(req.query.timeframe as string);
 
     const [
       liveJobs,
-      jobsToday,
+      jobsInWindow,
       totalApplications,
-      appsToday,
+      appsInWindow,
       flaggedJobs,
       removedJobs,
       activeCourses,
-      coursesToday,
+      coursesInWindow,
       totalBookings,
-      bookingsToday,
+      bookingsInWindow,
       flaggedCourses,
       upcomingSessions,
     ] = await Promise.all([
       // Jobs Stats
       prisma.job.count({ where: { status: 'ACTIVE' } }),
       prisma.job.count({
-        where: { status: 'ACTIVE', createdAt: { gte: today } },
+        where: { status: 'ACTIVE', createdAt: { gte: timeframeStart } },
       }),
       prisma.jobApplication.count(),
-      prisma.jobApplication.count({ where: { createdAt: { gte: today } } }),
+      prisma.jobApplication.count({
+        where: { createdAt: { gte: timeframeStart } },
+      }),
       prisma.job.count({ where: { isFlagged: true } }),
-      prisma.job.count({ where: { status: 'REMOVED' } }),
+      prisma.job.count({
+        where: {
+          status: {
+            in: [JobStatus.REMOVED, JobStatus.EXPIRED, JobStatus.FILLED],
+          },
+        },
+      }),
 
       // Courses Stats
       prisma.course.count({ where: { status: 'ACTIVE' } }),
       prisma.course.count({
-        where: { status: 'ACTIVE', createdAt: { gte: today } },
+        where: { status: 'ACTIVE', createdAt: { gte: timeframeStart } },
       }),
       prisma.courseBooking.count(),
-      prisma.courseBooking.count({ where: { createdAt: { gte: today } } }),
+      prisma.courseBooking.count({
+        where: { createdAt: { gte: timeframeStart } },
+      }),
       prisma.course.count({ where: { isFlagged: true } }),
       prisma.courseSession.count({
         where: {
@@ -70,14 +110,14 @@ export const getMarketplaceStats = catchAsync(
       status: 'success',
       data: {
         jobs: {
-          live: { count: liveJobs, today: jobsToday },
-          applications: { count: totalApplications, today: appsToday },
+          live: { count: liveJobs, today: jobsInWindow },
+          applications: { count: totalApplications, today: appsInWindow },
           flagged: flaggedJobs,
           removed: removedJobs,
         },
         courses: {
-          active: { count: activeCourses, today: coursesToday },
-          bookings: { count: totalBookings, today: bookingsToday },
+          active: { count: activeCourses, today: coursesInWindow },
+          bookings: { count: totalBookings, today: bookingsInWindow },
           flagged: flaggedCourses,
           upcomingSessions,
         },
@@ -96,79 +136,94 @@ export const getMarketplaceOversight = catchAsync(
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
     const skip = (page - 1) * limit;
-    const { type, search } = req.query; // type: JOBS or COURSES
+    const { type, search, status, riskLevel } = req.query; // type: JOBS or COURSES
+    const timeframeStart = resolveTimeframeStart(req.query.timeframe as string);
 
     if (type === 'COURSES') {
-      const where: Prisma.RecruiterWhereInput = {
-        role: 'TRAINING_AGENT',
+      const courseWhere: Prisma.CourseWhereInput = {
+        recruiterId: { not: null },
+        createdAt: { gte: timeframeStart },
         ...(search && {
           OR: [
+            { title: { contains: search as string, mode: 'insensitive' } },
+            { location: { contains: search as string, mode: 'insensitive' } },
             {
-              organizationName: {
-                contains: search as string,
-                mode: 'insensitive',
+              recruiter: {
+                organizationName: {
+                  contains: search as string,
+                  mode: 'insensitive',
+                },
               },
             },
-            { email: { contains: search as string, mode: 'insensitive' } },
+            {
+              recruiter: {
+                email: { contains: search as string, mode: 'insensitive' },
+              },
+            },
           ],
         }),
       };
-      const providers = await prisma.recruiter.findMany({
-        where,
-        skip,
-        take: limit,
-        select: {
-          id: true,
-          organizationName: true,
-          email: true,
-          company: { select: { name: true } },
-          _count: {
-            select: {
-              courses: true, // Total Posted
-            },
-          },
-          courses: {
+      const courses = await prisma.course.findMany({
+        where: courseWhere,
+        include: {
+          recruiter: {
             select: {
               id: true,
-              status: true,
-              _count: { select: { bookings: true } },
-              isFlagged: true,
-              riskLevel: true,
+              organizationName: true,
+              email: true,
+              company: { select: { name: true } },
             },
           },
+          _count: { select: { bookings: true } },
         },
       });
 
-      const formatted = providers.map((p) => {
-        const activeCount = p.courses.filter(
-          (c) => c.status === 'ACTIVE',
-        ).length;
-        const totalBookings = p.courses.reduce(
-          (sum, c) => sum + (c._count.bookings || 0),
-          0,
-        );
-        const flaggedCount = p.courses.filter((c) => c.isFlagged).length;
-        const risks = p.courses.map((c) => c.riskLevel);
-        const riskLevel = risks.includes('HIGH')
-          ? 'HIGH'
-          : risks.includes('MEDIUM')
-            ? 'MEDIUM'
-            : 'LOW';
-
-        return {
-          id: p.id,
-          name: p.organizationName || p.email,
-          email: p.email,
-          company: p.company?.name || 'N/A',
-          totalActive: activeCount,
-          totalPosted: p._count.courses,
-          totalInteractions: totalBookings,
-          flaggedCount,
-          riskLevel,
+      const grouped = new Map<string, MarketplaceOversightRow>();
+      courses.forEach((course) => {
+        if (!course.recruiterId || !course.recruiter) return;
+        const current = grouped.get(course.recruiterId) || {
+          id: course.recruiterId,
+          name: course.recruiter.organizationName || course.recruiter.email,
+          email: course.recruiter.email,
+          company: course.recruiter.company?.name || 'N/A',
+          totalActive: 0,
+          totalPosted: 0,
+          totalInteractions: 0,
+          flaggedCount: 0,
+          riskLevel: 'LOW',
         };
+
+        current.totalPosted += 1;
+        current.totalInteractions += course._count.bookings || 0;
+        if (course.status === 'ACTIVE') current.totalActive += 1;
+        if (course.isFlagged) current.flaggedCount += 1;
+        if (course.riskLevel === 'HIGH') current.riskLevel = 'HIGH';
+        else if (course.riskLevel === 'MEDIUM' && current.riskLevel !== 'HIGH')
+          current.riskLevel = 'MEDIUM';
+
+        grouped.set(course.recruiterId, current);
       });
 
-      const total = await prisma.recruiter.count({ where });
+      let formatted = Array.from(grouped.values());
+      if (typeof status === 'string' && status.length > 0) {
+        if (status === 'FLAGGED') {
+          formatted = formatted.filter((row) => row.flaggedCount > 0);
+        } else if (status === 'ACTIVE') {
+          formatted = formatted.filter((row) => row.totalActive > 0);
+        } else if (status === 'CLOSED') {
+          formatted = formatted.filter(
+            (row) => row.totalActive === 0 && row.totalPosted > 0,
+          );
+        }
+      }
+      if (typeof riskLevel === 'string' && riskLevel.length > 0) {
+        formatted = formatted.filter(
+          (row) => (row.riskLevel || 'LOW').toUpperCase() === riskLevel,
+        );
+      }
+      formatted.sort((a, b) => a.name.localeCompare(b.name));
+      const total = formatted.length;
+      const paged = formatted.slice(skip, skip + limit);
 
       return res.status(200).json({
         status: 'success',
@@ -179,79 +234,106 @@ export const getMarketplaceOversight = catchAsync(
           total,
           pages: Math.max(1, Math.ceil(total / limit)),
         },
-        data: { oversight: formatted },
+        data: { oversight: paged },
       });
     }
 
     // Default to JOBS
-    const where: Prisma.RecruiterWhereInput = {
-      role: 'RECRUITMENT_AGENT',
+    const jobWhere: Prisma.JobWhereInput = {
+      recruiterId: { not: null },
+      createdAt: { gte: timeframeStart },
       ...(search && {
         OR: [
+          { title: { contains: search as string, mode: 'insensitive' } },
+          { location: { contains: search as string, mode: 'insensitive' } },
           {
-            organizationName: {
-              contains: search as string,
-              mode: 'insensitive',
+            recruiter: {
+              organizationName: {
+                contains: search as string,
+                mode: 'insensitive',
+              },
             },
           },
-          { email: { contains: search as string, mode: 'insensitive' } },
+          {
+            recruiter: {
+              email: { contains: search as string, mode: 'insensitive' },
+            },
+          },
+          {
+            recruiter: {
+              company: {
+                name: { contains: search as string, mode: 'insensitive' },
+              },
+            },
+          },
         ],
       }),
     };
-    const recruiters = await prisma.recruiter.findMany({
-      where,
-      skip,
-      take: limit,
-      select: {
-        id: true,
-        organizationName: true,
-        email: true,
-        company: { select: { name: true } },
-        _count: {
-          select: {
-            jobs: true, // Total Posted
-          },
-        },
-        jobs: {
+    const jobs = await prisma.job.findMany({
+      where: jobWhere,
+      include: {
+        recruiter: {
           select: {
             id: true,
-            status: true,
-            _count: { select: { applications: true } },
-            isFlagged: true,
-            riskLevel: true,
+            organizationName: true,
+            email: true,
+            company: { select: { name: true } },
+          },
+        },
+        _count: {
+          select: {
+            applications: true,
           },
         },
       },
     });
 
-    const formatted = recruiters.map((r) => {
-      const activeCount = r.jobs.filter((j) => j.status === 'ACTIVE').length;
-      const totalApps = r.jobs.reduce(
-        (sum, j) => sum + (j._count.applications || 0),
-        0,
-      );
-      const flaggedCount = r.jobs.filter((j) => j.isFlagged).length;
-      const risks = r.jobs.map((j) => j.riskLevel);
-      const riskLevel = risks.includes('HIGH')
-        ? 'HIGH'
-        : risks.includes('MEDIUM')
-          ? 'MEDIUM'
-          : 'LOW';
-
-      return {
-        id: r.id,
-        name: r.organizationName || r.email,
-        email: r.email,
-        company: r.company?.name || 'N/A',
-        totalActive: activeCount,
-        totalPosted: r._count.jobs,
-        totalInteractions: totalApps,
-        flaggedCount,
-        riskLevel,
+    const grouped = new Map<string, MarketplaceOversightRow>();
+    jobs.forEach((job) => {
+      if (!job.recruiterId || !job.recruiter) return;
+      const current = grouped.get(job.recruiterId) || {
+        id: job.recruiterId,
+        name: job.recruiter.organizationName || job.recruiter.email,
+        email: job.recruiter.email,
+        company: job.recruiter.company?.name || 'N/A',
+        totalActive: 0,
+        totalPosted: 0,
+        totalInteractions: 0,
+        flaggedCount: 0,
+        riskLevel: 'LOW',
       };
+
+      current.totalPosted += 1;
+      current.totalInteractions += job._count.applications || 0;
+      if (job.status === 'ACTIVE') current.totalActive += 1;
+      if (job.isFlagged) current.flaggedCount += 1;
+      if (job.riskLevel === 'HIGH') current.riskLevel = 'HIGH';
+      else if (job.riskLevel === 'MEDIUM' && current.riskLevel !== 'HIGH')
+        current.riskLevel = 'MEDIUM';
+
+      grouped.set(job.recruiterId, current);
     });
 
-    const total = await prisma.recruiter.count({ where });
+    let formatted = Array.from(grouped.values());
+    if (typeof status === 'string' && status.length > 0) {
+      if (status === 'FLAGGED') {
+        formatted = formatted.filter((row) => row.flaggedCount > 0);
+      } else if (status === 'ACTIVE') {
+        formatted = formatted.filter((row) => row.totalActive > 0);
+      } else if (status === 'CLOSED') {
+        formatted = formatted.filter(
+          (row) => row.totalActive === 0 && row.totalPosted > 0,
+        );
+      }
+    }
+    if (typeof riskLevel === 'string' && riskLevel.length > 0) {
+      formatted = formatted.filter(
+        (row) => (row.riskLevel || 'LOW').toUpperCase() === riskLevel,
+      );
+    }
+    formatted.sort((a, b) => a.name.localeCompare(b.name));
+    const total = formatted.length;
+    const paged = formatted.slice(skip, skip + limit);
 
     res.status(200).json({
       status: 'success',
@@ -262,7 +344,7 @@ export const getMarketplaceOversight = catchAsync(
         total,
         pages: Math.max(1, Math.ceil(total / limit)),
       },
-      data: { oversight: formatted },
+      data: { oversight: paged },
     });
   },
 );
@@ -275,33 +357,95 @@ export const getMarketplaceOversight = catchAsync(
 export const getMaritimeLinkListings = catchAsync(
   async (req: CustomRequest, res: Response) => {
     const { type } = req.query; // JOBS or COURSES
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 10;
+    const skip = (page - 1) * limit;
+    const search = req.query.search as string | undefined;
+    const status = req.query.status as string | undefined;
+    const timeframeStart = resolveTimeframeStart(req.query.timeframe as string);
 
     if (type === 'COURSES') {
+      const where: Prisma.CourseWhereInput = {
+        adminId: { not: null },
+        createdAt: { gte: timeframeStart },
+      };
+      if (search) {
+        where.OR = [
+          { title: { contains: search, mode: 'insensitive' } },
+          { location: { contains: search, mode: 'insensitive' } },
+        ];
+      }
+      if (status === 'FLAGGED') where.isFlagged = true;
+      else if (status) where.status = status as CourseStatus;
+
       const courses = await prisma.course.findMany({
-        where: { adminId: { not: null } },
+        where,
+        skip,
+        take: limit,
         include: {
           _count: { select: { bookings: true } },
         },
         orderBy: { createdAt: 'desc' },
       });
+      const total = await prisma.course.count({ where });
 
       return res.status(200).json({
         status: 'success',
-        data: { listings: courses },
+        pagination: {
+          page,
+          limit,
+          total,
+          pages: Math.max(1, Math.ceil(total / limit)),
+        },
+        data: { listings: courses, total },
       });
     }
 
+    const where: Prisma.JobWhereInput = {
+      adminId: { not: null },
+      createdAt: { gte: timeframeStart },
+    };
+    if (search) {
+      where.OR = [
+        { title: { contains: search, mode: 'insensitive' } },
+        { location: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+    if (status === 'FLAGGED') where.isFlagged = true;
+    else if (status === 'CLOSED') {
+      where.status = {
+        in: [JobStatus.REMOVED, JobStatus.EXPIRED, JobStatus.FILLED],
+      };
+    } else if (status) {
+      where.status = status as JobStatus;
+    }
+
     const jobs = await prisma.job.findMany({
-      where: { adminId: { not: null } },
+      where,
+      skip,
+      take: limit,
       include: {
         _count: { select: { applications: true } },
+        recruiter: {
+          select: { organizationName: true, email: true },
+        },
+        admin: {
+          select: { email: true },
+        },
       },
       orderBy: { createdAt: 'desc' },
     });
+    const total = await prisma.job.count({ where });
 
     res.status(200).json({
       status: 'success',
-      data: { listings: jobs },
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.max(1, Math.ceil(total / limit)),
+      },
+      data: { listings: jobs, total },
     });
   },
 );
