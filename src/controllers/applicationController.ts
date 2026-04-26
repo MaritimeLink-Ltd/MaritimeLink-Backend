@@ -453,6 +453,12 @@ export const getJobApplicants = catchAsync(
             idPassportUrl: true, // For avatar
             cvUrl: true,
             kyc: { select: { status: true } },
+            documents: {
+              select: {
+                id: true,
+                expiryDate: true,
+              },
+            },
             resume: {
               include: {
                 seaService: true,
@@ -469,6 +475,24 @@ export const getJobApplicants = catchAsync(
       const { years } = calculateTotalSeaTime(seaService);
       const isVerified =
         app.professional.kyc?.status === RecruiterStatus.APPROVED;
+      const docs = Array.isArray(app.professional.documents)
+        ? app.professional.documents
+        : [];
+      const hasExpiredDocs = docs.some(
+        (doc) => doc.expiryDate && new Date(doc.expiryDate) < new Date(),
+      );
+      const compliance =
+        !isVerified || docs.length === 0
+          ? 'Not Deployable'
+          : hasExpiredDocs
+            ? 'Expiring Soon'
+            : 'Ready';
+      const complianceSubtext =
+        compliance === 'Ready'
+          ? 'Ready to deploy'
+          : compliance === 'Expiring Soon'
+            ? 'Renewals needed'
+            : 'Missing critical certs';
 
       return {
         ...app,
@@ -477,6 +501,8 @@ export const getJobApplicants = catchAsync(
           totalYearsExperience: years,
           isVerified,
           location: app.professional.resume?.country || 'Global',
+          compliance,
+          complianceSubtext,
         },
       };
     });

@@ -61,10 +61,10 @@ export const createJob = catchAsync(
     // Admins have specific roles
     const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'].includes(userRole);
 
-    const { closingDate } = validatedData;
+    const { closingDate, ...jobData } = validatedData;
     const job = await prisma.job.create({
       data: {
-        ...validatedData,
+        ...jobData,
         closingDate: closingDate ? new Date(closingDate) : null,
         adminId: isAdmin ? userId : null,
         recruiterId: !isAdmin ? userId : null,

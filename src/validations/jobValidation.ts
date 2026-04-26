@@ -7,6 +7,7 @@ export const createJobSchema = z.object({
   contractType: z.enum(['TEMPORARY', 'CONTRACT', 'PERMANENT']),
   salary: z.string().min(1).max(50),
   description: z.string().min(10),
+  status: z.enum(['ACTIVE', 'DRAFT']).optional().default('ACTIVE'),
   closingDate: z
     .string()
     .optional()

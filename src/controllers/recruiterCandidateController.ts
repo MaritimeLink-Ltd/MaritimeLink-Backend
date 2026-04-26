@@ -2,6 +2,7 @@ import { Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma.js';
 import {
   InvitationStatus,
+  JobStatus,
   RecruiterStatus,
 } from '../generated/client/index.js';
 import { catchAsync } from '../utils/catchAsync.js';
@@ -9,12 +10,58 @@ import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
 import { calculateTotalSeaTime } from '../utils/experienceUtils.js';
 
+const normalizeText = (value: unknown) =>
+  String(value || '')
+    .trim()
+    .toLowerCase();
+
+const buildComplianceMeta = (prof: {
+  kyc?: { status?: string | null } | null;
+  documents?: Array<{ expiryDate?: Date | null }> | null;
+}) => {
+  const docs = Array.isArray(prof.documents) ? prof.documents : [];
+  if (prof.kyc?.status !== RecruiterStatus.APPROVED) {
+    return {
+      compliance: 'Not Deployable',
+      complianceSubtext: 'KYC not approved',
+    };
+  }
+
+  if (docs.length === 0) {
+    return {
+      compliance: 'Not Deployable',
+      complianceSubtext: 'Missing critical certs',
+    };
+  }
+
+  const hasExpiredDocs = docs.some(
+    (doc) => doc.expiryDate && new Date(doc.expiryDate) < new Date(),
+  );
+
+  if (hasExpiredDocs) {
+    return {
+      compliance: 'Expiring Soon',
+      complianceSubtext: 'Renewals needed',
+    };
+  }
+
+  return {
+    compliance: 'Ready',
+    complianceSubtext: 'Ready to deploy',
+  };
+};
+
 /**
  * Get matching candidates for a specific job
  */
 export const getMatchingCandidates = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const { id: jobId } = req.params;
+    const userId = req.user?.id;
+    const userRole = req.user?.role;
+    const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'].includes(
+      userRole || '',
+    );
 
     const job = await prisma.job.findUnique({
       where: { id: jobId },
@@ -27,11 +74,55 @@ export const getMatchingCandidates = catchAsync(
       return next(new AppError('Job not found', 404));
     }
 
-    // 1. Fetch professionals in the same category
+    if (isAdmin) {
+      if (job.adminId && job.adminId !== userId) {
+        return next(
+          new AppError('Not authorized to view matches for this job', 403),
+        );
+      }
+    } else if (job.recruiterId !== userId) {
+      return next(
+        new AppError('Not authorized to view matches for this job', 403),
+      );
+    }
+
+    if (job.status !== JobStatus.ACTIVE) {
+      return res.status(200).json({
+        status: 'success',
+        results: 0,
+        data: { candidates: [] },
+      });
+    }
+
+    const appliedOrInvited = await prisma.professional.findMany({
+      where: {
+        OR: [
+          { applications: { some: { jobId } } },
+          {
+            invitations: { some: { jobId, status: InvitationStatus.PENDING } },
+          },
+        ],
+      },
+      select: { id: true },
+    });
+    const excludedProfessionalIds = new Set(
+      appliedOrInvited.map((item) => item.id),
+    );
+
+    // 1. Fetch professionals relevant to this job category
     const professionals = await prisma.professional.findMany({
       where: {
-        profession: job.category,
         isVerified: true,
+        OR: [
+          { profession: job.category },
+          {
+            resume: {
+              is: {
+                category: job.category,
+              },
+            },
+          },
+        ],
       },
       include: {
         resume: {
@@ -46,73 +137,92 @@ export const getMatchingCandidates = catchAsync(
     });
 
     // 2. Matching Logic
-    const jobDescription = job.description.toLowerCase();
+    const jobDescription = normalizeText(job.description);
+    const jobTitle = normalizeText(job.title);
 
-    const candidates = professionals.map((prof) => {
-      let matchScore = 0;
-      const matchCriteria = [];
+    const candidates = professionals
+      .filter((prof) => !excludedProfessionalIds.has(prof.id))
+      .map((prof) => {
+        let matchScore = 0;
+        const matchCriteria: string[] = [];
+        const resumeCategory = normalizeText(prof.resume?.category);
+        const resumeSubcategory = normalizeText(prof.resume?.subcategory);
+        const profession = normalizeText(prof.profession);
 
-      // Category Match (Base matching)
-      if (prof.profession === job.category) {
-        matchScore += 40;
-        matchCriteria.push('Category Match');
-      }
+        // Category Match (Base matching)
+        if (
+          profession === normalizeText(job.category) ||
+          resumeCategory === normalizeText(job.category)
+        ) {
+          matchScore += 40;
+          matchCriteria.push('Category Match');
+        }
 
-      // Subcategory Match
-      if (
-        prof.resume?.subcategory &&
-        jobDescription.includes(prof.resume.subcategory.toLowerCase())
-      ) {
-        matchScore += 20;
-        matchCriteria.push('Specialization Match');
-      }
+        // Subcategory Match
+        if (
+          resumeSubcategory &&
+          (jobDescription.includes(resumeSubcategory) ||
+            jobTitle.includes(resumeSubcategory))
+        ) {
+          matchScore += 20;
+          matchCriteria.push('Specialization Match');
+        }
 
-      // Skills Match
-      const profSkills =
-        prof.resume?.skills.map((s) => s.skillName.toLowerCase()) || [];
-      const skillMatches = profSkills.filter((skill) =>
-        jobDescription.includes(skill),
-      );
-
-      if (skillMatches.length > 0) {
-        matchScore += Math.min(skillMatches.length * 10, 40); // Max 40 points for skills
-        matchCriteria.push(`Matches ${skillMatches.length} expected skills`);
-      }
-
-      // Compliance / Readiness
-      let compliance = 'Missing';
-      if (prof.kyc?.status === RecruiterStatus.APPROVED) {
-        const hasExpiredDocs = prof.documents.some(
-          (doc) => doc.expiryDate && new Date(doc.expiryDate) < new Date(),
+        // Skills Match
+        const profSkills =
+          prof.resume?.skills.map((s) => normalizeText(s.skillName)) || [];
+        const skillMatches = profSkills.filter((skill) =>
+          jobDescription.includes(skill),
         );
-        compliance = hasExpiredDocs ? 'Expiring Soon' : 'Ready';
-      }
 
-      // Latest Rank / Ship (from Sea Service)
-      const latestExp = prof.resume?.seaService?.sort((a, b) => {
-        const dateA = a.joiningDate ? new Date(a.joiningDate).getTime() : 0;
-        const dateB = b.joiningDate ? new Date(b.joiningDate).getTime() : 0;
-        return dateB - dateA;
-      })[0];
+        if (skillMatches.length > 0) {
+          matchScore += Math.min(skillMatches.length * 10, 40); // Max 40 points for skills
+          matchCriteria.push(`Matches ${skillMatches.length} expected skills`);
+        }
 
-      // Experience calculation
-      const { years } = calculateTotalSeaTime(prof.resume?.seaService || []);
+        const { compliance, complianceSubtext } = buildComplianceMeta(prof);
 
-      return {
-        id: prof.id,
-        fullname: prof.fullname,
-        rank: latestExp?.role || prof.resume?.subcategory || 'N/A',
-        avatarUrl: prof.profilePhotoUrl,
-        location: prof.resume?.country || prof.kyc?.issueCountry || 'Global',
-        totalYearsExperience: years,
-        availability: latestExp?.vesselName || 'Available Now',
-        compliance,
-        matchPercentage: Math.min(matchScore, 100),
-        matchCriteria,
-        cvUrl: prof.cvUrl,
-        documents: prof.documents,
-      };
-    });
+        if (
+          Array.isArray(prof.resume?.seaService) &&
+          prof.resume.seaService.length > 0
+        ) {
+          matchScore += 5;
+          matchCriteria.push('Sea service history available');
+        }
+
+        // Latest Rank / Ship (from Sea Service)
+        const latestExp = prof.resume?.seaService?.sort((a, b) => {
+          const dateA = a.joiningDate ? new Date(a.joiningDate).getTime() : 0;
+          const dateB = b.joiningDate ? new Date(b.joiningDate).getTime() : 0;
+          return dateB - dateA;
+        })[0];
+
+        // Experience calculation
+        const { years } = calculateTotalSeaTime(prof.resume?.seaService || []);
+
+        return {
+          id: prof.id,
+          professionalId: prof.id,
+          fullname: prof.fullname,
+          rank: latestExp?.role || prof.resume?.subcategory || 'N/A',
+          avatarUrl: prof.profilePhotoUrl,
+          location: prof.resume?.country || prof.kyc?.issueCountry || 'Global',
+          totalYearsExperience: years,
+          availability: latestExp?.vesselName || 'Available Now',
+          availabilitySubtext:
+            latestExp?.role ||
+            prof.resume?.subcategory ||
+            prof.profession ||
+            '',
+          compliance,
+          complianceSubtext,
+          matchPercentage: Math.min(matchScore, 100),
+          matchCriteria,
+          cvUrl: prof.cvUrl,
+          documents: prof.documents,
+        };
+      })
+      .filter((candidate) => candidate.matchPercentage > 0);
 
     // Sort by match percentage
     candidates.sort((a, b) => b.matchPercentage - a.matchPercentage);
