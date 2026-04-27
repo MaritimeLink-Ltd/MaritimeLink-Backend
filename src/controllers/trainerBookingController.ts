@@ -34,6 +34,19 @@ const bookedProfessionalSelect = {
   profession: true,
   subcategory: true,
   profilePhotoUrl: true,
+  resume: {
+    include: {
+      education: true,
+      licenses: true,
+      medicalCertificates: true,
+      stcwCertificates: true,
+      travelDocuments: true,
+      skills: true,
+      seaService: true,
+      nextOfKin: true,
+      referees: true,
+    },
+  },
 } as const;
 
 /**

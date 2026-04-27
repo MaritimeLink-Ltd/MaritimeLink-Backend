@@ -262,8 +262,15 @@ export const getApplicationDetails = catchAsync(
             documents: true,
             resume: {
               include: {
+                education: true,
+                licenses: true,
+                medicalCertificates: true,
+                stcwCertificates: true,
+                travelDocuments: true,
                 skills: true,
                 seaService: true,
+                nextOfKin: true,
+                referees: true,
               },
             },
           },
@@ -309,6 +316,8 @@ export const getApplicationDetails = catchAsync(
             profilePhotoUrl: application.professional.profilePhotoUrl,
             idPassportUrl: application.professional.idPassportUrl,
             kyc: application.professional.kyc,
+            cvUrl: application.professional.cvUrl,
+            resume: application.professional.resume,
           },
         };
 
@@ -498,7 +507,15 @@ export const getJobApplicants = catchAsync(
             },
             resume: {
               include: {
+                education: true,
+                licenses: true,
+                medicalCertificates: true,
+                stcwCertificates: true,
+                travelDocuments: true,
+                skills: true,
                 seaService: true,
+                nextOfKin: true,
+                referees: true,
               },
             },
           },

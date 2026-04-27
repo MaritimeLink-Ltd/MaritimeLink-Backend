@@ -31,16 +31,16 @@ const bookedProfessionalSelect = {
   profilePhotoUrl: true,
   cvUrl: true,
   resume: {
-    select: {
-      summary: true,
-      skills: {
-        select: {
-          id: true,
-          skillName: true,
-          rating: true,
-        },
-      },
+    include: {
+      education: true,
+      licenses: true,
+      medicalCertificates: true,
+      stcwCertificates: true,
+      travelDocuments: true,
+      skills: true,
       seaService: true,
+      nextOfKin: true,
+      referees: true,
     },
   },
 } as const;
