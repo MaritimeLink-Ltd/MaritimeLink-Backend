@@ -67,10 +67,15 @@ export const applyToJob = catchAsync(
 
     if (!professional) return next(new AppError('Professional not found', 404));
 
-    // 2. Determine final values (prioritize req.body, fallback to profile)
-    // Note: If coverLetterUrl is provided, it means they uploaded a file for the cover letter
-    const finalCoverLetter = coverLetter || professional.lastCoverLetter;
-    const finalCvUrl = cvUrl || professional.cvUrl;
+    // 2. Only persist what was explicitly submitted for this application.
+    // We do not fall back to profile CV / cover letter here because that can leak
+    // unrelated files into recruiter/admin application review.
+    const finalCoverLetter =
+      typeof coverLetter === 'string' && coverLetter.trim()
+        ? coverLetter.trim()
+        : null;
+    const finalCvUrl =
+      typeof cvUrl === 'string' && cvUrl.trim() ? cvUrl.trim() : null;
 
     // 3. Check if Job exists
     const job = await prisma.job.findUnique({ where: { id: jobId } });
@@ -110,18 +115,7 @@ export const applyToJob = catchAsync(
       },
     });
 
-    // 6. Update Professional profile for future reuse if new data provided
-    if (coverLetter || cvUrl) {
-      await prisma.professional.update({
-        where: { id: userId },
-        data: {
-          lastCoverLetter: coverLetter || undefined,
-          cvUrl: cvUrl || undefined,
-        },
-      });
-    }
-
-    // 7. Mark Invitation as ACCEPTED if it exists
+    // 6. Mark Invitation as ACCEPTED if it exists
     await prisma.jobInvitation.updateMany({
       where: {
         jobId,
@@ -133,7 +127,7 @@ export const applyToJob = catchAsync(
       },
     });
 
-    // 8. Log Activity
+    // 7. Log Activity
     await logActivity({
       action: 'JOB_APPLY',
       actorId: userId,
@@ -316,8 +310,6 @@ export const getApplicationDetails = catchAsync(
             profilePhotoUrl: application.professional.profilePhotoUrl,
             idPassportUrl: application.professional.idPassportUrl,
             kyc: application.professional.kyc,
-            cvUrl: application.professional.cvUrl,
-            resume: application.professional.resume,
           },
         };
 

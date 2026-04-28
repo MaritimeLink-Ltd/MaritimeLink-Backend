@@ -263,6 +263,7 @@ export const getMyAccount = catchAsync(
         profession: true,
         subcategory: true,
         profilePhotoUrl: true,
+        cvUrl: true,
         status: true,
         tier: true,
         availableForWork: true,
