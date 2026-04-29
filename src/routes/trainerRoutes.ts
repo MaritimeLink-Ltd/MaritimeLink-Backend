@@ -1,6 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import * as recruiterAuthController from '../controllers/recruiterAuthController.js';
+import * as recruiterSettingsController from '../controllers/recruiterSettingsController.js';
 import * as kycController from '../controllers/kycController.js';
 import * as stripeController from '../controllers/trainerStripeController.js';
 import * as bookingController from '../controllers/trainerBookingController.js';
@@ -90,6 +91,48 @@ router.post('/verify-otp', recruiterAuthController.verifyOTP);
  *     tags: [Trainer]
  */
 router.patch('/personal-info', recruiterAuthController.setPersonalInfo);
+
+router.patch(
+  '/update-password',
+  protectRecruiter,
+  recruiterAuthController.updatePassword,
+);
+router.get(
+  '/settings',
+  protectRecruiter,
+  recruiterSettingsController.getRecruiterSettings,
+);
+router.patch(
+  '/settings/profile',
+  protectRecruiter,
+  recruiterSettingsController.updateRecruiterProfileSettings,
+);
+router.patch(
+  '/settings/company',
+  protectRecruiter,
+  recruiterSettingsController.updateRecruiterCompanySettings,
+);
+router.patch(
+  '/settings/notifications',
+  protectRecruiter,
+  recruiterSettingsController.updateRecruiterNotificationSettings,
+);
+router.get(
+  '/settings/billing',
+  protectRecruiter,
+  recruiterSettingsController.getRecruiterBillingSettings,
+);
+router.patch(
+  '/settings/profile-photo',
+  protectRecruiter,
+  upload.single('photo'),
+  recruiterSettingsController.updateRecruiterProfilePhoto,
+);
+router.delete(
+  '/settings/profile-photo',
+  protectRecruiter,
+  recruiterSettingsController.removeRecruiterProfilePhoto,
+);
 
 /**
  * @swagger
