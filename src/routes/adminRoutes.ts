@@ -6,6 +6,7 @@ import * as adminProfessionalController from '../controllers/adminProfessionalCo
 import * as adminCompanyController from '../controllers/adminCompanyController.js';
 import * as adminMarketplaceController from '../controllers/adminMarketplaceController.js';
 import * as adminTrainerPayoutController from '../controllers/adminTrainerPayoutController.js';
+import * as adminSettingsController from '../controllers/adminSettingsController.js';
 import * as applicationController from '../controllers/applicationController.js';
 import * as candidateController from '../controllers/recruiterCandidateController.js';
 import * as adminTrainerController from '../controllers/adminTrainerController.js';
@@ -128,6 +129,10 @@ router.post('/reset-password/:token', adminAuthController.resetPassword);
 
 // Recruiter Management Routes
 router.use(protectAdmin);
+
+router.get('/settings', adminSettingsController.getAdminSettings);
+router.patch('/settings/profile', adminSettingsController.updateAdminProfile);
+router.patch('/settings/password', adminSettingsController.updateAdminPassword);
 
 /**
  * @swagger
