@@ -14,6 +14,13 @@ export const getConversations = catchAsync(
     const userId = req.user!.id;
     const userType = req.user!.userType;
 
+    if (userType === 'ADMIN') {
+      throw new AppError(
+        'Admin messaging is not supported by the current conversation model yet.',
+        501,
+      );
+    }
+
     const whereClause =
       userType === 'PROFESSIONAL'
         ? { professionalId: userId }
@@ -62,6 +69,15 @@ export const createConversation = catchAsync(
     const userId = req.user!.id;
     const userType = req.user!.userType;
     const targetId = validated.recipientId;
+
+    if (userType === 'ADMIN') {
+      return next(
+        new AppError(
+          'Admin messaging is not supported by the current conversation model yet.',
+          501,
+        ),
+      );
+    }
 
     if (userId === targetId) {
       return next(
@@ -127,6 +143,16 @@ export const getMessages = catchAsync(
     const { id: conversationId } = req.params;
     const { cursor, limit } = getMessagesSchema.parse(req.query);
     const userId = req.user!.id;
+    const userType = req.user!.userType;
+
+    if (userType === 'ADMIN') {
+      return next(
+        new AppError(
+          'Admin messaging is not supported by the current conversation model yet.',
+          501,
+        ),
+      );
+    }
 
     const conversation = await prisma.conversation.findUnique({
       where: { id: conversationId },
@@ -170,6 +196,16 @@ export const markAsRead = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const { id: conversationId } = req.params;
     const userId = req.user!.id;
+    const userType = req.user!.userType;
+
+    if (userType === 'ADMIN') {
+      return next(
+        new AppError(
+          'Admin messaging is not supported by the current conversation model yet.',
+          501,
+        ),
+      );
+    }
 
     const conversation = await prisma.conversation.findUnique({
       where: { id: conversationId },
@@ -215,6 +251,15 @@ export const sendMessage = catchAsync(
     const { content } = sendMessageSchema.parse(req.body);
     const userId = req.user!.id;
     const userType = req.user!.userType;
+
+    if (userType === 'ADMIN') {
+      return next(
+        new AppError(
+          'Admin messaging is not supported by the current conversation model yet.',
+          501,
+        ),
+      );
+    }
 
     const conversation = await prisma.conversation.findUnique({
       where: { id: conversationId },

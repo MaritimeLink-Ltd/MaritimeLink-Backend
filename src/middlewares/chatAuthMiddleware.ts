@@ -65,6 +65,21 @@ export const protectChat = catchAsync(
       return next();
     }
 
+    // 3) Try finding as Admin
+    const admin = await prisma.admin.findUnique({
+      where: { id: decoded.id },
+    });
+
+    if (admin) {
+      req.user = {
+        id: admin.id,
+        email: admin.email,
+        role: admin.role,
+        userType: 'ADMIN',
+      };
+      return next();
+    }
+
     return next(
       new AppError('The user belonging to this token no longer exists.', 401),
     );
