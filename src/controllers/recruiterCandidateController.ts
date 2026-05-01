@@ -74,13 +74,7 @@ export const getMatchingCandidates = catchAsync(
       return next(new AppError('Job not found', 404));
     }
 
-    if (isAdmin) {
-      if (job.adminId && job.adminId !== userId) {
-        return next(
-          new AppError('Not authorized to view matches for this job', 403),
-        );
-      }
-    } else if (job.recruiterId !== userId) {
+    if (!isAdmin && job.recruiterId !== userId) {
       return next(
         new AppError('Not authorized to view matches for this job', 403),
       );

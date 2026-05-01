@@ -114,44 +114,44 @@ export const createConversation = catchAsync(
         return next(new AppError('Professional not found.', 404));
     }
 
-    // Find or Create
-    const conversation = recruiterId
-      ? await prisma.conversation.upsert({
-          where: {
-            professionalId_recruiterId: {
-              professionalId,
-              recruiterId,
-            },
-          },
-          update: {},
-          create: {
+    const includeParticipants = {
+      professional: { select: { id: true, fullname: true } },
+      recruiter: { select: { id: true, organizationName: true } },
+      admin: { select: { id: true, email: true, role: true } },
+    } as const;
+
+    // Prisma upsert is brittle here because the second participant can be nullable.
+    // Use an explicit find-or-create so admin/professional conversations behave
+    // predictably even after the schema evolution.
+    let conversation = await prisma.conversation.findFirst({
+      where: recruiterId
+        ? {
             professionalId,
             recruiterId,
-          },
-          include: {
-            professional: { select: { id: true, fullname: true } },
-            recruiter: { select: { id: true, organizationName: true } },
-            admin: { select: { id: true, email: true, role: true } },
-          },
-        })
-      : await prisma.conversation.upsert({
-          where: {
-            professionalId_adminId: {
-              professionalId,
-              adminId: adminId!,
-            },
-          },
-          update: {},
-          create: {
+            adminId: null,
+          }
+        : {
             professionalId,
-            adminId,
+            adminId: adminId!,
+            recruiterId: null,
           },
-          include: {
-            professional: { select: { id: true, fullname: true } },
-            recruiter: { select: { id: true, organizationName: true } },
-            admin: { select: { id: true, email: true, role: true } },
-          },
-        });
+      include: includeParticipants,
+    });
+
+    if (!conversation) {
+      conversation = await prisma.conversation.create({
+        data: recruiterId
+          ? {
+              professionalId,
+              recruiterId,
+            }
+          : {
+              professionalId,
+              adminId,
+            },
+        include: includeParticipants,
+      });
+    }
 
     res.status(200).json({
       status: 'success',
