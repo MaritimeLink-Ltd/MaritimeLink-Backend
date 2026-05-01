@@ -13,18 +13,12 @@ export const getConversations = catchAsync(
   async (req: CustomRequest, res: Response) => {
     const userId = req.user!.id;
     const userType = req.user!.userType;
-
-    if (userType === 'ADMIN') {
-      throw new AppError(
-        'Admin messaging is not supported by the current conversation model yet.',
-        501,
-      );
-    }
-
     const whereClause =
       userType === 'PROFESSIONAL'
         ? { professionalId: userId }
-        : { recruiterId: userId };
+        : userType === 'ADMIN'
+          ? { adminId: userId }
+          : { recruiterId: userId };
 
     const conversations = await prisma.conversation.findMany({
       where: whereClause,
@@ -34,6 +28,9 @@ export const getConversations = catchAsync(
         },
         recruiter: {
           select: { id: true, organizationName: true, email: true },
+        },
+        admin: {
+          select: { id: true, email: true, role: true },
         },
         messages: {
           orderBy: { createdAt: 'desc' },
@@ -70,15 +67,6 @@ export const createConversation = catchAsync(
     const userType = req.user!.userType;
     const targetId = validated.recipientId;
 
-    if (userType === 'ADMIN') {
-      return next(
-        new AppError(
-          'Admin messaging is not supported by the current conversation model yet.',
-          501,
-        ),
-      );
-    }
-
     if (userId === targetId) {
       return next(
         new AppError('You cannot start a conversation with yourself.', 400),
@@ -86,17 +74,34 @@ export const createConversation = catchAsync(
     }
 
     let professionalId: string;
-    let recruiterId: string;
+    let recruiterId: string | undefined;
+    let adminId: string | undefined;
 
     if (userType === 'PROFESSIONAL') {
       professionalId = userId;
-      recruiterId = targetId;
-
-      // Verify target is a recruiter
       const recruiter = await prisma.recruiter.findUnique({
-        where: { id: recruiterId },
+        where: { id: targetId },
       });
-      if (!recruiter) return next(new AppError('Recruiter not found.', 404));
+      if (recruiter) {
+        recruiterId = targetId;
+      } else {
+        const admin = await prisma.admin.findUnique({
+          where: { id: targetId },
+        });
+        if (!admin) {
+          return next(new AppError('Recipient not found.', 404));
+        }
+        adminId = targetId;
+      }
+    } else if (userType === 'ADMIN') {
+      adminId = userId;
+      professionalId = targetId;
+
+      const professional = await prisma.professional.findUnique({
+        where: { id: professionalId },
+      });
+      if (!professional)
+        return next(new AppError('Professional not found.', 404));
     } else {
       recruiterId = userId;
       professionalId = targetId;
@@ -110,23 +115,43 @@ export const createConversation = catchAsync(
     }
 
     // Find or Create
-    const conversation = await prisma.conversation.upsert({
-      where: {
-        professionalId_recruiterId: {
-          professionalId,
-          recruiterId,
-        },
-      },
-      update: {},
-      create: {
-        professionalId,
-        recruiterId,
-      },
-      include: {
-        professional: { select: { id: true, fullname: true } },
-        recruiter: { select: { id: true, organizationName: true } },
-      },
-    });
+    const conversation = recruiterId
+      ? await prisma.conversation.upsert({
+          where: {
+            professionalId_recruiterId: {
+              professionalId,
+              recruiterId,
+            },
+          },
+          update: {},
+          create: {
+            professionalId,
+            recruiterId,
+          },
+          include: {
+            professional: { select: { id: true, fullname: true } },
+            recruiter: { select: { id: true, organizationName: true } },
+            admin: { select: { id: true, email: true, role: true } },
+          },
+        })
+      : await prisma.conversation.upsert({
+          where: {
+            professionalId_adminId: {
+              professionalId,
+              adminId: adminId!,
+            },
+          },
+          update: {},
+          create: {
+            professionalId,
+            adminId,
+          },
+          include: {
+            professional: { select: { id: true, fullname: true } },
+            recruiter: { select: { id: true, organizationName: true } },
+            admin: { select: { id: true, email: true, role: true } },
+          },
+        });
 
     res.status(200).json({
       status: 'success',
@@ -143,16 +168,6 @@ export const getMessages = catchAsync(
     const { id: conversationId } = req.params;
     const { cursor, limit } = getMessagesSchema.parse(req.query);
     const userId = req.user!.id;
-    const userType = req.user!.userType;
-
-    if (userType === 'ADMIN') {
-      return next(
-        new AppError(
-          'Admin messaging is not supported by the current conversation model yet.',
-          501,
-        ),
-      );
-    }
 
     const conversation = await prisma.conversation.findUnique({
       where: { id: conversationId },
@@ -164,7 +179,8 @@ export const getMessages = catchAsync(
     // Check authorization
     if (
       conversation.professionalId !== userId &&
-      conversation.recruiterId !== userId
+      conversation.recruiterId !== userId &&
+      conversation.adminId !== userId
     ) {
       return next(
         new AppError('Unauthorized access to this conversation.', 403),
@@ -196,16 +212,6 @@ export const markAsRead = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const { id: conversationId } = req.params;
     const userId = req.user!.id;
-    const userType = req.user!.userType;
-
-    if (userType === 'ADMIN') {
-      return next(
-        new AppError(
-          'Admin messaging is not supported by the current conversation model yet.',
-          501,
-        ),
-      );
-    }
 
     const conversation = await prisma.conversation.findUnique({
       where: { id: conversationId },
@@ -216,7 +222,8 @@ export const markAsRead = catchAsync(
 
     if (
       conversation.professionalId !== userId &&
-      conversation.recruiterId !== userId
+      conversation.recruiterId !== userId &&
+      conversation.adminId !== userId
     ) {
       return next(new AppError('Unauthorized.', 403));
     }
@@ -252,15 +259,6 @@ export const sendMessage = catchAsync(
     const userId = req.user!.id;
     const userType = req.user!.userType;
 
-    if (userType === 'ADMIN') {
-      return next(
-        new AppError(
-          'Admin messaging is not supported by the current conversation model yet.',
-          501,
-        ),
-      );
-    }
-
     const conversation = await prisma.conversation.findUnique({
       where: { id: conversationId },
     });
@@ -270,7 +268,8 @@ export const sendMessage = catchAsync(
 
     if (
       conversation.professionalId !== userId &&
-      conversation.recruiterId !== userId
+      conversation.recruiterId !== userId &&
+      conversation.adminId !== userId
     ) {
       return next(new AppError('Unauthorized.', 403));
     }
@@ -282,7 +281,11 @@ export const sendMessage = catchAsync(
           content,
           senderId: userId,
           senderType:
-            userType === 'PROFESSIONAL' ? 'PROFESSIONAL' : 'RECRUITER',
+            userType === 'PROFESSIONAL'
+              ? 'PROFESSIONAL'
+              : userType === 'ADMIN'
+                ? 'ADMIN'
+                : 'RECRUITER',
         },
       });
 
@@ -305,12 +308,14 @@ export const sendMessage = catchAsync(
       // Also notify recipient's private room for conversation list updates
       const recipientId =
         conversation.professionalId === userId
-          ? conversation.recruiterId
+          ? (conversation.recruiterId ?? conversation.adminId)
           : conversation.professionalId;
-      io.to(recipientId).emit('update_conversation', {
-        conversationId,
-        lastMessage: message,
-      });
+      if (recipientId) {
+        io.to(recipientId).emit('update_conversation', {
+          conversationId,
+          lastMessage: message,
+        });
+      }
     }
 
     res.status(201).json({

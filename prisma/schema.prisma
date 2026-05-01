@@ -355,6 +355,7 @@ model Admin {
   createdAt            DateTime      @default(now())
   updatedAt            DateTime      @updatedAt
   caseNotes            CaseNote[]
+  conversations        Conversation[]
   courses              Course[]
   jobs                 Job[]
   kycNotes             KycNote[]
@@ -521,17 +522,21 @@ model SavedCourse {
 model Conversation {
   id             String       @id @default(uuid())
   professionalId String
-  recruiterId    String
+  recruiterId    String?
+  adminId        String?
   lastMessageAt  DateTime     @default(now())
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
   professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
-  recruiter      Recruiter    @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
+  recruiter      Recruiter?   @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
+  admin          Admin?       @relation(fields: [adminId], references: [id], onDelete: Cascade)
   messages       Message[]
 
   @@unique([professionalId, recruiterId])
+  @@unique([professionalId, adminId])
   @@index([professionalId])
   @@index([recruiterId])
+  @@index([adminId])
   @@index([lastMessageAt])
   @@map("conversations")
 }
@@ -841,6 +846,7 @@ enum CourseStatus {
 enum MessageSender {
   PROFESSIONAL
   RECRUITER
+  ADMIN
 }
 
 enum AdminRole {

@@ -427,7 +427,8 @@ const options: swaggerJsdoc.Options = {
           properties: {
             id: { type: 'string', format: 'uuid' },
             professionalId: { type: 'string', format: 'uuid' },
-            recruiterId: { type: 'string', format: 'uuid' },
+            recruiterId: { type: 'string', format: 'uuid', nullable: true },
+            adminId: { type: 'string', format: 'uuid', nullable: true },
             lastMessageAt: { type: 'string', format: 'date-time' },
             createdAt: { type: 'string', format: 'date-time' },
             updatedAt: { type: 'string', format: 'date-time' },
@@ -444,7 +445,7 @@ const options: swaggerJsdoc.Options = {
             conversationId: { type: 'string', format: 'uuid' },
             senderType: {
               type: 'string',
-              enum: ['PROFESSIONAL', 'RECRUITER'],
+              enum: ['PROFESSIONAL', 'RECRUITER', 'ADMIN'],
             },
             senderId: { type: 'string', format: 'uuid' },
             content: { type: 'string' },

@@ -6,7 +6,7 @@ import { prisma } from '../config/prisma.js';
 
 interface SocketUser {
   id: string;
-  userType: 'PROFESSIONAL' | 'RECRUITER';
+  userType: 'PROFESSIONAL' | 'RECRUITER' | 'ADMIN';
 }
 
 // Track online users
@@ -56,6 +56,15 @@ export const setupSocket = (server: HttpServer) => {
 
       if (recruiter && recruiter.status === 'APPROVED') {
         socket.user = { id: recruiter.id, userType: 'RECRUITER' };
+        return next();
+      }
+
+      const admin = await prisma.admin.findUnique({
+        where: { id: decoded.id },
+      });
+
+      if (admin) {
+        socket.user = { id: admin.id, userType: 'ADMIN' };
         return next();
       }
 
