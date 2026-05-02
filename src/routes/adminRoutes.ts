@@ -1246,6 +1246,10 @@ import * as adminOperationsController from '../controllers/adminOperationsContro
  *         description: List of activity logs
  */
 router.get('/operations/activity', adminOperationsController.getActivityLogs);
+router.get(
+  '/operations/activity/:id',
+  adminOperationsController.getActivityLogById,
+);
 
 /**
  * @swagger

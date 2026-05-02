@@ -3,6 +3,9 @@ import { prisma } from '../config/prisma.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
+import { logActivity } from '../services/activityLogger.js';
+import { ActionStatus, ActorType } from '../generated/client/index.js';
+import { getClientIp } from '../utils/requestMetadata.js';
 import {
   createCourseSchema,
   createCourseDraftSchema,
@@ -30,6 +33,7 @@ export const createCourse = catchAsync(
       return next(new AppError('User context missing', 400));
     }
 
+    const actorId = userId;
     const isAdmin = adminRoles.includes(userRole);
 
     const course = await prisma.course.create({
@@ -37,6 +41,22 @@ export const createCourse = catchAsync(
         ...validatedData,
         adminId: isAdmin ? userId : null,
         recruiterId: !isAdmin ? userId : null,
+      },
+    });
+
+    await logActivity({
+      action: 'COURSE_CREATED',
+      actorId,
+      actorType: isAdmin ? ActorType.ADMIN : ActorType.RECRUITER,
+      targetId: course.id,
+      targetType: 'Course',
+      status: ActionStatus.SUCCESS,
+      ipAddress: getClientIp(req),
+      userAgent: req.get('user-agent') || undefined,
+      metadata: {
+        courseTitle: course.title,
+        courseType: course.courseType,
+        location: course.location,
       },
     });
 
@@ -60,6 +80,7 @@ export const createCourseDraft = catchAsync(
       return next(new AppError('User context missing', 400));
     }
 
+    const actorId = userId;
     const isAdmin = adminRoles.includes(userRole);
 
     const course = await prisma.course.create({
@@ -68,6 +89,22 @@ export const createCourseDraft = catchAsync(
         status: 'DRAFT',
         adminId: isAdmin ? userId : null,
         recruiterId: !isAdmin ? userId : null,
+      },
+    });
+
+    await logActivity({
+      action: 'COURSE_DRAFT_CREATED',
+      actorId,
+      actorType: isAdmin ? ActorType.ADMIN : ActorType.RECRUITER,
+      targetId: course.id,
+      targetType: 'Course',
+      status: ActionStatus.SUCCESS,
+      ipAddress: getClientIp(req),
+      userAgent: req.get('user-agent') || undefined,
+      metadata: {
+        courseTitle: course.title,
+        courseType: course.courseType,
+        location: course.location,
       },
     });
 
@@ -239,6 +276,12 @@ export const publishCourse = catchAsync(
     const userId = req.user?.id;
     const userRole = req.user?.role;
 
+    if (!userId || !userRole) {
+      return next(new AppError('User context missing', 400));
+    }
+
+    const actorId = userId;
+
     const course = await prisma.course.findUnique({
       where: { id },
     });
@@ -285,6 +328,25 @@ export const publishCourse = catchAsync(
     const updatedCourse = await prisma.course.update({
       where: { id },
       data: { status: 'ACTIVE' },
+    });
+
+    await logActivity({
+      action: 'COURSE_PUBLISHED',
+      actorId,
+      actorType:
+        userRole && adminRoles.includes(userRole)
+          ? ActorType.ADMIN
+          : ActorType.RECRUITER,
+      targetId: updatedCourse.id,
+      targetType: 'Course',
+      status: ActionStatus.SUCCESS,
+      ipAddress: getClientIp(req),
+      userAgent: req.get('user-agent') || undefined,
+      metadata: {
+        courseTitle: updatedCourse.title,
+        courseType: updatedCourse.courseType,
+        location: updatedCourse.location,
+      },
     });
 
     res.status(200).json({

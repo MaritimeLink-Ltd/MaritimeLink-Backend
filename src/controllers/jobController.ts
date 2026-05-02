@@ -10,7 +10,8 @@ import { catchAsync } from '../utils/catchAsync.js';
 import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
 import { logActivity } from '../services/activityLogger.js';
-import { ActorType } from '../generated/client/index.js';
+import { ActorType, ActionStatus } from '../generated/client/index.js';
+import { getClientIp } from '../utils/requestMetadata.js';
 import {
   createJobSchema,
   updateJobSchema,
@@ -68,6 +69,23 @@ export const createJob = catchAsync(
         closingDate: closingDate ? new Date(closingDate) : null,
         adminId: isAdmin ? userId : null,
         recruiterId: !isAdmin ? userId : null,
+      },
+    });
+
+    await logActivity({
+      action: 'JOB_CREATED',
+      actorId: userId,
+      actorType: isAdmin ? ActorType.ADMIN : ActorType.RECRUITER,
+      targetId: job.id,
+      targetType: 'Job',
+      status: ActionStatus.SUCCESS,
+      ipAddress: getClientIp(req),
+      userAgent: req.get('user-agent') || undefined,
+      metadata: {
+        jobTitle: job.title,
+        jobCategory: job.category,
+        jobType: job.contractType,
+        location: job.location,
       },
     });
 

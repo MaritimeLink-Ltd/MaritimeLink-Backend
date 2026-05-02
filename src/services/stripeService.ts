@@ -1,6 +1,8 @@
 import Stripe from 'stripe';
 import { env } from '../config/env.js';
 import { prisma } from '../config/prisma.js';
+import { logActivity } from './activityLogger.js';
+import { ActionStatus, ActorType } from '../generated/client/index.js';
 
 const stripe = new Stripe(env.STRIPE_SECRET_KEY, {
   apiVersion: '2026-01-28.clover',
@@ -393,6 +395,27 @@ export const stripeService = {
       return;
     }
 
+    const booking = await prisma.courseBooking.findUnique({
+      where: { id: bookingId },
+      select: {
+        id: true,
+        professionalId: true,
+        courseId: true,
+        amountPaid: true,
+        currency: true,
+        course: {
+          select: {
+            title: true,
+          },
+        },
+      },
+    });
+
+    if (!booking) {
+      console.error(`Booking ${bookingId} not found`);
+      return;
+    }
+
     await prisma.courseBooking.update({
       where: { id: bookingId },
       data: {
@@ -400,6 +423,22 @@ export const stripeService = {
         bookingStatus: 'PENDING',
         stripePaymentIntentId: session.payment_intent as string,
         paidAt: new Date(),
+      },
+    });
+
+    await logActivity({
+      action: 'COURSE_PURCHASED',
+      actorId: booking.professionalId,
+      actorType: ActorType.PROFESSIONAL,
+      targetId: booking.id,
+      targetType: 'CourseBooking',
+      status: ActionStatus.SUCCESS,
+      metadata: {
+        courseId: booking.courseId,
+        courseTitle: booking.course?.title,
+        amountPaid: booking.amountPaid,
+        currency: booking.currency,
+        stripeSessionId: session.id,
       },
     });
 
@@ -433,6 +472,11 @@ export const stripeService = {
     const booking = await prisma.courseBooking.findFirst({
       where: { stripePaymentIntentId: paymentIntent.id },
       include: {
+        course: {
+          select: {
+            title: true,
+          },
+        },
         sessions: {
           select: { id: true },
         },
@@ -461,6 +505,20 @@ export const stripeService = {
             }),
           ),
         );
+      });
+
+      await logActivity({
+        action: 'COURSE_PURCHASE_FAILED',
+        actorId: booking.professionalId,
+        actorType: ActorType.PROFESSIONAL,
+        targetId: booking.id,
+        targetType: 'CourseBooking',
+        status: ActionStatus.FAILED,
+        metadata: {
+          courseId: booking.courseId,
+          courseTitle: booking.course?.title,
+          stripePaymentIntentId: paymentIntent.id,
+        },
       });
     }
   },

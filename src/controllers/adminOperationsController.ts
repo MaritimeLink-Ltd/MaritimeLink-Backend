@@ -2,8 +2,376 @@ import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma.js';
 import { AppError } from '../utils/AppError.js';
 import { catchAsync } from '../utils/catchAsync.js';
-// Removed unused imports
 import { CustomRequest } from '../types/index.js';
+import {
+  ActionStatus,
+  ActorType,
+  AdminRole,
+  RecruiterRole,
+} from '../generated/client/index.js';
+
+type ActivityActor = {
+  id: string;
+  name: string;
+  role: string;
+  avatar: string;
+  actorType: ActorType;
+};
+
+type ActivityMeta = {
+  ip: string;
+  device: string;
+  location: string;
+};
+
+type EnrichedActivityLog = {
+  id: string;
+  timestamp: string;
+  event: string;
+  description: string;
+  status: string;
+  actor: ActivityActor;
+  meta: ActivityMeta;
+  action: string;
+  targetId: string | null;
+  targetType: string | null;
+  rawLog: Record<string, unknown>;
+};
+
+const titleCase = (value: string) =>
+  value
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+
+const humanizeAction = (action: string) => {
+  const upper = action.toUpperCase();
+  const map: Record<string, string> = {
+    LOGIN: 'Login',
+    REGISTER: 'Registration',
+    JOB_CREATED: 'Job Posted',
+    JOB_POSTED: 'Job Posted',
+    JOB_APPLY: 'Job Applied',
+    APPLICATION_STATUS_UPDATE: 'Hiring Update',
+    COURSE_CREATED: 'Course Created',
+    COURSE_DRAFT_CREATED: 'Course Draft Saved',
+    COURSE_PUBLISHED: 'Course Published',
+    COURSE_PURCHASED: 'Purchase Completed',
+    COURSE_PURCHASE_FAILED: 'Purchase Failed',
+    CASE_CREATED: 'Support Case Created',
+    CASE_REPLY: 'Support Reply Added',
+    USER_BANNED: 'User Banned',
+    USER_UNBANNED: 'User Unbanned',
+  };
+
+  if (map[upper]) return map[upper];
+  return titleCase(upper.replace(/_/g, ' '));
+};
+
+const describeLog = (action: string, metadata: Record<string, unknown>) => {
+  const courseTitle =
+    typeof metadata.courseTitle === 'string' ? metadata.courseTitle : null;
+  const jobTitle =
+    typeof metadata.jobTitle === 'string' ? metadata.jobTitle : null;
+  const caseId = typeof metadata.caseId === 'string' ? metadata.caseId : null;
+  const status =
+    typeof metadata.newStatus === 'string' ? metadata.newStatus : null;
+
+  switch (action.toUpperCase()) {
+    case 'LOGIN':
+      return 'Signed in to the platform';
+    case 'REGISTER':
+      return 'Created a new account';
+    case 'JOB_CREATED':
+    case 'JOB_POSTED':
+      return jobTitle
+        ? `Published job listing "${jobTitle}"`
+        : 'Published a job listing';
+    case 'JOB_APPLY':
+      return jobTitle ? `Applied to job "${jobTitle}"` : 'Applied to a job';
+    case 'APPLICATION_STATUS_UPDATE':
+      return status
+        ? `Updated application status to ${titleCase(status)}`
+        : 'Updated an application status';
+    case 'COURSE_CREATED':
+      return courseTitle
+        ? `Created course "${courseTitle}"`
+        : 'Created a course';
+    case 'COURSE_DRAFT_CREATED':
+      return courseTitle
+        ? `Saved draft course "${courseTitle}"`
+        : 'Saved a course draft';
+    case 'COURSE_PUBLISHED':
+      return courseTitle
+        ? `Published course "${courseTitle}"`
+        : 'Published a course';
+    case 'COURSE_PURCHASED':
+      return courseTitle
+        ? `Completed payment for "${courseTitle}"`
+        : 'Completed a course purchase';
+    case 'COURSE_PURCHASE_FAILED':
+      return courseTitle
+        ? `Payment failed for "${courseTitle}"`
+        : 'Course payment failed';
+    case 'CASE_CREATED':
+      return caseId ? `Opened support case ${caseId}` : 'Opened a support case';
+    case 'CASE_REPLY':
+      return caseId
+        ? `Replied to support case ${caseId}`
+        : 'Replied to a support case';
+    default:
+      return humanizeAction(action);
+  }
+};
+
+const normalizeStatus = (status: ActionStatus | string) =>
+  titleCase(String(status || 'SUCCESS'));
+
+const buildAvatar = (name: string, seed = '') => {
+  const initials =
+    (name || 'System')
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((part) => part.charAt(0).toUpperCase())
+      .join('') || 'S';
+
+  const palette = ['0D8ABC', '1E5A8F', '2563EB', '0F766E', '7C3AED', 'B45309'];
+  const hashSource = `${name}:${seed}`;
+  const index =
+    hashSource.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0) %
+    palette.length;
+  const fill = palette[index];
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40"><rect fill="#${fill}" width="40" height="40"/><text x="50%" y="50%" dy=".35em" fill="white" font-family="Arial" font-size="16" text-anchor="middle">${initials}</text></svg>`;
+
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+};
+
+const normalizeRoleLabel = (
+  actorType: ActorType,
+  role: string | null | undefined,
+) => {
+  if (actorType === ActorType.SYSTEM) return 'System';
+  if (!role) return titleCase(actorType);
+  return titleCase(role.replace(/_/g, ' '));
+};
+
+const deriveDeviceLabel = (userAgent?: string | null) => {
+  if (!userAgent) return 'Unknown device';
+
+  const browser = userAgent.includes('Chrome')
+    ? 'Chrome'
+    : userAgent.includes('Safari') && !userAgent.includes('Chrome')
+      ? 'Safari'
+      : userAgent.includes('Firefox')
+        ? 'Firefox'
+        : userAgent.includes('Edg')
+          ? 'Edge'
+          : userAgent.includes('Opera') || userAgent.includes('OPR')
+            ? 'Opera'
+            : 'Browser';
+
+  const platform = userAgent.includes('Windows')
+    ? 'Windows'
+    : userAgent.includes('Mac OS X') || userAgent.includes('Macintosh')
+      ? 'Mac'
+      : userAgent.includes('Android')
+        ? 'Android'
+        : userAgent.includes('iPhone') || userAgent.includes('iPad')
+          ? 'iOS'
+          : userAgent.includes('Linux')
+            ? 'Linux'
+            : 'Unknown';
+
+  return `${browser} / ${platform}`;
+};
+
+const getActorRecord = async (actorType: ActorType, actorId: string) => {
+  switch (actorType) {
+    case ActorType.ADMIN:
+      return prisma.admin.findUnique({
+        where: { id: actorId },
+        select: { id: true, email: true, role: true },
+      });
+    case ActorType.RECRUITER:
+      return prisma.recruiter.findUnique({
+        where: { id: actorId },
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          organizationName: true,
+          firstName: true,
+          middleName: true,
+          lastName: true,
+          profilePhotoUrl: true,
+        },
+      });
+    case ActorType.PROFESSIONAL:
+      return prisma.professional.findUnique({
+        where: { id: actorId },
+        select: {
+          id: true,
+          email: true,
+          fullname: true,
+          firstName: true,
+          middleName: true,
+          lastName: true,
+          profilePhotoUrl: true,
+        },
+      });
+    default:
+      return null;
+  }
+};
+
+const buildActor = async (actorType: ActorType, actorId: string) => {
+  if (actorType === ActorType.SYSTEM) {
+    const name = 'System';
+    return {
+      id: actorId,
+      name,
+      role: 'System',
+      avatar: buildAvatar(name, actorId),
+      actorType,
+    } satisfies ActivityActor;
+  }
+
+  const record = await getActorRecord(actorType, actorId);
+  if (!record) {
+    const fallbackName =
+      actorType === ActorType.ADMIN ? 'Admin' : titleCase(actorType);
+    return {
+      id: actorId,
+      name: fallbackName,
+      role: normalizeRoleLabel(actorType, undefined),
+      avatar: buildAvatar(fallbackName, actorId),
+      actorType,
+    } satisfies ActivityActor;
+  }
+
+  let name = 'Unknown user';
+  let role = normalizeRoleLabel(actorType, 'UNKNOWN');
+  let avatar = buildAvatar(name, actorId);
+
+  if (actorType === ActorType.ADMIN) {
+    const admin = record as { id: string; email: string; role: AdminRole };
+    name = admin.email.split('@')[0] || 'Admin';
+    role = normalizeRoleLabel(actorType, admin.role);
+    avatar = buildAvatar(name, admin.id);
+  } else if (actorType === ActorType.RECRUITER) {
+    const recruiter = record as {
+      id: string;
+      email: string;
+      role: RecruiterRole;
+      organizationName: string | null;
+      firstName: string | null;
+      middleName: string | null;
+      lastName: string | null;
+      profilePhotoUrl: string | null;
+    };
+    const parts = [
+      recruiter.firstName,
+      recruiter.middleName,
+      recruiter.lastName,
+    ].filter(Boolean);
+    name =
+      parts.join(' ').trim() ||
+      recruiter.organizationName?.trim() ||
+      recruiter.email.split('@')[0] ||
+      'Recruiter';
+    role = normalizeRoleLabel(actorType, recruiter.role);
+    avatar = recruiter.profilePhotoUrl || buildAvatar(name, recruiter.id);
+  } else if (actorType === ActorType.PROFESSIONAL) {
+    const professional = record as {
+      id: string;
+      email: string;
+      fullname: string | null;
+      firstName: string | null;
+      middleName: string | null;
+      lastName: string | null;
+      profilePhotoUrl: string | null;
+    };
+    const parts = [
+      professional.firstName,
+      professional.middleName,
+      professional.lastName,
+    ].filter(Boolean);
+    name =
+      professional.fullname?.trim() ||
+      parts.join(' ').trim() ||
+      professional.email.split('@')[0] ||
+      'Professional';
+    role = normalizeRoleLabel(actorType, 'Professional');
+    avatar = professional.profilePhotoUrl || buildAvatar(name, professional.id);
+  }
+
+  return {
+    id: actorId,
+    name,
+    role,
+    avatar,
+    actorType,
+  } satisfies ActivityActor;
+};
+
+const enrichActivityLog = async (log: {
+  id: string;
+  action: string;
+  actorId: string;
+  actorType: ActorType;
+  targetId: string | null;
+  targetType: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  status: ActionStatus;
+  metadata: unknown;
+  createdAt: Date;
+}): Promise<EnrichedActivityLog> => {
+  const metadata =
+    log.metadata &&
+    typeof log.metadata === 'object' &&
+    !Array.isArray(log.metadata)
+      ? (log.metadata as Record<string, unknown>)
+      : {};
+
+  const actor = await buildActor(log.actorType, log.actorId);
+
+  return {
+    id: log.id,
+    timestamp: log.createdAt.toISOString(),
+    event: humanizeAction(log.action),
+    description: describeLog(log.action, metadata),
+    status: normalizeStatus(log.status),
+    actor,
+    meta: {
+      ip: log.ipAddress || 'Unknown',
+      device: deriveDeviceLabel(log.userAgent),
+      location:
+        typeof metadata.location === 'string' && metadata.location.trim()
+          ? metadata.location
+          : 'Unknown',
+    },
+    action: log.action,
+    targetId: log.targetId,
+    targetType: log.targetType,
+    rawLog: {
+      id: log.id,
+      action: log.action,
+      actorId: log.actorId,
+      actorType: log.actorType,
+      targetId: log.targetId,
+      targetType: log.targetType,
+      ipAddress: log.ipAddress,
+      userAgent: log.userAgent,
+      status: log.status,
+      metadata: metadata,
+      createdAt: log.createdAt.toISOString(),
+    },
+  };
+};
 
 // --- Activity Logs ---
 
@@ -32,16 +400,41 @@ export const getActivityLogs = catchAsync(
       prisma.activityLog.count({ where }),
     ]);
 
+    const enrichedLogs = await Promise.all(
+      logs.map((log) => enrichActivityLog(log)),
+    );
+
     res.status(200).json({
       status: 'success',
-      results: logs.length,
+      results: enrichedLogs.length,
       pagination: {
         page,
         limit,
         total,
         pages: Math.ceil(total / limit),
       },
-      data: { logs },
+      data: { logs: enrichedLogs },
+    });
+  },
+);
+
+export const getActivityLogById = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const { id } = req.params;
+
+    const log = await prisma.activityLog.findUnique({
+      where: { id },
+    });
+
+    if (!log) {
+      return next(new AppError('Activity log not found', 404));
+    }
+
+    const enrichedLog = await enrichActivityLog(log);
+
+    res.status(200).json({
+      status: 'success',
+      data: { log: enrichedLog },
     });
   },
 );

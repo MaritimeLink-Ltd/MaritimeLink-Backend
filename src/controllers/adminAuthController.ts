@@ -7,6 +7,9 @@ import { env } from '../config/env.js';
 import { AppError } from '../utils/AppError.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { sendPasswordResetEmail } from '../services/emailService.js';
+import { logActivity } from '../services/activityLogger.js';
+import { ActionStatus, ActorType } from '../generated/client/index.js';
+import { getClientIp } from '../utils/requestMetadata.js';
 
 /**
  * Admin Login
@@ -29,6 +32,18 @@ export const login = catchAsync(
 
     const token = jwt.sign({ id: admin.id, role: admin.role }, env.JWT_SECRET, {
       expiresIn: '7d',
+    });
+
+    await logActivity({
+      action: 'LOGIN',
+      actorId: admin.id,
+      actorType: ActorType.ADMIN,
+      status: ActionStatus.SUCCESS,
+      ipAddress: getClientIp(req),
+      userAgent: req.get('user-agent') || undefined,
+      metadata: {
+        email: admin.email,
+      },
     });
 
     res.status(200).json({
