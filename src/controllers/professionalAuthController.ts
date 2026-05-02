@@ -21,6 +21,7 @@ import { changePasswordSchema } from '../validations/passwordValidation.js';
 import { CustomRequest } from '../types/index.js';
 import { logActivity } from '../services/activityLogger.js';
 import { ActorType, ActionStatus } from '../generated/client/index.js';
+import { getClientIp } from '../utils/requestMetadata.js';
 
 /**
  * Step 1: Registration
@@ -79,7 +80,7 @@ export const register = catchAsync(
       actorId: professional.id,
       actorType: ActorType.PROFESSIONAL,
       status: ActionStatus.SUCCESS,
-      ipAddress: req.ip,
+      ipAddress: getClientIp(req),
       userAgent: req.get('user-agent'),
     });
 
@@ -528,7 +529,7 @@ export const login = catchAsync(
       actorId: professional.id,
       actorType: ActorType.PROFESSIONAL,
       status: ActionStatus.SUCCESS,
-      ipAddress: req.ip,
+      ipAddress: getClientIp(req),
       userAgent: req.get('user-agent'),
     });
 

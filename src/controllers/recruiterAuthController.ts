@@ -27,6 +27,7 @@ import {
   KycRiskLevel,
   Prisma,
 } from '../generated/client/index.js';
+import { getClientIp } from '../utils/requestMetadata.js';
 
 import {
   agentRegisterSchema,
@@ -85,6 +86,10 @@ export const register = catchAsync(
       },
     });
 
+    console.log(
+      `[LOCAL TEST OTP] Recruiter email OTP for ${email}: ${otpCode}`,
+    );
+
     await sendOTPEmail(email, otpCode);
 
     await logActivity({
@@ -92,7 +97,7 @@ export const register = catchAsync(
       actorId: recruiter.id,
       actorType: ActorType.RECRUITER,
       status: ActionStatus.SUCCESS,
-      ipAddress: req.ip,
+      ipAddress: getClientIp(req),
       userAgent: req.get('user-agent'),
     });
 
@@ -164,6 +169,10 @@ export const setPersonalInfo = catchAsync(
     // Generate Phone OTP
     const phoneOtpCode = Math.floor(100000 + Math.random() * 900000).toString();
     const phoneOtpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    console.log(
+      `[LOCAL TEST OTP] Recruiter phone OTP for ${phoneCode}${phoneNumber}: ${phoneOtpCode}`,
+    );
 
     await prisma.recruiter.update({
       where: { id: recruiterId },
@@ -687,7 +696,7 @@ export const login = catchAsync(
       actorId: recruiter.id,
       actorType: ActorType.RECRUITER,
       status: ActionStatus.SUCCESS,
-      ipAddress: req.ip,
+      ipAddress: getClientIp(req),
       userAgent: req.get('user-agent'),
     });
 
@@ -741,6 +750,10 @@ export const resendOTP = catchAsync(
         otpExpiresAt,
       },
     });
+
+    console.log(
+      `[LOCAL TEST OTP] Recruiter resend email OTP for ${email}: ${otpCode}`,
+    );
 
     await sendOTPEmail(email, otpCode);
 

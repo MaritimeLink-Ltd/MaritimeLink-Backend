@@ -23,6 +23,7 @@ import trainerRoutes from './routes/trainerRoutes.js';
 import webhookRoutes from './routes/webhookRoutes.js';
 
 const app = express();
+app.set('trust proxy', true);
 
 // Health check (Root)
 app.get('/', (req: Request, res: Response) => {
