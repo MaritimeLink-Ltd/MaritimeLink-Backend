@@ -86,6 +86,7 @@ const scoreResumeDocumentCandidate = (
 const getResumeDocumentFallback = async (
   professionalId: string,
   category: DocumentCategory,
+  rawCategory: string | undefined,
   requestValues: DocumentMatchValues,
   ocrValues: DocumentMatchValues | null,
 ) => {
@@ -104,7 +105,13 @@ const getResumeDocumentFallback = async (
 
   let candidates: DocumentMatchValues[] = [];
 
-  if (category === DocumentCategory.LICENSES_ENDORSEMENTS) {
+  const normalizedRawCategory = rawCategory?.trim().toUpperCase();
+  const isStcwUpload =
+    normalizedRawCategory === 'STCW_CERTIFICATES' ||
+    normalizedRawCategory === 'STCW_CERTIFICATE' ||
+    normalizedRawCategory === 'STCW';
+
+  if (category === DocumentCategory.LICENSES_ENDORSEMENTS && !isStcwUpload) {
     candidates = [
       ...resume.licenses.map((license) => ({
         name: license.name,
@@ -113,14 +120,17 @@ const getResumeDocumentFallback = async (
         issueDate: license.issueDate,
         expiryDate: license.expiryDate,
       })),
-      ...resume.stcwCertificates.map((certificate) => ({
-        name: certificate.qualification,
-        number: certificate.certificateNumber,
-        issuingCountry: certificate.issuingCountry,
-        issueDate: certificate.issueDate,
-        expiryDate: certificate.expiryDate,
-      })),
     ];
+  }
+
+  if (isStcwUpload) {
+    candidates = resume.stcwCertificates.map((certificate) => ({
+      name: certificate.qualification,
+      number: certificate.certificateNumber,
+      issuingCountry: certificate.issuingCountry,
+      issueDate: certificate.issueDate,
+      expiryDate: certificate.expiryDate,
+    }));
   }
 
   if (category === DocumentCategory.MEDICAL_CERTIFICATES) {
@@ -173,11 +183,16 @@ const getResumeDocumentFallback = async (
     }))
     .sort((a, b) => b.score - a.score);
 
-  if (scoredCandidates[0]?.score > 0) {
+  // Require a meaningful score before borrowing data from an existing resume entry.
+  // A shared country alone is too weak and causes false "mismatch" banners.
+  if (scoredCandidates[0]?.score >= 4) {
     return scoredCandidates[0].candidate;
   }
 
-  return candidates.length === 1 ? candidates[0] : null;
+  // Only reuse resume data when we have at least one meaningful field match.
+  // Returning an unrelated single candidate here causes false OCR mismatch banners
+  // for users whose resume contains only a loosely related document.
+  return null;
 };
 
 export const uploadDocument = catchAsync(
@@ -232,6 +247,8 @@ export const uploadDocument = catchAsync(
 
     const { category, name, number, issuingCountry, issueDate, expiryDate } =
       validation.data;
+    const rawCategory =
+      typeof req.body.category === 'string' ? req.body.category : undefined;
 
     const professionalId = req.user?.id;
 
@@ -284,6 +301,7 @@ export const uploadDocument = catchAsync(
     const resumeDocumentFallback = await getResumeDocumentFallback(
       professionalId,
       category,
+      rawCategory,
       { name, number, issuingCountry, issueDate, expiryDate },
       ocrData,
     );
