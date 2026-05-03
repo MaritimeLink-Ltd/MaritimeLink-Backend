@@ -38,6 +38,29 @@ type EnrichedActivityLog = {
   rawLog: Record<string, unknown>;
 };
 
+type SupportUserSummary = {
+  id: string;
+  name: string;
+  email: string | null;
+  role: string;
+  avatar: string;
+  userType: string;
+};
+
+type SupportCaseNoteSummary = {
+  id: string;
+  content: string;
+  isInternal: boolean;
+  createdAt: string;
+  author: {
+    id: string;
+    name: string;
+    email: string | null;
+    role: string;
+    avatar: string;
+  } | null;
+};
+
 const titleCase = (value: string) =>
   value
     .split(/[\s_-]+/)
@@ -317,6 +340,170 @@ const buildActor = async (actorType: ActorType, actorId: string) => {
   } satisfies ActivityActor;
 };
 
+const buildSupportAvatar = (name: string, seed = '') => buildAvatar(name, seed);
+
+const getSupportUserSummary = async (
+  userType: ActorType | null | undefined,
+  userId: string | null | undefined,
+) => {
+  if (!userType || !userId) return null;
+
+  const record = await getActorRecord(userType, userId);
+  if (!record) {
+    const fallbackName =
+      userType === ActorType.ADMIN ? 'Admin' : titleCase(userType);
+    return {
+      id: userId,
+      name: `${fallbackName} ${userId.slice(0, 8)}`,
+      email: null,
+      role: titleCase(userType),
+      avatar: buildSupportAvatar(fallbackName, userId),
+      userType: titleCase(userType),
+    } satisfies SupportUserSummary;
+  }
+
+  if (userType === ActorType.ADMIN) {
+    const admin = record as { id: string; email: string; role: AdminRole };
+    return {
+      id: admin.id,
+      name: admin.email.split('@')[0].replace(/[._-]+/g, ' '),
+      email: admin.email,
+      role: normalizeRoleLabel(userType, admin.role),
+      avatar: buildSupportAvatar(admin.email, admin.id),
+      userType: 'Admin',
+    } satisfies SupportUserSummary;
+  }
+
+  if (userType === ActorType.RECRUITER) {
+    const recruiter = record as {
+      id: string;
+      email: string;
+      organizationName: string | null;
+      firstName: string | null;
+      middleName: string | null;
+      lastName: string | null;
+      profilePhotoUrl: string | null;
+    };
+    const name =
+      [recruiter.firstName, recruiter.middleName, recruiter.lastName]
+        .filter(Boolean)
+        .join(' ') ||
+      recruiter.organizationName ||
+      recruiter.email.split('@')[0];
+    return {
+      id: recruiter.id,
+      name,
+      email: recruiter.email,
+      role: 'Recruiter',
+      avatar:
+        recruiter.profilePhotoUrl || buildSupportAvatar(name, recruiter.id),
+      userType: 'Recruiter',
+    } satisfies SupportUserSummary;
+  }
+
+  const professional = record as {
+    id: string;
+    email: string;
+    fullname: string | null;
+    firstName: string | null;
+    middleName: string | null;
+    lastName: string | null;
+    profilePhotoUrl: string | null;
+  };
+  const name =
+    professional.fullname ||
+    [professional.firstName, professional.middleName, professional.lastName]
+      .filter(Boolean)
+      .join(' ') ||
+    professional.email.split('@')[0];
+
+  return {
+    id: professional.id,
+    name,
+    email: professional.email,
+    role: 'Professional',
+    avatar:
+      professional.profilePhotoUrl || buildSupportAvatar(name, professional.id),
+    userType: 'Professional',
+  } satisfies SupportUserSummary;
+};
+
+const buildSupportCaseNote = async (note: {
+  id: string;
+  content: string;
+  isInternal: boolean;
+  createdAt: Date;
+  admin: { id: string; email: string } | null;
+}) => {
+  const admin = note.admin;
+  return {
+    id: note.id,
+    content: note.content,
+    isInternal: note.isInternal,
+    createdAt: note.createdAt.toISOString(),
+    author: admin
+      ? {
+          id: admin.id,
+          name: admin.email.split('@')[0].replace(/[._-]+/g, ' '),
+          email: admin.email,
+          role: 'Admin',
+          avatar: buildSupportAvatar(admin.email, admin.id),
+        }
+      : null,
+  } satisfies SupportCaseNoteSummary;
+};
+
+const enrichSupportCase = async (supportCase: {
+  id: string;
+  caseId: string;
+  subject: string;
+  description: string;
+  priority: string;
+  status: string;
+  category: string;
+  userId: string | null;
+  userType: ActorType | null;
+  assignedToId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  assignedTo?: { id: string; email: string; role: AdminRole } | null;
+  notes?: Array<{
+    id: string;
+    content: string;
+    isInternal: boolean;
+    createdAt: Date;
+    admin: { id: string; email: string } | null;
+  }>;
+}) => {
+  const [user, notes] = await Promise.all([
+    getSupportUserSummary(supportCase.userType, supportCase.userId),
+    Promise.all((supportCase.notes || []).map(buildSupportCaseNote)),
+  ]);
+
+  const assignedTo = supportCase.assignedTo
+    ? {
+        id: supportCase.assignedTo.id,
+        name: supportCase.assignedTo.email
+          .split('@')[0]
+          .replace(/[._-]+/g, ' '),
+        email: supportCase.assignedTo.email,
+        role: normalizeRoleLabel(ActorType.ADMIN, supportCase.assignedTo.role),
+        avatar: buildSupportAvatar(
+          supportCase.assignedTo.email,
+          supportCase.assignedTo.id,
+        ),
+      }
+    : null;
+
+  return {
+    ...supportCase,
+    user,
+    userLabel: user?.name || supportCase.userId || 'Unknown user',
+    assignedTo,
+    notes,
+  };
+};
+
 const enrichActivityLog = async (log: {
   id: string;
   action: string;
@@ -509,22 +696,24 @@ export const getSupportCases = catchAsync(
         take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
-          assignedTo: { select: { id: true, email: true } }, // Minimal admin info
+          assignedTo: { select: { id: true, email: true, role: true } },
         },
       }),
       prisma.supportCase.count({ where }),
     ]);
 
+    const enrichedCases = await Promise.all(cases.map(enrichSupportCase));
+
     res.status(200).json({
       status: 'success',
-      results: cases.length,
+      results: enrichedCases.length,
       pagination: {
         page,
         limit,
         total,
         pages: Math.ceil(total / limit),
       },
-      data: { cases },
+      data: { cases: enrichedCases },
     });
   },
 );
@@ -564,7 +753,7 @@ export const getCaseById = catchAsync(
     const supportCase = await prisma.supportCase.findFirst({
       where: { OR: [{ id }, { caseId: id }] },
       include: {
-        assignedTo: { select: { id: true, email: true } },
+        assignedTo: { select: { id: true, email: true, role: true } },
         notes: {
           include: { admin: { select: { id: true, email: true } } },
           orderBy: { createdAt: 'desc' },
@@ -576,9 +765,11 @@ export const getCaseById = catchAsync(
       return next(new AppError('No case found with that ID', 404));
     }
 
+    const enrichedCase = await enrichSupportCase(supportCase);
+
     res.status(200).json({
       status: 'success',
-      data: { case: supportCase },
+      data: { case: enrichedCase },
     });
   },
 );
@@ -588,18 +779,33 @@ export const updateCaseStatus = catchAsync(
     const { id } = req.params;
     const { status, priority, assignedToId } = req.body;
 
+    const supportCase = await prisma.supportCase.findFirst({
+      where: { OR: [{ id }, { caseId: id }] },
+    });
+
+    if (!supportCase) {
+      throw new AppError('No case found with that ID', 404);
+    }
+
     const updatedCase = await prisma.supportCase.update({
-      where: { id }, // Assuming ID is UUID from URL
+      where: { id: supportCase.id },
       data: {
         status,
         priority,
         assignedToId,
       },
+      include: {
+        assignedTo: { select: { id: true, email: true, role: true } },
+        notes: {
+          include: { admin: { select: { id: true, email: true } } },
+          orderBy: { createdAt: 'desc' },
+        },
+      },
     });
 
     res.status(200).json({
       status: 'success',
-      data: { case: updatedCase },
+      data: { case: await enrichSupportCase(updatedCase) },
     });
   },
 );
@@ -614,18 +820,30 @@ export const addCaseNote = catchAsync(
       throw new AppError('Admin not authenticated', 401);
     }
 
+    const supportCase = await prisma.supportCase.findFirst({
+      where: { OR: [{ id }, { caseId: id }] },
+      select: { id: true },
+    });
+
+    if (!supportCase) {
+      throw new AppError('No case found with that ID', 404);
+    }
+
     const note = await prisma.caseNote.create({
       data: {
-        caseId: id,
+        caseId: supportCase.id,
         adminId,
         content,
         isInternal: isInternal ?? true,
+      },
+      include: {
+        admin: { select: { id: true, email: true } },
       },
     });
 
     res.status(201).json({
       status: 'success',
-      data: { note },
+      data: { note: await buildSupportCaseNote(note) },
     });
   },
 );
