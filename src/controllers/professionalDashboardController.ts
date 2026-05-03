@@ -1,8 +1,22 @@
 import { Response, NextFunction } from 'express';
-import { prisma } from '../config/prisma.js';
+import { prisma, Prisma } from '../config/prisma.js';
+import { JobCategory } from '../generated/client/index.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
+
+const tokenizeSearchableText = (value: unknown) =>
+  String(value ?? '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map((part) => part.trim())
+    .filter((part) => part.length >= 3);
+
+const collectSearchKeywords = (...values: unknown[]) =>
+  [...new Set(values.flatMap((value) => tokenizeSearchableText(value)))].slice(
+    0,
+    24,
+  );
 
 /**
  * @desc    Get dashboard overview metrics
@@ -39,6 +53,29 @@ export const getDashboardOverview = catchAsync(
     if (!professional) {
       return next(new AppError('Professional not found', 404));
     }
+
+    const jobCategoryTerms = [
+      professional.profession,
+      professional.resume?.category,
+    ]
+      .map((value) => String(value || '').trim())
+      .filter(Boolean) as JobCategory[];
+
+    const profileSearchTerms = collectSearchKeywords(
+      professional.profession,
+      professional.resume?.category,
+      professional.resume?.subcategory,
+      professional.bio,
+      professional.resume?.summary,
+      ...(professional.resume?.skills || []).map((skill) => skill.skillName),
+      ...(professional.resume?.licenses || []).map((license) => license.name),
+      ...(professional.resume?.seaService || []).flatMap((log) => [
+        log.companyName,
+        log.role,
+        log.vesselName,
+        log.vesselType,
+      ]),
+    );
 
     // 2. Count Expiring Certificates (next 90 days)
     const ninetyDaysFromNow = new Date();
@@ -104,38 +141,141 @@ export const getDashboardOverview = catchAsync(
       documentWalletStatus = 'Review Required';
     }
 
-    // 5. Jobs available to this professional (same availability rules as professional jobs feed)
-    const availableJobsCount = await prisma.job.count({
-      where: {
-        status: 'ACTIVE',
-        isFlagged: false,
-        OR: [{ closingDate: null }, { closingDate: { gte: new Date() } }],
-      },
-    });
+    const hasProfileTerms =
+      jobCategoryTerms.length > 0 || profileSearchTerms.length > 0;
 
-    // 6. Courses available to this professional (same availability rules as browse courses)
-    const rawCourses = await prisma.course.findMany({
-      where: {
-        status: 'ACTIVE',
-        bookings: {
-          none: {
-            professionalId,
-            bookingStatus: { in: ['PENDING', 'CONFIRMED', 'COMPLETED'] },
-          },
-        },
-      },
-      include: {
-        sessions: {
-          include: {
-            bookings: {
-              select: {
-                bookingStatus: true,
+    // 5. Jobs available to this professional.
+    // Match against their own profile keywords so the metric is personalized.
+    const availableJobsCount = hasProfileTerms
+      ? await prisma.job.count({
+          where: {
+            status: 'ACTIVE',
+            isFlagged: false,
+            AND: [
+              {
+                OR: [
+                  { closingDate: null },
+                  { closingDate: { gte: new Date() } },
+                ],
+              },
+              {
+                OR: [
+                  ...(jobCategoryTerms.length > 0
+                    ? [
+                        {
+                          category: { in: jobCategoryTerms },
+                        } as Prisma.JobWhereInput,
+                      ]
+                    : []),
+                  ...profileSearchTerms.flatMap(
+                    (term) =>
+                      [
+                        {
+                          title: {
+                            contains: term,
+                            mode: 'insensitive' as const,
+                          },
+                        },
+                        {
+                          description: {
+                            contains: term,
+                            mode: 'insensitive' as const,
+                          },
+                        },
+                        {
+                          location: {
+                            contains: term,
+                            mode: 'insensitive' as const,
+                          },
+                        },
+                      ] as Prisma.JobWhereInput[],
+                  ),
+                ],
+              },
+            ],
+            applications: {
+              none: {
+                professionalId,
               },
             },
           },
-        },
-      },
-    });
+        })
+      : 0;
+
+    // 6. Courses available to this professional.
+    // Match against their own profile keywords so this count is user-specific.
+    const rawCourses = hasProfileTerms
+      ? await prisma.course.findMany({
+          where: {
+            status: 'ACTIVE',
+            bookings: {
+              none: {
+                professionalId,
+                bookingStatus: { in: ['PENDING', 'CONFIRMED', 'COMPLETED'] },
+              },
+            },
+            OR: profileSearchTerms.flatMap(
+              (term) =>
+                [
+                  { title: { contains: term, mode: 'insensitive' as const } },
+                  {
+                    category: { contains: term, mode: 'insensitive' as const },
+                  },
+                  {
+                    description: {
+                      contains: term,
+                      mode: 'insensitive' as const,
+                    },
+                  },
+                  {
+                    curriculum: {
+                      contains: term,
+                      mode: 'insensitive' as const,
+                    },
+                  },
+                  {
+                    requirements: {
+                      contains: term,
+                      mode: 'insensitive' as const,
+                    },
+                  },
+                  {
+                    trainingType: {
+                      contains: term,
+                      mode: 'insensitive' as const,
+                    },
+                  },
+                  {
+                    certificationProvided: {
+                      contains: term,
+                      mode: 'insensitive' as const,
+                    },
+                  },
+                  {
+                    issuingAuthority: {
+                      contains: term,
+                      mode: 'insensitive' as const,
+                    },
+                  },
+                  {
+                    location: { contains: term, mode: 'insensitive' as const },
+                  },
+                ] as Prisma.CourseWhereInput[],
+            ),
+          },
+          include: {
+            sessions: {
+              include: {
+                bookings: {
+                  select: {
+                    bookingStatus: true,
+                  },
+                },
+              },
+            },
+          },
+        })
+      : [];
 
     const now = new Date();
     const availableCoursesCount = rawCourses.filter((course) =>
