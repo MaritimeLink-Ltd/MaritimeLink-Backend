@@ -104,7 +104,7 @@ export const getJobs = catchAsync(async (req: CustomRequest, res: Response) => {
   const limit = parseInt(req.query.limit as string) || 10;
   const skip = (page - 1) * limit;
 
-  const { category, jobType, datePosted } = req.query;
+  const { category, jobType, datePosted, search, role } = req.query;
   const userRole = req.user?.role;
   const isInternalViewer = [
     'SUPER_ADMIN',
@@ -122,12 +122,16 @@ export const getJobs = catchAsync(async (req: CustomRequest, res: Response) => {
     };
   } else {
     where.status = JobStatus.ACTIVE;
-    where.OR = [
-      { closingDate: null },
+    where.AND = [
       {
-        closingDate: {
-          gte: new Date(),
-        },
+        OR: [
+          { closingDate: null },
+          {
+            closingDate: {
+              gte: new Date(),
+            },
+          },
+        ],
       },
     ];
   }
@@ -152,6 +156,37 @@ export const getJobs = catchAsync(async (req: CustomRequest, res: Response) => {
       where.createdAt = {
         gte: new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000),
       };
+    }
+  }
+
+  if (search || role) {
+    const text = String(search || role || '').trim();
+    if (text) {
+      const textFilters: Prisma.JobWhereInput[] = [
+        { title: { contains: text, mode: 'insensitive' } },
+        { description: { contains: text, mode: 'insensitive' } },
+        {
+          recruiter: {
+            is: {
+              organizationName: { contains: text, mode: 'insensitive' },
+            },
+          },
+        },
+        {
+          admin: {
+            is: {
+              email: { contains: text, mode: 'insensitive' },
+            },
+          },
+        },
+      ];
+
+      const existingAnd = Array.isArray(where.AND)
+        ? where.AND
+        : where.AND
+          ? [where.AND]
+          : [];
+      where.AND = [...existingAnd, { OR: textFilters }];
     }
   }
 
@@ -185,7 +220,12 @@ export const getJobs = catchAsync(async (req: CustomRequest, res: Response) => {
   );
   const filteredJobs = isInternalViewer
     ? jobsWithEffectiveStatus
-    : jobsWithEffectiveStatus.filter((job) => job.status === JobStatus.ACTIVE);
+    : jobsWithEffectiveStatus.filter(
+        (job) =>
+          job.status === JobStatus.ACTIVE &&
+          (!job.closingDate ||
+            new Date(job.closingDate).getTime() >= Date.now()),
+      );
   const total = isInternalViewer
     ? await prisma.job.count({ where })
     : await prisma.job.count({ where });
