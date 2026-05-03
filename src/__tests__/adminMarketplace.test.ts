@@ -120,10 +120,10 @@ describe('Admin Marketplace Management Tests', () => {
   });
 
   describe('Marketplace Oversight', () => {
-    it('should include older recruiter jobs even when timeframe is today', async () => {
+    it('should only count recruiter jobs within the selected timeframe', async () => {
       const res = await request(app)
         .get(
-          '/api/admin/marketplace/oversight?type=JOBS&timeframe=today&search=Archived Job for Oversight',
+          '/api/admin/marketplace/oversight?type=JOBS&timeframe=today&search=Test Job for Admin Filtering',
         )
         .set('Authorization', `Bearer ${adminToken}`);
 
@@ -132,7 +132,8 @@ describe('Admin Marketplace Management Tests', () => {
       expect(Array.isArray(res.body.data.oversight)).toBe(true);
       expect(res.body.data.oversight.length).toBe(1);
       expect(res.body.data.oversight[0].id).toBe(recruiterId);
-      expect(res.body.data.oversight[0].totalPosted).toBeGreaterThan(0);
+      expect(res.body.data.oversight[0].totalPosted).toBe(1);
+      expect(res.body.data.oversight[0].totalActive).toBe(1);
     });
   });
 

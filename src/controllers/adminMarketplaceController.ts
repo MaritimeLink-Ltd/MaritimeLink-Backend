@@ -137,10 +137,14 @@ export const getMarketplaceOversight = catchAsync(
     const limit = parseInt(req.query.limit as string) || 10;
     const skip = (page - 1) * limit;
     const { type, search, status, riskLevel } = req.query; // type: JOBS or COURSES
+    const timeframeStart = resolveTimeframeStart(
+      req.query.timeframe as string | undefined,
+    );
 
     if (type === 'COURSES') {
       const courseWhere: Prisma.CourseWhereInput = {
         recruiterId: { not: null },
+        createdAt: { gte: timeframeStart },
         ...(search && {
           OR: [
             { title: { contains: search as string, mode: 'insensitive' } },
@@ -239,6 +243,7 @@ export const getMarketplaceOversight = catchAsync(
     // Default to JOBS
     const jobWhere: Prisma.JobWhereInput = {
       recruiterId: { not: null },
+      createdAt: { gte: timeframeStart },
       ...(search && {
         OR: [
           { title: { contains: search as string, mode: 'insensitive' } },
