@@ -45,29 +45,44 @@ export const getRecruiterDashboardStats = catchAsync(
       },
     });
 
-    // 4. Matched Professionals (Not yet applied)
-    // Heuristic: Professionals with a profession category matching any of the recruiter's active jobs
-    const recruiterJobCategories = (
-      await prisma.job.findMany({
-        where: { recruiterId, status: JobStatus.ACTIVE },
-        select: { category: true },
-        distinct: ['category'],
-      })
-    ).map((j) => j.category);
+    // 4. Matched Professionals
+    // Count distinct verified professionals that match at least one active job
+    // and have not already applied to that same job.
+    const activeJobs = await prisma.job.findMany({
+      where: { recruiterId, status: JobStatus.ACTIVE },
+      select: { id: true, category: true },
+    });
 
-    const matchedProfessionalsCount =
-      recruiterJobCategories.length > 0
-        ? await prisma.professional.count({
-            where: {
-              profession: { in: recruiterJobCategories },
-              applications: {
-                none: {
-                  job: { recruiterId },
+    const matchedProfessionalIds = new Set<string>();
+    for (const job of activeJobs) {
+      const candidates = await prisma.professional.findMany({
+        where: {
+          isVerified: true,
+          OR: [
+            { profession: job.category },
+            {
+              resume: {
+                is: {
+                  category: job.category,
                 },
               },
             },
-          })
-        : 0;
+          ],
+          applications: {
+            none: {
+              jobId: job.id,
+            },
+          },
+        },
+        select: { id: true },
+      });
+
+      candidates.forEach((candidate) =>
+        matchedProfessionalIds.add(candidate.id),
+      );
+    }
+
+    const matchedProfessionalsCount = matchedProfessionalIds.size;
 
     // 5. Jobs Needing Attention
     // Drafts or expiring within 3 days
@@ -147,28 +162,34 @@ export const getActionRequiredItems = catchAsync(
     // 2. Matched professionals ready to invite
     // This is more complex, for now we can provide a general message if matched professionals exist
     // Implementation can be refined later
-    const recruiterJobCategories = (
-      await prisma.job.findMany({
-        where: { recruiterId, status: JobStatus.ACTIVE },
-        select: { category: true },
-        distinct: ['category'],
-      })
-    ).map((j) => j.category);
-
-    for (const category of recruiterJobCategories) {
+    for (const job of jobsWithNewApplicants) {
       const count = await prisma.professional.count({
         where: {
-          profession: category,
-          applications: { none: { job: { recruiterId } } },
+          isVerified: true,
+          OR: [
+            { profession: job.category },
+            {
+              resume: {
+                is: {
+                  category: job.category,
+                },
+              },
+            },
+          ],
+          applications: {
+            none: {
+              jobId: job.id,
+            },
+          },
         },
       });
+
       if (count > 0) {
-        const job = jobsWithNewApplicants.find((j) => j.category === category);
         actionItems.push({
           type: 'MATCHED_PROFESSIONALS',
-          message: `${count} matched professionals ready to invite for ${job?.title || category}`,
+          message: `${count} matched professionals ready to invite for ${job.title}`,
           action: 'VIEW_MATCHES',
-          category,
+          jobId: job.id,
         });
       }
     }
@@ -249,8 +270,22 @@ export const getRecruiterJobs = catchAsync(
       jobs.map(async (job) => {
         const matchedCount = await prisma.professional.count({
           where: {
-            profession: job.category,
-            applications: { none: { job: { recruiterId } } },
+            isVerified: true,
+            OR: [
+              { profession: job.category },
+              {
+                resume: {
+                  is: {
+                    category: job.category,
+                  },
+                },
+              },
+            ],
+            applications: {
+              none: {
+                jobId: job.id,
+              },
+            },
           },
         });
         return {
