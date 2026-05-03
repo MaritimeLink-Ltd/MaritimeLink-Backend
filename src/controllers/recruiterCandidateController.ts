@@ -151,19 +151,14 @@ export const getMatchingCandidates = catchAsync(
       });
     }
 
-    const appliedOrInvited = await prisma.professional.findMany({
+    const invitedProfessionals = await prisma.professional.findMany({
       where: {
-        OR: [
-          { applications: { some: { jobId } } },
-          {
-            invitations: { some: { jobId, status: InvitationStatus.PENDING } },
-          },
-        ],
+        invitations: { some: { jobId, status: InvitationStatus.PENDING } },
       },
       select: { id: true },
     });
     const excludedProfessionalIds = new Set(
-      appliedOrInvited.map((item) => item.id),
+      invitedProfessionals.map((item) => item.id),
     );
 
     // 1. Fetch professionals relevant to this job category
