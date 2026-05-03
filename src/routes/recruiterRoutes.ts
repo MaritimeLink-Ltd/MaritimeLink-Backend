@@ -1097,6 +1097,25 @@ router.get(
 
 /**
  * @swagger
+ * /api/recruiter/candidates/search:
+ *   get:
+ *     summary: Search candidates
+ *     description: Search verified professionals by rank, experience, vessel type, and keyword.
+ *     tags: [Recruiter Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Search results
+ */
+router.get(
+  '/candidates/search',
+  protectRecruiter,
+  candidateController.searchCandidates,
+);
+
+/**
+ * @swagger
  * /api/recruiter/jobs/{id}/invite/{professionalId}:
  *   post:
  *     summary: Invite a professional to apply
