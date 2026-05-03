@@ -38,6 +38,7 @@ type MarketplaceOversightRow = {
   name: string;
   email: string;
   company: string;
+  creatorType: 'RECRUITER' | 'ADMIN';
   totalActive: number;
   totalPosted: number;
   totalInteractions: number;
@@ -147,19 +148,32 @@ export const getMarketplaceOversight = catchAsync(
         createdAt: { gte: timeframeStart },
         ...(search && {
           OR: [
-            { title: { contains: search as string, mode: 'insensitive' } },
-            { location: { contains: search as string, mode: 'insensitive' } },
+            {
+              title: {
+                contains: search as string,
+                mode: Prisma.QueryMode.insensitive,
+              },
+            },
+            {
+              location: {
+                contains: search as string,
+                mode: Prisma.QueryMode.insensitive,
+              },
+            },
             {
               recruiter: {
                 organizationName: {
                   contains: search as string,
-                  mode: 'insensitive',
+                  mode: Prisma.QueryMode.insensitive,
                 },
               },
             },
             {
               recruiter: {
-                email: { contains: search as string, mode: 'insensitive' },
+                email: {
+                  contains: search as string,
+                  mode: Prisma.QueryMode.insensitive,
+                },
               },
             },
           ],
@@ -188,6 +202,7 @@ export const getMarketplaceOversight = catchAsync(
           name: course.recruiter.organizationName || course.recruiter.email,
           email: course.recruiter.email,
           company: course.recruiter.company?.name || 'N/A',
+          creatorType: 'RECRUITER',
           totalActive: 0,
           totalPosted: 0,
           totalInteractions: 0,
@@ -242,34 +257,64 @@ export const getMarketplaceOversight = catchAsync(
 
     // Default to JOBS
     const jobWhere: Prisma.JobWhereInput = {
-      recruiterId: { not: null },
-      createdAt: { gte: timeframeStart },
-      ...(search && {
-        OR: [
-          { title: { contains: search as string, mode: 'insensitive' } },
-          { location: { contains: search as string, mode: 'insensitive' } },
-          {
-            recruiter: {
-              organizationName: {
-                contains: search as string,
-                mode: 'insensitive',
+      AND: [
+        { OR: [{ recruiterId: { not: null } }, { adminId: { not: null } }] },
+        { createdAt: { gte: timeframeStart } },
+        ...(search
+          ? [
+              {
+                OR: [
+                  {
+                    title: {
+                      contains: search as string,
+                      mode: Prisma.QueryMode.insensitive,
+                    },
+                  },
+                  {
+                    location: {
+                      contains: search as string,
+                      mode: Prisma.QueryMode.insensitive,
+                    },
+                  },
+                  {
+                    recruiter: {
+                      organizationName: {
+                        contains: search as string,
+                        mode: Prisma.QueryMode.insensitive,
+                      },
+                    },
+                  },
+                  {
+                    recruiter: {
+                      email: {
+                        contains: search as string,
+                        mode: Prisma.QueryMode.insensitive,
+                      },
+                    },
+                  },
+                  {
+                    recruiter: {
+                      company: {
+                        name: {
+                          contains: search as string,
+                          mode: Prisma.QueryMode.insensitive,
+                        },
+                      },
+                    },
+                  },
+                  {
+                    admin: {
+                      email: {
+                        contains: search as string,
+                        mode: Prisma.QueryMode.insensitive,
+                      },
+                    },
+                  },
+                ],
               },
-            },
-          },
-          {
-            recruiter: {
-              email: { contains: search as string, mode: 'insensitive' },
-            },
-          },
-          {
-            recruiter: {
-              company: {
-                name: { contains: search as string, mode: 'insensitive' },
-              },
-            },
-          },
-        ],
-      }),
+            ]
+          : []),
+      ],
     };
     const jobs = await prisma.job.findMany({
       where: jobWhere,
@@ -282,6 +327,12 @@ export const getMarketplaceOversight = catchAsync(
             company: { select: { name: true } },
           },
         },
+        admin: {
+          select: {
+            id: true,
+            email: true,
+          },
+        },
         _count: {
           select: {
             applications: true,
@@ -292,12 +343,24 @@ export const getMarketplaceOversight = catchAsync(
 
     const grouped = new Map<string, MarketplaceOversightRow>();
     jobs.forEach((job) => {
-      if (!job.recruiterId || !job.recruiter) return;
-      const current = grouped.get(job.recruiterId) || {
-        id: job.recruiterId,
-        name: job.recruiter.organizationName || job.recruiter.email,
-        email: job.recruiter.email,
-        company: job.recruiter.company?.name || 'N/A',
+      const creatorId = job.recruiterId || job.adminId;
+      if (!creatorId) return;
+
+      const isAdminCreated = !job.recruiterId && !!job.adminId;
+      const current = grouped.get(creatorId) || {
+        id: creatorId,
+        name: isAdminCreated
+          ? job.admin?.email || 'Platform Admin'
+          : job.recruiter?.organizationName ||
+            job.recruiter?.email ||
+            'Recruiter',
+        email: isAdminCreated
+          ? job.admin?.email || ''
+          : job.recruiter?.email || '',
+        company: isAdminCreated
+          ? 'MaritimeLink Admin'
+          : job.recruiter?.company?.name || 'N/A',
+        creatorType: isAdminCreated ? 'ADMIN' : 'RECRUITER',
         totalActive: 0,
         totalPosted: 0,
         totalInteractions: 0,
@@ -313,7 +376,7 @@ export const getMarketplaceOversight = catchAsync(
       else if (job.riskLevel === 'MEDIUM' && current.riskLevel !== 'HIGH')
         current.riskLevel = 'MEDIUM';
 
-      grouped.set(job.recruiterId, current);
+      grouped.set(creatorId, current);
     });
 
     let formatted = Array.from(grouped.values());
@@ -467,6 +530,7 @@ export const getAllJobsForAdmin = catchAsync(
         isFlagged?: string;
         search?: string;
         recruiterId?: string;
+        adminId?: string;
         companyId?: string;
       };
 
@@ -476,6 +540,7 @@ export const getAllJobsForAdmin = catchAsync(
     if (status) where.status = status as JobStatus;
     if (isFlagged !== undefined) where.isFlagged = isFlagged === 'true';
     if (recruiterId) where.recruiterId = recruiterId;
+    if (req.query.adminId) where.adminId = String(req.query.adminId);
     if (companyId) where.companyId = companyId;
     if (search) {
       where.OR = [

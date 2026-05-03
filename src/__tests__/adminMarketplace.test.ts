@@ -54,6 +54,19 @@ describe('Admin Marketplace Management Tests', () => {
 
     await prisma.job.create({
       data: {
+        title: 'Test Admin Marketplace Job',
+        location: 'Singapore',
+        category: 'OFFICER',
+        contractType: 'PERMANENT',
+        salary: '75000',
+        description: 'Admin-created job for oversight checks',
+        adminId: adminId,
+        status: 'ACTIVE',
+      },
+    });
+
+    await prisma.job.create({
+      data: {
         title: 'Archived Job for Oversight',
         location: 'London',
         category: 'OFFICER',
@@ -83,6 +96,7 @@ describe('Admin Marketplace Management Tests', () => {
   afterAll(async () => {
     // Cleanup
     await prisma.job.deleteMany({ where: { recruiterId } }).catch(() => {});
+    await prisma.job.deleteMany({ where: { adminId } }).catch(() => {});
     await prisma.course.deleteMany({ where: { recruiterId } }).catch(() => {});
     await prisma.recruiter
       .delete({ where: { id: recruiterId } })
@@ -132,6 +146,22 @@ describe('Admin Marketplace Management Tests', () => {
       expect(Array.isArray(res.body.data.oversight)).toBe(true);
       expect(res.body.data.oversight.length).toBe(1);
       expect(res.body.data.oversight[0].id).toBe(recruiterId);
+      expect(res.body.data.oversight[0].totalPosted).toBe(1);
+      expect(res.body.data.oversight[0].totalActive).toBe(1);
+    });
+
+    it('should include admin-created jobs in oversight rows', async () => {
+      const res = await request(app)
+        .get(
+          '/api/admin/marketplace/oversight?type=JOBS&timeframe=today&search=Test Admin Marketplace Job',
+        )
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('success');
+      expect(Array.isArray(res.body.data.oversight)).toBe(true);
+      expect(res.body.data.oversight.length).toBe(1);
+      expect(res.body.data.oversight[0].creatorType).toBe('ADMIN');
       expect(res.body.data.oversight[0].totalPosted).toBe(1);
       expect(res.body.data.oversight[0].totalActive).toBe(1);
     });
