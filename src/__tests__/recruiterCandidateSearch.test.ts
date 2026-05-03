@@ -18,6 +18,7 @@ describe('Recruiter candidate search', () => {
     vesselType,
     years,
     country,
+    tier = 'FREE',
   }: {
     fullname: string;
     email: string;
@@ -25,6 +26,7 @@ describe('Recruiter candidate search', () => {
     vesselType: string;
     years: number;
     country: string;
+    tier?: 'FREE' | 'PRO';
   }) => {
     const passwordHash = await bcrypt.hash(password, 12);
     const startYear = 2026 - years;
@@ -35,6 +37,7 @@ describe('Recruiter candidate search', () => {
         password: passwordHash,
         status: 'VERIFIED',
         isVerified: true,
+        tier,
         resume: {
           create: {
             category: 'OFFICER',
@@ -108,6 +111,16 @@ describe('Recruiter candidate search', () => {
       years: 22,
       country: 'Searchland',
     });
+
+    await createCandidate({
+      fullname: 'Zara Premium',
+      email: `zara-premium-${suffix}@example.com`,
+      rank: 'Electrician',
+      vesselType: 'Cruise Ship',
+      years: 4,
+      country: 'Searchland',
+      tier: 'PRO',
+    });
   });
 
   afterAll(async () => {
@@ -179,9 +192,33 @@ describe('Recruiter candidate search', () => {
       });
 
     expect(res.status).toBe(200);
-    expect(res.body.data.candidates).toHaveLength(3);
-    expect(res.body.data.candidates[0].fullname).toBe('Marcus Johnson');
-    expect(res.body.data.candidates[1].fullname).toBe('Alex Morgan');
-    expect(res.body.data.candidates[2].fullname).toBe('Sarah Chen');
+    expect(res.body.data.candidates).toHaveLength(4);
+    expect(res.body.data.candidates[0].fullname).toBe('Zara Premium');
+    expect(res.body.data.candidates[0].tier).toBe('PRO');
+    expect(res.body.data.candidates[1].fullname).toBe('Marcus Johnson');
+    expect(res.body.data.candidates[2].fullname).toBe('Alex Morgan');
+    expect(res.body.data.candidates[3].fullname).toBe('Sarah Chen');
+  });
+
+  it('boosts premium candidates to the top of search results', async () => {
+    const res = await request(app)
+      .get('/api/recruiter/candidates/search')
+      .set('Authorization', `Bearer ${recruiterToken}`)
+      .query({
+        search: String(suffix),
+        limit: 10,
+        page: 1,
+        sortBy: 'Alphabetical',
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.candidates).toHaveLength(4);
+    expect(res.body.data.candidates[0].tier).toBe('PRO');
+    expect(res.body.data.candidates[0].fullname).toBe('Zara Premium');
+    expect(
+      res.body.data.candidates
+        .slice(1)
+        .every((candidate: { tier?: string }) => candidate.tier !== 'PRO'),
+    ).toBe(true);
   });
 });

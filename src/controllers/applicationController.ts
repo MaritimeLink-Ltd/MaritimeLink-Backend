@@ -29,6 +29,15 @@ const APPLICATION_STATUS_ALIASES: Record<string, ApplicationStatus> = {
   WITHDRAWN: ApplicationStatus.WITHDRAWN,
 };
 
+const FREE_APPLICATION_LIMIT = 10;
+const ACTIVE_APPLICATION_STATUSES = [
+  ApplicationStatus.APPLIED,
+  ApplicationStatus.UNDER_REVIEW,
+  ApplicationStatus.SHORTLISTED,
+  ApplicationStatus.INTERVIEW,
+  ApplicationStatus.OFFER,
+];
+
 const normalizeApplicationStatus = (status: unknown) => {
   if (typeof status !== 'string') return null;
 
@@ -47,6 +56,7 @@ export const applyToJob = catchAsync(
     const professional = await prisma.professional.findUnique({
       where: { id: userId },
       select: {
+        tier: true,
         cvUrl: true,
         lastCoverLetter: true,
         resume: {
@@ -93,6 +103,24 @@ export const applyToJob = catchAsync(
 
     if (existingApplication) {
       return next(new AppError('You have already applied to this job', 400));
+    }
+
+    if (professional.tier !== 'PRO') {
+      const activeApplicationsCount = await prisma.jobApplication.count({
+        where: {
+          professionalId: userId,
+          status: { in: ACTIVE_APPLICATION_STATUSES },
+        },
+      });
+
+      if (activeApplicationsCount >= FREE_APPLICATION_LIMIT) {
+        return next(
+          new AppError(
+            `Free accounts can only have ${FREE_APPLICATION_LIMIT} active job applications. Upgrade to PRO for unlimited applications.`,
+            403,
+          ),
+        );
+      }
     }
 
     // 5. Create Application with Snapshot

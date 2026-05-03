@@ -194,7 +194,7 @@ export const getAlerts = catchAsync(
     const alerts = await prisma.alert.findMany({
       where: { professionalId: req.user?.id },
       orderBy: { createdAt: 'desc' },
-      take: 20,
+      take: 10,
     });
 
     res.status(200).json({
@@ -218,7 +218,7 @@ export const getRecentActivity = catchAsync(
         actorType: 'PROFESSIONAL',
       },
       orderBy: { createdAt: 'desc' },
-      take: 15,
+      take: 10,
     });
 
     res.status(200).json({

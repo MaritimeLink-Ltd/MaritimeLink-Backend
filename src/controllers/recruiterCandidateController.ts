@@ -374,6 +374,8 @@ export const searchCandidates = catchAsync(
         const image =
           prof.profilePhotoUrl ||
           buildCandidateAvatar(prof.fullname || prof.email, prof.id);
+        const tier = String(prof.tier || 'FREE').toUpperCase();
+        const isPremium = tier === 'PRO';
 
         const searchTerms = [
           prof.fullname,
@@ -428,6 +430,8 @@ export const searchCandidates = catchAsync(
           location,
           matchPercentage: Math.min(matchScore, 100),
           verified: Boolean(prof.isVerified),
+          tier,
+          isPremium,
           image,
           vesselTypes,
           resumeCategory: prof.resume?.subcategory || null,
@@ -471,6 +475,10 @@ export const searchCandidates = catchAsync(
       });
 
     candidates.sort((a, b) => {
+      const premiumDelta =
+        Number(Boolean(b.isPremium)) - Number(Boolean(a.isPremium));
+      if (premiumDelta !== 0) return premiumDelta;
+
       switch (sortBy) {
         case 'Experience (High to Low)':
           return b.experienceYears - a.experienceYears;
