@@ -12,6 +12,7 @@ import {
   calculateTotalSeaTime,
   formatDuration,
 } from '../utils/experienceUtils.js';
+import { scoreProfessionalForJob } from '../utils/jobMatching.js';
 
 const normalizeText = (value: unknown) =>
   String(value || '')
@@ -161,20 +162,11 @@ export const getMatchingCandidates = catchAsync(
       invitedProfessionals.map((item) => item.id),
     );
 
-    // 1. Fetch professionals relevant to this job category
+    // 1. Fetch all verified professionals once and score them against this job.
     const professionals = await prisma.professional.findMany({
       where: {
         isVerified: true,
-        OR: [
-          { profession: job.category },
-          {
-            resume: {
-              is: {
-                category: job.category,
-              },
-            },
-          },
-        ],
+        status: 'VERIFIED',
       },
       include: {
         resume: {
@@ -185,71 +177,34 @@ export const getMatchingCandidates = catchAsync(
         },
         kyc: true,
         documents: true,
+        applications: {
+          select: {
+            jobId: true,
+          },
+        },
       },
     });
 
-    // 2. Matching Logic
-    const jobDescription = normalizeText(job.description);
-    const jobTitle = normalizeText(job.title);
-
+    // 2. Matching logic. We keep the score threshold low enough to surface
+    // relevant candidates, but still require multiple signals for noisy matches.
     const candidates = professionals
       .filter((prof) => !excludedProfessionalIds.has(prof.id))
       .map((prof) => {
-        let matchScore = 0;
-        const matchCriteria: string[] = [];
-        const resumeCategory = normalizeText(prof.resume?.category);
-        const resumeSubcategory = normalizeText(prof.resume?.subcategory);
-        const profession = normalizeText(prof.profession);
+        const match = scoreProfessionalForJob(job, prof);
+        if (match.score < 35) return null;
 
-        // Category Match (Base matching)
-        if (
-          profession === normalizeText(job.category) ||
-          resumeCategory === normalizeText(job.category)
-        ) {
-          matchScore += 40;
-          matchCriteria.push('Category Match');
-        }
-
-        // Subcategory Match
-        if (
-          resumeSubcategory &&
-          (jobDescription.includes(resumeSubcategory) ||
-            jobTitle.includes(resumeSubcategory))
-        ) {
-          matchScore += 20;
-          matchCriteria.push('Specialization Match');
-        }
-
-        // Skills Match
-        const profSkills =
-          prof.resume?.skills.map((s) => normalizeText(s.skillName)) || [];
-        const skillMatches = profSkills.filter((skill) =>
-          jobDescription.includes(skill),
-        );
-
-        if (skillMatches.length > 0) {
-          matchScore += Math.min(skillMatches.length * 10, 40); // Max 40 points for skills
-          matchCriteria.push(`Matches ${skillMatches.length} expected skills`);
+        if (prof.applications?.some((app) => app.jobId === jobId)) {
+          return null;
         }
 
         const { compliance, complianceSubtext } = buildComplianceMeta(prof);
 
-        if (
-          Array.isArray(prof.resume?.seaService) &&
-          prof.resume.seaService.length > 0
-        ) {
-          matchScore += 5;
-          matchCriteria.push('Sea service history available');
-        }
-
-        // Latest Rank / Ship (from Sea Service)
         const latestExp = prof.resume?.seaService?.sort((a, b) => {
           const dateA = a.joiningDate ? new Date(a.joiningDate).getTime() : 0;
           const dateB = b.joiningDate ? new Date(b.joiningDate).getTime() : 0;
           return dateB - dateA;
         })[0];
 
-        // Experience calculation
         const { years } = calculateTotalSeaTime(prof.resume?.seaService || []);
 
         return {
@@ -268,13 +223,15 @@ export const getMatchingCandidates = catchAsync(
             '',
           compliance,
           complianceSubtext,
-          matchPercentage: Math.min(matchScore, 100),
-          matchCriteria,
+          matchPercentage: Math.min(match.score, 100),
+          matchCriteria: match.criteria,
           cvUrl: prof.cvUrl,
           documents: prof.documents,
         };
       })
-      .filter((candidate) => candidate.matchPercentage > 0);
+      .filter((candidate): candidate is NonNullable<typeof candidate> =>
+        Boolean(candidate),
+      );
 
     // Sort by match percentage
     candidates.sort((a, b) => b.matchPercentage - a.matchPercentage);
@@ -326,6 +283,7 @@ export const searchCandidates = catchAsync(
         resume: {
           include: {
             seaService: true,
+            skills: true,
           },
         },
         kyc: {
@@ -379,6 +337,7 @@ export const searchCandidates = catchAsync(
           location,
           experienceText,
           ...vesselTypes,
+          ...(prof.resume?.skills || []).map((skill) => skill.skillName),
         ].map((value) => normalizeText(value));
 
         const matchesSearch =

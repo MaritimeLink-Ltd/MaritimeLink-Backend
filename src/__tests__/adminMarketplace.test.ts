@@ -52,6 +52,20 @@ describe('Admin Marketplace Management Tests', () => {
       },
     });
 
+    await prisma.job.create({
+      data: {
+        title: 'Archived Job for Oversight',
+        location: 'London',
+        category: 'OFFICER',
+        contractType: 'PERMANENT',
+        salary: '50000',
+        description: 'Historical test job',
+        recruiterId: recruiterId,
+        status: 'ACTIVE',
+        createdAt: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000),
+      },
+    });
+
     // 4. Create a test course
     await prisma.course.create({
       data: {
@@ -102,6 +116,23 @@ describe('Admin Marketplace Management Tests', () => {
         ),
       ).toBe(true);
       expect(res.body.data.jobs.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('Marketplace Oversight', () => {
+    it('should include older recruiter jobs even when timeframe is today', async () => {
+      const res = await request(app)
+        .get(
+          '/api/admin/marketplace/oversight?type=JOBS&timeframe=today&search=Archived Job for Oversight',
+        )
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('success');
+      expect(Array.isArray(res.body.data.oversight)).toBe(true);
+      expect(res.body.data.oversight.length).toBe(1);
+      expect(res.body.data.oversight[0].id).toBe(recruiterId);
+      expect(res.body.data.oversight[0].totalPosted).toBeGreaterThan(0);
     });
   });
 

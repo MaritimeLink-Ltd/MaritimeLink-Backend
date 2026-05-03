@@ -4,6 +4,7 @@ import { catchAsync } from '../utils/catchAsync.js';
 import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
 import { JobStatus } from '../generated/client/index.js';
+import { matchesProfessionalForJob } from '../utils/jobMatching.js';
 
 /**
  * @desc    Get recruiter dashboard stats
@@ -46,40 +47,50 @@ export const getRecruiterDashboardStats = catchAsync(
     });
 
     // 4. Matched Professionals
-    // Count distinct verified professionals that match at least one active job
-    // and have not already applied to that same job.
+    // Count distinct verified professionals that match at least one active job.
     const activeJobs = await prisma.job.findMany({
       where: { recruiterId, status: JobStatus.ACTIVE },
-      select: { id: true, category: true },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        category: true,
+        location: true,
+      },
+    });
+
+    const professionals = await prisma.professional.findMany({
+      where: {
+        isVerified: true,
+        status: 'VERIFIED',
+      },
+      include: {
+        resume: {
+          include: {
+            skills: true,
+            seaService: true,
+          },
+        },
+        kyc: true,
+        documents: true,
+        applications: {
+          select: {
+            jobId: true,
+          },
+        },
+      },
     });
 
     const matchedProfessionalIds = new Set<string>();
     for (const job of activeJobs) {
-      const candidates = await prisma.professional.findMany({
-        where: {
-          isVerified: true,
-          OR: [
-            { profession: job.category },
-            {
-              resume: {
-                is: {
-                  category: job.category,
-                },
-              },
-            },
-          ],
-          applications: {
-            none: {
-              jobId: job.id,
-            },
-          },
-        },
-        select: { id: true },
-      });
-
-      candidates.forEach((candidate) =>
-        matchedProfessionalIds.add(candidate.id),
-      );
+      professionals
+        .filter(
+          (prof) =>
+            !prof.applications?.some(
+              (application) => application.jobId === job.id,
+            ) && matchesProfessionalForJob(job, prof),
+        )
+        .forEach((candidate) => matchedProfessionalIds.add(candidate.id));
     }
 
     const matchedProfessionalsCount = matchedProfessionalIds.size;
@@ -160,29 +171,33 @@ export const getActionRequiredItems = catchAsync(
     });
 
     // 2. Matched professionals ready to invite
-    // This is more complex, for now we can provide a general message if matched professionals exist
-    // Implementation can be refined later
-    for (const job of jobsWithNewApplicants) {
-      const count = await prisma.professional.count({
-        where: {
-          isVerified: true,
-          OR: [
-            { profession: job.category },
-            {
-              resume: {
-                is: {
-                  category: job.category,
-                },
-              },
-            },
-          ],
-          applications: {
-            none: {
-              jobId: job.id,
-            },
+    const professionals = await prisma.professional.findMany({
+      where: {
+        isVerified: true,
+        status: 'VERIFIED',
+      },
+      include: {
+        resume: {
+          include: {
+            skills: true,
+            seaService: true,
           },
         },
-      });
+        applications: {
+          select: {
+            jobId: true,
+          },
+        },
+      },
+    });
+
+    for (const job of jobsWithNewApplicants) {
+      const count = professionals.filter(
+        (prof) =>
+          !prof.applications?.some(
+            (application) => application.jobId === job.id,
+          ) && matchesProfessionalForJob(job, prof),
+      ).length;
 
       if (count > 0) {
         actionItems.push({
@@ -266,35 +281,40 @@ export const getRecruiterJobs = catchAsync(
     });
 
     // Fetch match counts per job (heuristic)
-    const enrichedJobs = await Promise.all(
-      jobs.map(async (job) => {
-        const matchedCount = await prisma.professional.count({
-          where: {
-            isVerified: true,
-            OR: [
-              { profession: job.category },
-              {
-                resume: {
-                  is: {
-                    category: job.category,
-                  },
-                },
-              },
-            ],
-            applications: {
-              none: {
-                jobId: job.id,
-              },
-            },
+    const professionals = await prisma.professional.findMany({
+      where: {
+        isVerified: true,
+        status: 'VERIFIED',
+      },
+      include: {
+        resume: {
+          include: {
+            skills: true,
+            seaService: true,
           },
-        });
-        return {
-          ...job,
-          applicantCount: job._count.applications,
-          matchedCount,
-        };
-      }),
-    );
+        },
+        applications: {
+          select: {
+            jobId: true,
+          },
+        },
+      },
+    });
+
+    const enrichedJobs = jobs.map((job) => {
+      const matchedCount = professionals.filter(
+        (prof) =>
+          !prof.applications?.some(
+            (application) => application.jobId === job.id,
+          ) && matchesProfessionalForJob(job, prof),
+      ).length;
+
+      return {
+        ...job,
+        applicantCount: job._count.applications,
+        matchedCount,
+      };
+    });
 
     res.status(200).json({
       status: 'success',
