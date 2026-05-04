@@ -19,6 +19,92 @@ import {
   VerificationStatus,
 } from '../generated/client/index.js';
 
+const DOCUMENT_CATEGORY_ALIASES: Record<string, DocumentCategory> = {
+  STCW_CERTIFICATES: DocumentCategory.LICENSES_ENDORSEMENTS,
+  STCW_CERTIFICATE: DocumentCategory.LICENSES_ENDORSEMENTS,
+  STCW: DocumentCategory.LICENSES_ENDORSEMENTS,
+};
+
+const STCW_KEYWORDS = [
+  'stcw',
+  'basic safety',
+  'safety training',
+  'advanced firefighting',
+  'medical first aid',
+  'proficiency in survival craft',
+  'survival craft',
+  'bridge resource management',
+  'engine room resource management',
+  'radar',
+  'gmdss',
+  'ship security',
+  'crowd management',
+  'passenger safety',
+  'watchkeeping',
+];
+
+const normalizeDocumentCategoryQuery = (value: unknown) => {
+  if (typeof value !== 'string') return undefined;
+
+  const normalized = value
+    .trim()
+    .toUpperCase()
+    .replace(/[\s-]+/g, '_');
+  return (
+    DOCUMENT_CATEGORY_ALIASES[normalized] || (normalized as DocumentCategory)
+  );
+};
+
+const normalizeText = (value?: string | null) =>
+  String(value || '')
+    .trim()
+    .toLowerCase();
+
+const getDocumentDisplayCategory = (document: {
+  category: DocumentCategory;
+  name?: string | null;
+  ocrData?: Prisma.JsonValue | null;
+}) => {
+  const rawCategory = String(document.category || '').toUpperCase();
+  const ocrData = (document.ocrData || {}) as Record<string, unknown>;
+  const sourceCategory = normalizeText(
+    typeof ocrData.sourceCategory === 'string'
+      ? ocrData.sourceCategory
+      : undefined,
+  );
+  const searchableText = [
+    document.name,
+    typeof ocrData.name === 'string' ? ocrData.name : '',
+    typeof ocrData.qualification === 'string' ? ocrData.qualification : '',
+    typeof ocrData.title === 'string' ? ocrData.title : '',
+    typeof ocrData.description === 'string' ? ocrData.description : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  if (
+    sourceCategory.includes('stcw') ||
+    STCW_KEYWORDS.some((keyword) => searchableText.includes(keyword))
+  ) {
+    return 'stcw';
+  }
+
+  const inferredMap: Record<string, string> = {
+    LICENSES_ENDORSEMENTS: 'licenses',
+    MEDICAL_CERTIFICATES: 'medical',
+    TRAVEL_DOCUMENTS: 'travel',
+    SEAMANS_BOOK: 'seaman',
+    ACADEMIC_QUALIFICATIONS: 'academic',
+    MISC_COMPANY_LETTERS: 'company',
+    RECENT_APPRAISALS: 'appraisals',
+    CV_RESUME: 'resume',
+    COVER_LETTER: 'cover-letter',
+  };
+
+  return inferredMap[rawCategory] || 'company';
+};
+
 type DocumentMatchValues = {
   name?: string | null;
   number?: string | null;
@@ -402,7 +488,7 @@ export const uploadDocument = catchAsync(
     const finalIssueDate = enteredIssueDate || ocrData?.issueDate;
     const finalExpiryDate = enteredExpiryDate || ocrData?.expiryDate;
     const savedOcrData: Prisma.InputJsonValue | undefined = ocrData
-      ? { ...ocrData }
+      ? { ...ocrData, sourceCategory: rawCategory || category }
       : undefined;
 
     // 6. Create DB Record
@@ -554,8 +640,14 @@ export const getDocuments = catchAsync(
     const { category } = req.query;
 
     const where: Prisma.ProfessionalDocumentWhereInput = { professionalId };
-    if (category) {
-      where.category = category as Prisma.EnumDocumentCategoryFilter;
+    const rawCategory =
+      typeof category === 'string' ? category.trim().toUpperCase() : '';
+    const normalizedCategory = category
+      ? normalizeDocumentCategoryQuery(category)
+      : undefined;
+
+    if (normalizedCategory) {
+      where.category = normalizedCategory;
     }
 
     const documents = await prisma.professionalDocument.findMany({
@@ -563,10 +655,28 @@ export const getDocuments = catchAsync(
       orderBy: { createdAt: 'desc' },
     });
 
+    const filteredDocuments =
+      rawCategory === 'STCW_CERTIFICATES' ||
+      rawCategory === 'STCW_CERTIFICATE' ||
+      rawCategory === 'STCW'
+        ? documents.filter(
+            (document) => getDocumentDisplayCategory(document) === 'stcw',
+          )
+        : rawCategory === 'LICENSES_ENDORSEMENTS'
+          ? documents.filter(
+              (document) => getDocumentDisplayCategory(document) === 'licenses',
+            )
+          : documents;
+
     res.status(200).json({
       status: 'success',
-      results: documents.length,
-      data: { documents },
+      results: filteredDocuments.length,
+      data: {
+        documents: filteredDocuments.map((document) => ({
+          ...document,
+          displayCategory: getDocumentDisplayCategory(document),
+        })),
+      },
     });
   },
 );
