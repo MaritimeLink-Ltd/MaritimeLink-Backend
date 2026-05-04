@@ -284,6 +284,14 @@ describe('Professional Flow E2E Tests', () => {
       // Without API key, OCR returns {} so matching fails gracefully
       expect(res.body.data.matchStatus.isFullyMatched).toBe(false);
       expect(res.body.data.matchStatus.details.name.isMatched).toBe(true);
+
+      const listRes = await request(app)
+        .get('/api/professional/documents')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(listRes.status).toBe(200);
+      expect(listRes.body.data.summary).toBeDefined();
+      expect(listRes.body.data.summary.total).toBeGreaterThanOrEqual(1);
     });
   });
 

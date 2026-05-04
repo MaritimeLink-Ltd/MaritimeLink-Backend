@@ -655,6 +655,28 @@ export const getDocuments = catchAsync(
       orderBy: { createdAt: 'desc' },
     });
 
+    const summary = documents.reduce(
+      (acc, document) => {
+        const displayCategory = getDocumentDisplayCategory(document);
+        acc[displayCategory] = (acc[displayCategory] || 0) + 1;
+        acc.total += 1;
+        return acc;
+      },
+      {
+        total: 0,
+        licenses: 0,
+        stcw: 0,
+        medical: 0,
+        seaman: 0,
+        travel: 0,
+        academic: 0,
+        company: 0,
+        appraisals: 0,
+        resume: 0,
+        'cover-letter': 0,
+      } as Record<string, number>,
+    );
+
     const filteredDocuments =
       rawCategory === 'STCW_CERTIFICATES' ||
       rawCategory === 'STCW_CERTIFICATE' ||
@@ -672,6 +694,7 @@ export const getDocuments = catchAsync(
       status: 'success',
       results: filteredDocuments.length,
       data: {
+        summary,
         documents: filteredDocuments.map((document) => ({
           ...document,
           displayCategory: getDocumentDisplayCategory(document),
