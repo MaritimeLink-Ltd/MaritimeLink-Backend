@@ -1116,6 +1116,34 @@ router.get(
 
 /**
  * @swagger
+ * /api/recruiter/professionals/{id}:
+ *   get:
+ *     summary: Get recruiter candidate profile
+ *     description: Retrieve a verified professional profile for recruiter drill-down views.
+ *     tags: [Recruiter Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Professional profile retrieved
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ *       404:
+ *         $ref: '#/components/responses/NotFoundError'
+ */
+router.get(
+  '/professionals/:id',
+  protectRecruiter,
+  candidateController.getCandidateProfile,
+);
+
+/**
+ * @swagger
  * /api/recruiter/jobs/{id}/invite/{professionalId}:
  *   post:
  *     summary: Invite a professional to apply

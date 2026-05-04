@@ -468,6 +468,54 @@ export const searchCandidates = catchAsync(
 );
 
 /**
+ * Get a single verified professional for recruiter profile drill-downs.
+ */
+export const getCandidateProfile = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const { id } = req.params;
+
+    const professional = await prisma.professional.findUnique({
+      where: { id },
+      include: {
+        kyc: {
+          select: {
+            status: true,
+            issueCountry: true,
+          },
+        },
+        resume: {
+          include: {
+            skills: true,
+            licenses: true,
+            seaService: true,
+            education: true,
+            stcwCertificates: true,
+            medicalCertificates: true,
+            travelDocuments: true,
+            nextOfKin: true,
+            referees: true,
+          },
+        },
+        documents: {
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+    });
+
+    if (!professional) {
+      return next(new AppError('Professional not found', 404));
+    }
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        professional,
+      },
+    });
+  },
+);
+
+/**
  * Invite a professional to apply for a job
  */
 export const inviteProfessional = catchAsync(

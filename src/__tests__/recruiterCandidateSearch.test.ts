@@ -221,4 +221,19 @@ describe('Recruiter candidate search', () => {
         .every((candidate: { tier?: string }) => candidate.tier !== 'PRO'),
     ).toBe(true);
   });
+
+  it('loads a recruiter candidate profile by id', async () => {
+    const candidateId = candidateIds[0];
+    const res = await request(app)
+      .get(`/api/recruiter/professionals/${candidateId}`)
+      .set('Authorization', `Bearer ${recruiterToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('success');
+    expect(res.body.data.professional.id).toBe(candidateId);
+    expect(res.body.data.professional.fullname).toBe('Alex Morgan');
+    expect(res.body.data.professional.resume.subcategory).toBe(
+      'Chief Engineer',
+    );
+  });
 });
