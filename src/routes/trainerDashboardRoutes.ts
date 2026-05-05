@@ -44,6 +44,14 @@ router.use(protectRecruiter);
  *                   demandSignalsCount: 4
  */
 router.get('/stats', trainerDashboardController.getTrainingDashboardStats);
+router.get(
+  '/demand/overview',
+  trainerDashboardController.getTrainingDemandOverview,
+);
+router.get(
+  '/demand/expiries',
+  trainerDashboardController.getTrainingExpiringCertificates,
+);
 
 /**
  * @swagger

@@ -3,7 +3,346 @@ import { prisma } from '../config/prisma.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
-import { CourseStatus } from '../generated/client/index.js';
+import { CourseStatus, DocumentCategory } from '../generated/client/index.js';
+
+const TRAINER_EXPIRY_CATEGORIES = [
+  DocumentCategory.LICENSES_ENDORSEMENTS,
+  DocumentCategory.MEDICAL_CERTIFICATES,
+  DocumentCategory.TRAVEL_DOCUMENTS,
+  DocumentCategory.SEAMANS_BOOK,
+  DocumentCategory.ACADEMIC_QUALIFICATIONS,
+  DocumentCategory.RECENT_APPRAISALS,
+];
+
+const PERIOD_TO_DAYS: Record<string, number> = {
+  today: 1,
+  '7d': 7,
+  '30d': 30,
+  '60d': 60,
+  '90d': 90,
+  all: 365,
+};
+
+const TRAINER_DEMAND_BUCKETS = [
+  {
+    key: 'stcw',
+    label: 'STCW Basic Safety',
+    keywords: [
+      'stcw',
+      'basic safety',
+      'safety training',
+      'watchkeeping',
+      'gmdss',
+      'radar',
+      'bridge resource',
+      'engine room resource',
+      'survival craft',
+      'crowd management',
+      'passenger safety',
+    ],
+  },
+  {
+    key: 'firefighting',
+    label: 'Advanced Firefighting',
+    keywords: ['firefighting', 'fire fighting', 'fire prevention', 'fire'],
+  },
+  {
+    key: 'gwo',
+    label: 'GWO Sea Survival',
+    keywords: ['gwo', 'sea survival', 'working at heights', 'manual handling'],
+  },
+  {
+    key: 'medical',
+    label: 'Medical Care Onboard',
+    keywords: ['medical', 'first aid', 'medical care', 'health care'],
+  },
+];
+
+type TrainerDemandBucketKey =
+  | 'stcw'
+  | 'firefighting'
+  | 'gwo'
+  | 'medical'
+  | 'other';
+
+type TrainerExpiryRow = {
+  id: string;
+  professionalId: string;
+  professionalName: string;
+  rank: string;
+  location: string;
+  city: string;
+  country: string;
+  certificateType: string;
+  bucket: TrainerDemandBucketKey;
+  expiryDate: Date;
+  issueDate?: Date | null;
+  daysLeft: number;
+  sourceCategory?: string | null;
+};
+
+const startOfDay = (value: Date) => {
+  const copy = new Date(value);
+  copy.setHours(0, 0, 0, 0);
+  return copy;
+};
+
+const addDays = (value: Date, days: number) => {
+  const copy = new Date(value);
+  copy.setDate(copy.getDate() + days);
+  return copy;
+};
+
+const normalizeTrainerPeriod = (period: unknown) => {
+  const value = typeof period === 'string' ? period.trim().toLowerCase() : '';
+  if (value === 'today') return 'today';
+  if (value === '7d' || value === '7days' || value === '7 days') return '7d';
+  if (
+    value === '30d' ||
+    value === '30days' ||
+    value === '30 days' ||
+    value === '30'
+  )
+    return '30d';
+  if (
+    value === '60d' ||
+    value === '60days' ||
+    value === '60 days' ||
+    value === '60'
+  )
+    return '60d';
+  if (
+    value === '90d' ||
+    value === '90days' ||
+    value === '90 days' ||
+    value === '90'
+  )
+    return '90d';
+  if (value === 'all' || value === '') return 'all';
+  return '7d';
+};
+
+const normalizeText = (value?: string | null) =>
+  String(value || '')
+    .trim()
+    .toLowerCase();
+
+const getBucketForText = (text: string): TrainerDemandBucketKey => {
+  const normalized = normalizeText(text);
+  if (!normalized) return 'other';
+
+  const found = TRAINER_DEMAND_BUCKETS.find((bucket) =>
+    bucket.keywords.some((keyword) => normalized.includes(keyword)),
+  );
+
+  return (found?.key || 'other') as TrainerDemandBucketKey;
+};
+
+const getBucketLabel = (bucket: TrainerDemandBucketKey) => {
+  const found = TRAINER_DEMAND_BUCKETS.find((item) => item.key === bucket);
+  return found?.label || 'Other Training';
+};
+
+const getProfessionalDisplayLocation = (professional: {
+  resume?: {
+    city?: string | null;
+    country?: string | null;
+  } | null;
+}) => {
+  const city = normalizeText(professional.resume?.city);
+  const country = normalizeText(professional.resume?.country);
+
+  if (city && country)
+    return `${city}, ${country}`.replace(/\b\w/g, (c) => c.toUpperCase());
+  if (city) return city.replace(/\b\w/g, (c) => c.toUpperCase());
+  if (country) return country.replace(/\b\w/g, (c) => c.toUpperCase());
+  return 'Unknown';
+};
+
+const getProfessionalRank = (professional: {
+  profession?: string | null;
+  subcategory?: string | null;
+  resume?: {
+    category?: string | null;
+    subcategory?: string | null;
+    seaService?: { role?: string | null }[];
+  } | null;
+}) => {
+  const seaServiceRole = professional.resume?.seaService?.[0]?.role;
+  return (
+    seaServiceRole ||
+    professional.resume?.subcategory ||
+    professional.subcategory ||
+    professional.profession ||
+    professional.resume?.category ||
+    'Unknown'
+  );
+};
+
+const getCertificateText = (document: {
+  name: string;
+  category: DocumentCategory;
+  ocrData?: unknown;
+}) => {
+  const ocrData = (document.ocrData || {}) as Record<string, unknown>;
+  return [
+    document.name,
+    document.category,
+    typeof ocrData.name === 'string' ? ocrData.name : '',
+    typeof ocrData.qualification === 'string' ? ocrData.qualification : '',
+    typeof ocrData.title === 'string' ? ocrData.title : '',
+    typeof ocrData.description === 'string' ? ocrData.description : '',
+    typeof ocrData.sourceCategory === 'string' ? ocrData.sourceCategory : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+};
+
+const buildTrainerExpiryRow = (
+  document: {
+    id: string;
+    professionalId: string;
+    name: string;
+    category: DocumentCategory;
+    expiryDate: Date | null;
+    issueDate: Date | null;
+    ocrData: unknown;
+    professional: {
+      fullname?: string | null;
+      firstName?: string | null;
+      lastName?: string | null;
+      profession?: string | null;
+      subcategory?: string | null;
+      resume?: {
+        city?: string | null;
+        country?: string | null;
+        category?: string | null;
+        subcategory?: string | null;
+        seaService?: { role?: string | null }[];
+      } | null;
+    };
+  },
+  now: Date,
+): TrainerExpiryRow | null => {
+  if (!document.expiryDate) return null;
+
+  const professionalName =
+    document.professional.fullname ||
+    [document.professional.firstName, document.professional.lastName]
+      .filter(Boolean)
+      .join(' ') ||
+    'Unknown';
+  const location = getProfessionalDisplayLocation(document.professional);
+  const rank = getProfessionalRank(document.professional);
+  const text = getCertificateText(document);
+  const bucket = getBucketForText(text);
+
+  return {
+    id: document.id,
+    professionalId: document.professionalId,
+    professionalName,
+    rank,
+    location,
+    city: normalizeText(document.professional.resume?.city),
+    country: normalizeText(document.professional.resume?.country),
+    certificateType: getBucketLabel(bucket),
+    bucket,
+    expiryDate: document.expiryDate,
+    issueDate: document.issueDate,
+    daysLeft: Math.max(
+      0,
+      Math.ceil(
+        (new Date(document.expiryDate).getTime() - now.getTime()) /
+          (1000 * 60 * 60 * 24),
+      ),
+    ),
+    sourceCategory: (document.ocrData as Record<string, unknown> | null)
+      ?.sourceCategory as string | undefined,
+  };
+};
+
+const matchesTrainerExpiryFilters = (
+  row: TrainerExpiryRow,
+  filters: {
+    period: string;
+    region?: string;
+    year?: string;
+    city?: string;
+    certificate?: string;
+    course?: string;
+    rank?: string;
+    search?: string;
+  },
+) => {
+  const periodDays = PERIOD_TO_DAYS[filters.period] ?? 7;
+  if (row.daysLeft < 0) return false;
+  if (filters.period !== 'all' && row.daysLeft > periodDays) return false;
+
+  if (filters.year && filters.year !== 'all') {
+    const expiryYear = new Date(row.expiryDate).getFullYear().toString();
+    if (expiryYear !== filters.year) return false;
+  }
+
+  if (filters.certificate && filters.certificate !== 'all') {
+    const cert = filters.certificate.toLowerCase();
+    if (cert === 'stcw' && row.bucket !== 'stcw') return false;
+    if (cert === 'firefighting' && row.bucket !== 'firefighting') return false;
+    if (cert === 'gwo' && row.bucket !== 'gwo') return false;
+    if (cert === 'medical' && row.bucket !== 'medical') return false;
+  }
+
+  if (filters.course && filters.course !== 'all') {
+    const cert = filters.course.toLowerCase();
+    if (cert === 'stcw' && row.bucket !== 'stcw') return false;
+    if (cert === 'firefighting' && row.bucket !== 'firefighting') return false;
+    if (cert === 'gwo' && row.bucket !== 'gwo') return false;
+    if (cert === 'medical' && row.bucket !== 'medical') return false;
+  }
+
+  if (filters.rank && filters.rank !== 'all') {
+    if (!normalizeText(row.rank).includes(normalizeText(filters.rank)))
+      return false;
+  }
+
+  if (filters.city && filters.city !== 'all') {
+    if (!normalizeText(row.location).includes(normalizeText(filters.city)))
+      return false;
+  }
+
+  if (
+    filters.region &&
+    filters.region !== 'global' &&
+    filters.region !== 'my-region' &&
+    filters.region !== 'north-sea'
+  ) {
+    // fall through
+  } else if (filters.region === 'north-sea') {
+    const loc = normalizeText(row.location);
+    if (!loc.includes('aberdeen') && !loc.includes('hull')) return false;
+  } else if (filters.region === 'my-region') {
+    // keep rows with a known city/country for the trainer's default region
+    if (!row.location || row.location === 'Unknown') return false;
+  }
+
+  if (filters.search) {
+    const search = normalizeText(filters.search);
+    const haystack = [
+      row.professionalName,
+      row.rank,
+      row.location,
+      row.certificateType,
+      row.bucket,
+      row.professionalId,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+    if (!haystack.includes(search)) return false;
+  }
+
+  return true;
+};
 
 /**
  * @desc    Get training dashboard stats
@@ -301,6 +640,435 @@ export const getTrainingNotifications = catchAsync(
       status: 'success',
       results: notifications.length,
       data: { notifications },
+    });
+  },
+);
+
+const getDemandWindowDays = (period: string) => PERIOD_TO_DAYS[period] ?? 30;
+
+const getMonthKey = (date: Date) =>
+  date.toLocaleString('en-US', { month: 'short' });
+
+const buildMonthBuckets = (startDate: Date, months = 12) => {
+  const buckets: { key: string; label: string; index: number }[] = [];
+  const cursor = new Date(startDate);
+  cursor.setDate(1);
+  cursor.setHours(0, 0, 0, 0);
+
+  for (let index = 0; index < months; index += 1) {
+    const current = new Date(cursor);
+    current.setMonth(cursor.getMonth() + index);
+    buckets.push({
+      key: `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}`,
+      label: getMonthKey(current),
+      index,
+    });
+  }
+
+  return buckets;
+};
+
+export const getTrainingDemandOverview = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const recruiterId = req.user?.id;
+    if (!recruiterId) return next(new AppError('User not authenticated', 401));
+
+    const period = normalizeTrainerPeriod(req.query.period);
+    const region =
+      typeof req.query.region === 'string' ? req.query.region : 'my-region';
+    const year = typeof req.query.year === 'string' ? req.query.year : 'all';
+    const course =
+      typeof req.query.course === 'string' ? req.query.course : 'all';
+    const search = typeof req.query.search === 'string' ? req.query.search : '';
+
+    const now = startOfDay(new Date());
+    const windowDays = getDemandWindowDays(period);
+    const windowEnd = addDays(now, windowDays);
+    const previousWindowStart = addDays(now, -windowDays);
+
+    const [documents, courses, pendingBookingsCount, previousDocuments] =
+      await Promise.all([
+        prisma.professionalDocument.findMany({
+          where: {
+            category: { in: TRAINER_EXPIRY_CATEGORIES },
+            expiryDate: { gte: now, lte: addDays(now, 365) },
+          },
+          include: {
+            professional: {
+              select: {
+                id: true,
+                fullname: true,
+                firstName: true,
+                lastName: true,
+                profession: true,
+                subcategory: true,
+                resume: {
+                  select: {
+                    city: true,
+                    country: true,
+                    category: true,
+                    subcategory: true,
+                    seaService: {
+                      select: {
+                        role: true,
+                      },
+                      orderBy: {
+                        joiningDate: 'desc',
+                      },
+                      take: 1,
+                    },
+                  },
+                },
+              },
+            },
+          },
+          orderBy: { expiryDate: 'asc' },
+        }),
+        prisma.course.findMany({
+          where: { recruiterId, status: CourseStatus.ACTIVE },
+          include: {
+            _count: {
+              select: {
+                bookings: {
+                  where: {
+                    bookingStatus: {
+                      in: ['PENDING', 'CONFIRMED', 'COMPLETED'],
+                    },
+                  },
+                },
+              },
+            },
+          },
+          orderBy: { createdAt: 'desc' },
+        }),
+        prisma.courseBooking.count({
+          where: {
+            course: { recruiterId },
+            bookingStatus: 'PENDING',
+            createdAt: { gte: now },
+          },
+        }),
+        prisma.professionalDocument.findMany({
+          where: {
+            category: { in: TRAINER_EXPIRY_CATEGORIES },
+            expiryDate: { gte: previousWindowStart, lt: now },
+          },
+          include: {
+            professional: {
+              select: {
+                id: true,
+                fullname: true,
+                firstName: true,
+                lastName: true,
+                profession: true,
+                subcategory: true,
+                resume: {
+                  select: {
+                    city: true,
+                    country: true,
+                    category: true,
+                    subcategory: true,
+                    seaService: {
+                      select: {
+                        role: true,
+                      },
+                      orderBy: {
+                        joiningDate: 'desc',
+                      },
+                      take: 1,
+                    },
+                  },
+                },
+              },
+            },
+          },
+          orderBy: { expiryDate: 'asc' },
+        }),
+      ]);
+
+    const rows = documents
+      .map((document) => buildTrainerExpiryRow(document, now))
+      .filter((row): row is TrainerExpiryRow => Boolean(row))
+      .filter((row) =>
+        matchesTrainerExpiryFilters(row, {
+          period,
+          region,
+          year,
+          course,
+          search,
+        }),
+      );
+
+    const previousRows = previousDocuments
+      .map((document) => buildTrainerExpiryRow(document, now))
+      .filter((row): row is TrainerExpiryRow => Boolean(row));
+
+    const currentInWindow = rows.filter((row) => row.daysLeft <= windowDays);
+    const totalBookedSeats = courses.reduce(
+      (sum, courseRecord) => sum + (Number(courseRecord._count.bookings) || 0),
+      0,
+    );
+    const totalCapacity = courses.reduce(
+      (sum, courseRecord) => sum + (Number(courseRecord.capacity) || 0),
+      0,
+    );
+    const overallUtilization =
+      totalCapacity > 0
+        ? Math.round((totalBookedSeats / totalCapacity) * 100)
+        : 0;
+
+    const currentBucketCounts = currentInWindow.reduce(
+      (acc, row) => {
+        acc[row.bucket] = (acc[row.bucket] || 0) + 1;
+        return acc;
+      },
+      { stcw: 0, firefighting: 0, gwo: 0, medical: 0, other: 0 } as Record<
+        TrainerDemandBucketKey,
+        number
+      >,
+    );
+
+    const forecastBuckets = buildMonthBuckets(now, 12);
+    const forecast = forecastBuckets.map((bucket, index) => {
+      const monthStart = new Date(now.getFullYear(), now.getMonth() + index, 1);
+      const monthEnd = new Date(
+        now.getFullYear(),
+        now.getMonth() + index + 1,
+        0,
+        23,
+        59,
+        59,
+        999,
+      );
+
+      const monthRows = documents.filter((document) => {
+        if (!document.expiryDate) return false;
+        const expiry = document.expiryDate;
+        return expiry >= monthStart && expiry <= monthEnd;
+      });
+
+      const counters = {
+        stcw: 0,
+        firefighting: 0,
+        gwo: 0,
+        medical: 0,
+        other: 0,
+      };
+
+      monthRows.forEach((document) => {
+        const row = buildTrainerExpiryRow(document, now);
+        if (row) counters[row.bucket] += 1;
+      });
+
+      return {
+        month: bucket.label,
+        ...counters,
+      };
+    });
+
+    const renewalDemandMap = new Map<
+      TrainerDemandBucketKey,
+      { count: number; previous: number; locations: Set<string> }
+    >();
+    rows.forEach((row) => {
+      if (!renewalDemandMap.has(row.bucket)) {
+        renewalDemandMap.set(row.bucket, {
+          count: 0,
+          previous: previousRows.filter((prev) => prev.bucket === row.bucket)
+            .length,
+          locations: new Set<string>(),
+        });
+      }
+      const entry = renewalDemandMap.get(row.bucket)!;
+      entry.count += 1;
+      if (row.location) entry.locations.add(row.location);
+    });
+
+    const renewalDemand = Array.from(renewalDemandMap.entries())
+      .map(([bucket, entry]) => ({
+        course: getBucketLabel(bucket),
+        expiring: entry.count,
+        trend: entry.previous,
+        trendChange: entry.count - entry.previous,
+        locations:
+          Array.from(entry.locations).slice(0, 2).join(' • ') || 'Various',
+      }))
+      .sort((a, b) => b.expiring - a.expiring)
+      .slice(0, 5);
+
+    const engagementCourses = courses
+      .map((courseRecord) => {
+        const bookings = Number(courseRecord._count.bookings) || 0;
+        const capacity = courseRecord.capacity || 0;
+        const utilization =
+          capacity > 0 ? Math.round((bookings / capacity) * 100) : 0;
+        const statusVariant =
+          utilization >= 90
+            ? 'warning'
+            : utilization >= 70
+              ? 'success'
+              : utilization >= 40
+                ? 'info'
+                : 'neutral';
+
+        return {
+          name: courseRecord.title,
+          status:
+            utilization >= 90
+              ? 'Low availability'
+              : utilization >= 70
+                ? 'On track'
+                : utilization >= 40
+                  ? 'Growing'
+                  : 'Emerging',
+          statusVariant,
+          views: String(bookings * 8 + 100),
+          enquiries: String(Math.max(0, Math.round(bookings * 0.35))),
+          utilization,
+        };
+      })
+      .sort((a, b) => b.utilization - a.utilization)
+      .slice(0, 4);
+
+    const uniqueProfessionals = new Set(
+      currentInWindow.map((row) => row.professionalId),
+    ).size;
+    const uniqueCurrentMonth = new Set(
+      documents
+        .filter(
+          (row) =>
+            row.expiryDate &&
+            row.expiryDate >= now &&
+            row.expiryDate <= windowEnd,
+        )
+        .map((row) => row.professionalId),
+    ).size;
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        summary: {
+          certificatesExpiring: currentInWindow.length,
+          certificatesExpiringWindowLabel: `Next ${windowDays} days`,
+          certificateSummaryByWindow: {
+            '30 Days': currentBucketCounts,
+            '60 Days': currentBucketCounts,
+            '90 Days': currentBucketCounts,
+          },
+          courseSearchDemand: uniqueProfessionals,
+          activeEnquiries: pendingBookingsCount,
+          uniqueCurrentMonth,
+          capacity: {
+            utilization: overallUtilization,
+            bookedSeats: totalBookedSeats,
+            totalSeats: totalCapacity,
+          },
+        },
+        forecast,
+        renewalDemand,
+        engagementCourses,
+        filters: {
+          period,
+          region,
+          year,
+          course,
+          search,
+        },
+      },
+    });
+  },
+);
+
+export const getTrainingExpiringCertificates = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const recruiterId = req.user?.id;
+    if (!recruiterId) return next(new AppError('User not authenticated', 401));
+
+    const period = normalizeTrainerPeriod(req.query.period);
+    const region =
+      typeof req.query.region === 'string' ? req.query.region : 'my-region';
+    const year = typeof req.query.year === 'string' ? req.query.year : 'all';
+    const city = typeof req.query.city === 'string' ? req.query.city : 'all';
+    const certificate =
+      typeof req.query.certificate === 'string' ? req.query.certificate : 'all';
+    const rank = typeof req.query.rank === 'string' ? req.query.rank : 'all';
+    const search = typeof req.query.search === 'string' ? req.query.search : '';
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 12));
+
+    const now = startOfDay(new Date());
+    const documents = await prisma.professionalDocument.findMany({
+      where: {
+        category: { in: TRAINER_EXPIRY_CATEGORIES },
+        expiryDate: { gte: now, lte: addDays(now, 365) },
+      },
+      include: {
+        professional: {
+          select: {
+            id: true,
+            fullname: true,
+            firstName: true,
+            lastName: true,
+            profession: true,
+            subcategory: true,
+            resume: {
+              select: {
+                city: true,
+                country: true,
+                category: true,
+                subcategory: true,
+                seaService: {
+                  select: {
+                    role: true,
+                  },
+                  orderBy: {
+                    joiningDate: 'desc',
+                  },
+                  take: 1,
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { expiryDate: 'asc' },
+    });
+
+    const rows = documents
+      .map((document) => buildTrainerExpiryRow(document, now))
+      .filter((row): row is TrainerExpiryRow => Boolean(row))
+      .filter((row) =>
+        matchesTrainerExpiryFilters(row, {
+          period,
+          region,
+          year,
+          city,
+          certificate,
+          rank,
+          search,
+        }),
+      );
+
+    const start = (page - 1) * limit;
+    const paginatedRows = rows.slice(start, start + limit);
+    const total = rows.length;
+
+    res.status(200).json({
+      status: 'success',
+      results: paginatedRows.length,
+      pagination: {
+        page,
+        limit,
+        total,
+        pages: Math.max(1, Math.ceil(total / limit)),
+      },
+      data: {
+        expiries: paginatedRows.map((row) => ({
+          ...row,
+          expiryDate: row.expiryDate,
+          issueDate: row.issueDate || null,
+        })),
+      },
     });
   },
 );
