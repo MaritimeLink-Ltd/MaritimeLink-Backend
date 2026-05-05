@@ -1,8 +1,14 @@
 import { jest } from '@jest/globals';
 
-const uploadToSupabaseMock = jest.fn() as jest.Mock;
-const analyzeDocumentMock = jest.fn() as jest.Mock;
-const validateDocumentTypeMock = jest.fn() as jest.Mock;
+const uploadToSupabaseMock: jest.MockedFunction<
+  (...args: unknown[]) => Promise<string>
+> = jest.fn();
+const analyzeDocumentMock: jest.MockedFunction<
+  (...args: unknown[]) => Promise<unknown>
+> = jest.fn();
+const validateDocumentTypeMock: jest.MockedFunction<
+  (...args: unknown[]) => Promise<boolean>
+> = jest.fn();
 
 const mockPrisma = {
   professionalResume: {
@@ -13,10 +19,10 @@ const mockPrisma = {
   },
 } as {
   professionalResume: {
-    findUnique: jest.Mock;
+    findUnique: jest.MockedFunction<(...args: unknown[]) => Promise<unknown>>;
   };
   professionalDocument: {
-    create: jest.Mock;
+    create: jest.MockedFunction<(...args: unknown[]) => Promise<unknown>>;
   };
 };
 
@@ -58,7 +64,7 @@ describe('professionalDocumentController.uploadDocument', () => {
     });
   });
 
-  it('does not pull an unrelated resume record into OCR matching', async () => {
+  it('compares license uploads against the resume license record', async () => {
     mockPrisma.professionalResume.findUnique.mockResolvedValue({
       licenses: [
         {
@@ -115,6 +121,7 @@ describe('professionalDocumentController.uploadDocument', () => {
         matchStatus?: {
           isFullyMatched?: boolean;
           details?: {
+            number?: { entered?: string | null; extracted?: string | null };
             issueDate?: { entered?: string | null; extracted?: string | null };
             expiryDate?: { entered?: string | null; extracted?: string | null };
           };
@@ -122,8 +129,19 @@ describe('professionalDocumentController.uploadDocument', () => {
       };
     };
 
-    expect(payload.data?.matchStatus?.details?.issueDate?.entered).toBeNull();
-    expect(payload.data?.matchStatus?.details?.expiryDate?.entered).toBeNull();
+    expect(payload.data?.matchStatus?.isFullyMatched).toBe(false);
+    expect(payload.data?.matchStatus?.details?.number?.entered).toBe(
+      '9999999999',
+    );
+    expect(payload.data?.matchStatus?.details?.number?.extracted).toBe(
+      '0000000000',
+    );
+    expect(payload.data?.matchStatus?.details?.issueDate?.entered).toBe(
+      '2026-04-09',
+    );
+    expect(payload.data?.matchStatus?.details?.expiryDate?.entered).toBe(
+      '2026-04-15',
+    );
     expect(mockPrisma.professionalResume.findUnique).toHaveBeenCalledWith({
       where: { professionalId: 'prof-1' },
       include: {

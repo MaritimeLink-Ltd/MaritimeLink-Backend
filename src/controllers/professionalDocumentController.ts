@@ -169,7 +169,7 @@ const scoreResumeDocumentCandidate = (
   return score;
 };
 
-const getResumeDocumentFallback = async (
+const getResumeDocumentBaseline = async (
   professionalId: string,
   category: DocumentCategory,
   rawCategory: string | undefined,
@@ -269,16 +269,10 @@ const getResumeDocumentFallback = async (
     }))
     .sort((a, b) => b.score - a.score);
 
-  // Require a meaningful score before borrowing data from an existing resume entry.
-  // A shared country alone is too weak and causes false "mismatch" banners.
-  if (scoredCandidates[0]?.score >= 4) {
-    return scoredCandidates[0].candidate;
-  }
-
-  // Only reuse resume data when we have at least one meaningful field match.
-  // Returning an unrelated single candidate here causes false OCR mismatch banners
-  // for users whose resume contains only a loosely related document.
-  return null;
+  // Always return the best resume candidate for the selected upload category.
+  // The OCR comparison should be made against the user's resume record, not
+  // against the temporary form values, so mismatches are surfaced reliably.
+  return scoredCandidates[0]?.candidate || null;
 };
 
 export const uploadDocument = catchAsync(
@@ -384,7 +378,7 @@ export const uploadDocument = catchAsync(
       console.error('Document type validation failed:', error);
     }
 
-    const resumeDocumentFallback = await getResumeDocumentFallback(
+    const resumeDocumentBaseline = await getResumeDocumentBaseline(
       professionalId,
       category,
       rawCategory,
@@ -392,14 +386,25 @@ export const uploadDocument = catchAsync(
       ocrData,
     );
 
-    const enteredName = name || resumeDocumentFallback?.name || null;
-    const enteredNumber = number || resumeDocumentFallback?.number || null;
-    const enteredIssuingCountry =
-      issuingCountry || resumeDocumentFallback?.issuingCountry || null;
-    const enteredIssueDate =
-      toDateOnly(issueDate || resumeDocumentFallback?.issueDate) || null;
-    const enteredExpiryDate =
-      toDateOnly(expiryDate || resumeDocumentFallback?.expiryDate) || null;
+    const requestEnteredName = name || null;
+    const requestEnteredNumber = number || null;
+    const requestEnteredIssuingCountry = issuingCountry || null;
+    const requestEnteredIssueDate = toDateOnly(issueDate) || null;
+    const requestEnteredExpiryDate = toDateOnly(expiryDate) || null;
+
+    const comparisonValues = resumeDocumentBaseline || {
+      name: requestEnteredName,
+      number: requestEnteredNumber,
+      issuingCountry: requestEnteredIssuingCountry,
+      issueDate: requestEnteredIssueDate,
+      expiryDate: requestEnteredExpiryDate,
+    };
+
+    const enteredName = comparisonValues.name || null;
+    const enteredNumber = comparisonValues.number || null;
+    const enteredIssuingCountry = comparisonValues.issuingCountry || null;
+    const enteredIssueDate = toDateOnly(comparisonValues.issueDate) || null;
+    const enteredExpiryDate = toDateOnly(comparisonValues.expiryDate) || null;
 
     // Match Verification Logic
     const compare = (val1?: string | null, val2?: string | null) => {
@@ -477,16 +482,18 @@ export const uploadDocument = catchAsync(
 
     const matchStatus = {
       isFullyMatched,
+      comparisonSource: resumeDocumentBaseline ? 'resume' : 'form',
       details: matchDetails,
     };
 
     // Use OCR data if user provided data is missing
-    const finalName = enteredName || ocrData?.name || 'Untitled Document';
-    const finalNumber = enteredNumber || ocrData?.number;
+    const finalName =
+      requestEnteredName || ocrData?.name || 'Untitled Document';
+    const finalNumber = requestEnteredNumber || ocrData?.number;
     const finalIssuingCountry =
-      enteredIssuingCountry || ocrData?.issuingCountry;
-    const finalIssueDate = enteredIssueDate || ocrData?.issueDate;
-    const finalExpiryDate = enteredExpiryDate || ocrData?.expiryDate;
+      requestEnteredIssuingCountry || ocrData?.issuingCountry;
+    const finalIssueDate = requestEnteredIssueDate || ocrData?.issueDate;
+    const finalExpiryDate = requestEnteredExpiryDate || ocrData?.expiryDate;
     const savedOcrData: Prisma.InputJsonValue | undefined = ocrData
       ? { ...ocrData, sourceCategory: rawCategory || category }
       : undefined;
