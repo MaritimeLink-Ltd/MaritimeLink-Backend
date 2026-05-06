@@ -378,6 +378,7 @@ const getSupportUserSummary = async (
     const recruiter = record as {
       id: string;
       email: string;
+      role: string | null;
       organizationName: string | null;
       firstName: string | null;
       middleName: string | null;
@@ -394,10 +395,12 @@ const getSupportUserSummary = async (
       id: recruiter.id,
       name,
       email: recruiter.email,
-      role: 'Recruiter',
+      role:
+        recruiter.role === 'TRAINING_AGENT' ? 'Training Provider' : 'Recruiter',
       avatar:
         recruiter.profilePhotoUrl || buildSupportAvatar(name, recruiter.id),
-      userType: 'Recruiter',
+      userType:
+        recruiter.role === 'TRAINING_AGENT' ? 'Training Provider' : 'Recruiter',
     } satisfies SupportUserSummary;
   }
 

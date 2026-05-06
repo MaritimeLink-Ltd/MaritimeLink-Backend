@@ -5,6 +5,7 @@ import * as recruiterSettingsController from '../controllers/recruiterSettingsCo
 import * as kycController from '../controllers/kycController.js';
 import * as stripeController from '../controllers/trainerStripeController.js';
 import * as bookingController from '../controllers/trainerBookingController.js';
+import * as userSupportController from '../controllers/userSupportController.js';
 import {
   protectRecruiter,
   protectRecruiterKyc,
@@ -132,6 +133,30 @@ router.delete(
   '/settings/profile-photo',
   protectRecruiter,
   recruiterSettingsController.removeRecruiterProfilePhoto,
+);
+
+router.post(
+  '/support/cases',
+  protectRecruiter,
+  userSupportController.createCase,
+);
+
+router.get(
+  '/support/cases',
+  protectRecruiter,
+  userSupportController.getMyCases,
+);
+
+router.get(
+  '/support/cases/:id',
+  protectRecruiter,
+  userSupportController.getCaseDetails,
+);
+
+router.post(
+  '/support/cases/:id/reply',
+  protectRecruiter,
+  userSupportController.addReply,
 );
 
 /**

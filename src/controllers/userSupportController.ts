@@ -15,6 +15,26 @@ export const createCase = catchAsync(
       throw new AppError('User not authenticated', 401);
     }
 
+    const normalizedSubject = String(subject || '').trim();
+    const normalizedDescription = String(description || '').trim();
+    const normalizedCategory = String(category || '').trim();
+    const normalizedPriority = String(
+      priority || CasePriority.MEDIUM,
+    ).toUpperCase();
+
+    if (!normalizedSubject || !normalizedDescription || !normalizedCategory) {
+      throw new AppError(
+        'Subject, description, and category are required',
+        400,
+      );
+    }
+
+    const safePriority = Object.values(CasePriority).includes(
+      normalizedPriority as CasePriority,
+    )
+      ? (normalizedPriority as CasePriority)
+      : CasePriority.MEDIUM;
+
     // Determine user type based on the middleware used
     // Recruiter middleware adds 'role', Professional doesn't (in current implementation)
     // Or check endpoint path, but better to check user object structure if possible.
@@ -33,10 +53,10 @@ export const createCase = catchAsync(
     const newCase = await prisma.supportCase.create({
       data: {
         caseId,
-        subject,
-        description,
-        category,
-        priority: priority || CasePriority.MEDIUM,
+        subject: normalizedSubject,
+        description: normalizedDescription,
+        category: normalizedCategory,
+        priority: safePriority,
         userId: user.id,
         userType,
       },
