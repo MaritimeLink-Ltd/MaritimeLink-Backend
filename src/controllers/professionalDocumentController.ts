@@ -174,7 +174,6 @@ const getResumeDocumentBaseline = async (
   category: DocumentCategory,
   rawCategory: string | undefined,
   requestValues: DocumentMatchValues,
-  ocrValues: DocumentMatchValues | null,
 ) => {
   const resume = await prisma.professionalResume.findUnique({
     where: { professionalId },
@@ -254,13 +253,9 @@ const getResumeDocumentBaseline = async (
 
   if (candidates.length === 0) return null;
 
-  const expected = {
-    name: requestValues.name || ocrValues?.name,
-    number: requestValues.number || ocrValues?.number,
-    issuingCountry: requestValues.issuingCountry || ocrValues?.issuingCountry,
-    issueDate: requestValues.issueDate || ocrValues?.issueDate,
-    expiryDate: requestValues.expiryDate || ocrValues?.expiryDate,
-  };
+  // Compare against the user's resume data, not the OCR result, so we don't
+  // accidentally pick a different resume row that merely matches the upload.
+  const expected = requestValues;
 
   const scoredCandidates = candidates
     .map((candidate) => ({
@@ -383,7 +378,6 @@ export const uploadDocument = catchAsync(
       category,
       rawCategory,
       { name, number, issuingCountry, issueDate, expiryDate },
-      ocrData,
     );
 
     const requestEnteredName = name || null;
@@ -454,6 +448,7 @@ export const uploadDocument = catchAsync(
     };
 
     const comparableMatchDetails = [
+      matchDetails.name,
       matchDetails.number,
       matchDetails.issuingCountry,
       matchDetails.issueDate,
@@ -461,6 +456,7 @@ export const uploadDocument = catchAsync(
     ];
 
     let isFullyMatched = true;
+    if (enteredName && !matchDetails.name.isMatched) isFullyMatched = false;
     if (enteredNumber && !matchDetails.number.isMatched) isFullyMatched = false;
     if (enteredIssuingCountry && !matchDetails.issuingCountry.isMatched)
       isFullyMatched = false;
@@ -471,7 +467,7 @@ export const uploadDocument = catchAsync(
     if (!ocrData || Object.keys(ocrData).length === 0) isFullyMatched = false;
 
     const hasOcrData = Boolean(ocrData && Object.keys(ocrData).length > 0);
-    const hasEnteredOcrMismatch =
+    const hasComparisonMismatch =
       hasOcrData &&
       comparableMatchDetails.some(
         (detail) =>
@@ -479,7 +475,6 @@ export const uploadDocument = catchAsync(
           Boolean(detail.extracted) &&
           !detail.isMatched,
       );
-
     const matchStatus = {
       isFullyMatched,
       comparisonSource: resumeDocumentBaseline ? 'resume' : 'form',
@@ -512,7 +507,7 @@ export const uploadDocument = catchAsync(
         mimeType: req.file.mimetype,
         ocrData: savedOcrData,
         ocrStatus: hasOcrData ? OCRStatus.COMPLETED : OCRStatus.FAILED,
-        verificationStatus: hasEnteredOcrMismatch
+        verificationStatus: hasComparisonMismatch
           ? VerificationStatus.MISMATCH
           : VerificationStatus.PENDING,
       },
