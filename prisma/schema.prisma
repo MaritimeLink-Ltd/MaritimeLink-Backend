@@ -346,20 +346,20 @@ model ProfessionalReferee {
 }
 
 model Admin {
-  id                   String        @id @default(uuid())
-  email                String        @unique
+  id                   String         @id @default(uuid())
+  email                String         @unique
   password             String
-  role                 AdminRole     @default(SUPER_ADMIN)
+  role                 AdminRole      @default(SUPER_ADMIN)
   passwordResetToken   String?
   passwordResetExpires DateTime?
-  createdAt            DateTime      @default(now())
-  updatedAt            DateTime      @updatedAt
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
   caseNotes            CaseNote[]
   conversations        Conversation[]
   courses              Course[]
   jobs                 Job[]
   kycNotes             KycNote[]
-  assignedCases        SupportCase[] @relation("AssignedCases")
+  assignedCases        SupportCase[]  @relation("AssignedCases")
 
   @@map("admins")
 }
@@ -520,20 +520,21 @@ model SavedCourse {
 }
 
 model Conversation {
-  id             String       @id @default(uuid())
-  professionalId String
+  id             String        @id @default(uuid())
+  professionalId String?
   recruiterId    String?
   adminId        String?
-  lastMessageAt  DateTime     @default(now())
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
-  recruiter      Recruiter?   @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
-  admin          Admin?       @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  lastMessageAt  DateTime      @default(now())
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  professional   Professional? @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  recruiter      Recruiter?    @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
+  admin          Admin?        @relation(fields: [adminId], references: [id], onDelete: Cascade)
   messages       Message[]
 
   @@unique([professionalId, recruiterId])
   @@unique([professionalId, adminId])
+  @@unique([recruiterId, adminId])
   @@index([professionalId])
   @@index([recruiterId])
   @@index([adminId])

@@ -73,9 +73,9 @@ export const createConversation = catchAsync(
       );
     }
 
-    let professionalId: string;
-    let recruiterId: string | undefined;
-    let adminId: string | undefined;
+    let professionalId: string | null = null;
+    let recruiterId: string | null = null;
+    let adminId: string | null = null;
 
     if (userType === 'PROFESSIONAL') {
       professionalId = userId;
@@ -95,23 +95,34 @@ export const createConversation = catchAsync(
       }
     } else if (userType === 'ADMIN') {
       adminId = userId;
-      professionalId = targetId;
 
       const professional = await prisma.professional.findUnique({
-        where: { id: professionalId },
+        where: { id: targetId },
       });
-      if (!professional)
-        return next(new AppError('Professional not found.', 404));
+      if (professional) {
+        professionalId = targetId;
+      } else {
+        const recruiter = await prisma.recruiter.findUnique({
+          where: { id: targetId },
+        });
+        if (!recruiter) return next(new AppError('Recipient not found.', 404));
+        recruiterId = targetId;
+      }
     } else {
       recruiterId = userId;
-      professionalId = targetId;
 
-      // Verify target is a professional
       const professional = await prisma.professional.findUnique({
-        where: { id: professionalId },
+        where: { id: targetId },
       });
-      if (!professional)
-        return next(new AppError('Professional not found.', 404));
+      if (professional) {
+        professionalId = targetId;
+      } else {
+        const admin = await prisma.admin.findUnique({
+          where: { id: targetId },
+        });
+        if (!admin) return next(new AppError('Recipient not found.', 404));
+        adminId = targetId;
+      }
     }
 
     const includeParticipants = {
@@ -123,32 +134,31 @@ export const createConversation = catchAsync(
     // Prisma upsert is brittle here because the second participant can be nullable.
     // Use an explicit find-or-create so admin/professional conversations behave
     // predictably even after the schema evolution.
+    const conversationWhere =
+      professionalId && recruiterId
+        ? { professionalId, recruiterId, adminId: null }
+        : professionalId && adminId
+          ? { professionalId, adminId, recruiterId: null }
+          : recruiterId && adminId
+            ? { professionalId: null, recruiterId, adminId }
+            : null;
+
+    if (!conversationWhere) {
+      return next(new AppError('Invalid conversation participants.', 400));
+    }
+
     let conversation = await prisma.conversation.findFirst({
-      where: recruiterId
-        ? {
-            professionalId,
-            recruiterId,
-            adminId: null,
-          }
-        : {
-            professionalId,
-            adminId: adminId!,
-            recruiterId: null,
-          },
+      where: conversationWhere,
       include: includeParticipants,
     });
 
     if (!conversation) {
       conversation = await prisma.conversation.create({
-        data: recruiterId
-          ? {
-              professionalId,
-              recruiterId,
-            }
-          : {
-              professionalId,
-              adminId,
-            },
+        data: {
+          professionalId,
+          recruiterId,
+          adminId,
+        },
         include: includeParticipants,
       });
     }
@@ -165,9 +175,12 @@ export const bootstrapSupportConversation = catchAsync(
     const userId = req.user!.id;
     const userType = req.user!.userType;
 
-    if (userType !== 'PROFESSIONAL') {
+    if (userType === 'ADMIN') {
       return next(
-        new AppError('Support chat is only available for professionals.', 403),
+        new AppError(
+          'Admins should open support chats from the admin panel.',
+          403,
+        ),
       );
     }
 
@@ -202,21 +215,27 @@ export const bootstrapSupportConversation = catchAsync(
       },
     } as const;
 
+    const conversationWhere =
+      userType === 'PROFESSIONAL'
+        ? {
+            professionalId: userId,
+            adminId: supportAdmin.id,
+            recruiterId: null,
+          }
+        : {
+            professionalId: null,
+            recruiterId: userId,
+            adminId: supportAdmin.id,
+          };
+
     let conversation = await prisma.conversation.findFirst({
-      where: {
-        professionalId: userId,
-        adminId: supportAdmin.id,
-        recruiterId: null,
-      },
+      where: conversationWhere,
       include: includeParticipants,
     });
 
     if (!conversation) {
       conversation = await prisma.conversation.create({
-        data: {
-          professionalId: userId,
-          adminId: supportAdmin.id,
-        },
+        data: conversationWhere,
         include: includeParticipants,
       });
     }
@@ -377,11 +396,13 @@ export const sendMessage = catchAsync(
       });
 
       // Also notify recipient's private room for conversation list updates
-      const recipientId =
-        conversation.professionalId === userId
-          ? (conversation.recruiterId ?? conversation.adminId)
-          : conversation.professionalId;
-      if (recipientId) {
+      const recipientIds = [
+        conversation.professionalId,
+        conversation.recruiterId,
+        conversation.adminId,
+      ].filter((id): id is string => Boolean(id) && id !== userId);
+
+      for (const recipientId of recipientIds) {
         io.to(recipientId).emit('update_conversation', {
           conversationId,
           lastMessage: message,
