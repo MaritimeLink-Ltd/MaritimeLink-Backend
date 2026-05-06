@@ -88,6 +88,11 @@ router
   .get(conversationController.getConversations)
   .post(conversationController.createConversation);
 
+router.post(
+  '/support/bootstrap',
+  conversationController.bootstrapSupportConversation,
+);
+
 /**
  * @swagger
  * /api/conversations/{id}/messages:

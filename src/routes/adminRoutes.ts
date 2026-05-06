@@ -7,6 +7,7 @@ import * as adminCompanyController from '../controllers/adminCompanyController.j
 import * as adminMarketplaceController from '../controllers/adminMarketplaceController.js';
 import * as adminTrainerPayoutController from '../controllers/adminTrainerPayoutController.js';
 import * as adminSettingsController from '../controllers/adminSettingsController.js';
+import * as adminAccountController from '../controllers/adminAccountController.js';
 import * as applicationController from '../controllers/applicationController.js';
 import * as candidateController from '../controllers/recruiterCandidateController.js';
 import * as adminTrainerController from '../controllers/adminTrainerController.js';
@@ -923,6 +924,33 @@ router.get(
  *                     trainer: { $ref: '#/components/schemas/Recruiter' }
  */
 router.get('/trainers/:id', adminTrainerController.getTrainerById);
+
+/**
+ * @swagger
+ * /api/admin/accounts/{id}:
+ *   get:
+ *     summary: Resolve an account by UUID across professionals, recruiters, and trainers
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The account UUID
+ *       - in: query
+ *         name: accountType
+ *         required: false
+ *         schema:
+ *           type: string
+ *         description: Optional hint to prioritize professional, trainer, or recruiter lookup.
+ *     responses:
+ *       200:
+ *         description: Resolved account data
+ */
+router.get('/accounts/:id', adminAccountController.getAccountById);
 
 // --- TRAINER PAYOUT & STRIPE CONNECT ROUTES ---
 

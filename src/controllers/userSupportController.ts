@@ -8,7 +8,7 @@ import { ActorType, CasePriority } from '../generated/client/index.js';
 
 export const createCase = catchAsync(
   async (req: CustomRequest, res: Response) => {
-    const { subject, description, category, priority } = req.body;
+    const { subject, description, category } = req.body;
     const user = req.user; // Attached by auth middleware
 
     if (!user) {
@@ -18,10 +18,6 @@ export const createCase = catchAsync(
     const normalizedSubject = String(subject || '').trim();
     const normalizedDescription = String(description || '').trim();
     const normalizedCategory = String(category || '').trim();
-    const normalizedPriority = String(
-      priority || CasePriority.MEDIUM,
-    ).toUpperCase();
-
     if (!normalizedSubject || !normalizedDescription || !normalizedCategory) {
       throw new AppError(
         'Subject, description, and category are required',
@@ -29,23 +25,24 @@ export const createCase = catchAsync(
       );
     }
 
-    const safePriority = Object.values(CasePriority).includes(
-      normalizedPriority as CasePriority,
-    )
-      ? (normalizedPriority as CasePriority)
-      : CasePriority.MEDIUM;
-
-    // Determine user type based on the middleware used
-    // Recruiter middleware adds 'role', Professional doesn't (in current implementation)
-    // Or check endpoint path, but better to check user object structure if possible.
-    // Ideally, we pass the userType explicitly from the route or infer it.
-    // For now, let's look at the actor type passed in or infer it.
-
-    // NOTE: protectRecruiter adds 'role' to req.user. protect (professional) does not.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const userType = (user as any).role
+    const isStaffAccount = Boolean((user as { role?: string }).role);
+    const userType = isStaffAccount
       ? ActorType.RECRUITER
       : ActorType.PROFESSIONAL;
+
+    let derivedPriority: CasePriority = CasePriority.LOW;
+    if (isStaffAccount) {
+      derivedPriority = CasePriority.MEDIUM;
+    } else {
+      const professional = await prisma.professional.findUnique({
+        where: { id: user.id },
+        select: { tier: true },
+      });
+      derivedPriority =
+        String(professional?.tier || 'FREE').toUpperCase() === 'PRO'
+          ? CasePriority.HIGH
+          : CasePriority.LOW;
+    }
 
     const count = await prisma.supportCase.count();
     const caseId = `SC-${2000 + count + 1}`;
@@ -56,7 +53,7 @@ export const createCase = catchAsync(
         subject: normalizedSubject,
         description: normalizedDescription,
         category: normalizedCategory,
-        priority: safePriority,
+        priority: derivedPriority,
         userId: user.id,
         userType,
       },

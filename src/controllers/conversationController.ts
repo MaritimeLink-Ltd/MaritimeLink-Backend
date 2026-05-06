@@ -160,6 +160,77 @@ export const createConversation = catchAsync(
   },
 );
 
+export const bootstrapSupportConversation = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const userId = req.user!.id;
+    const userType = req.user!.userType;
+
+    if (userType !== 'PROFESSIONAL') {
+      return next(
+        new AppError('Support chat is only available for professionals.', 403),
+      );
+    }
+
+    const supportAdmin = await prisma.admin.findFirst({
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, email: true, role: true },
+    });
+
+    if (!supportAdmin) {
+      return next(new AppError('Support admin not available.', 404));
+    }
+
+    const includeParticipants = {
+      professional: { select: { id: true, fullname: true } },
+      recruiter: { select: { id: true, organizationName: true } },
+      admin: { select: { id: true, email: true, role: true } },
+      messages: {
+        orderBy: { createdAt: 'desc' },
+        take: 1,
+      },
+      _count: {
+        select: {
+          messages: {
+            where: {
+              isRead: false,
+              NOT: {
+                senderId: userId,
+              },
+            },
+          },
+        },
+      },
+    } as const;
+
+    let conversation = await prisma.conversation.findFirst({
+      where: {
+        professionalId: userId,
+        adminId: supportAdmin.id,
+        recruiterId: null,
+      },
+      include: includeParticipants,
+    });
+
+    if (!conversation) {
+      conversation = await prisma.conversation.create({
+        data: {
+          professionalId: userId,
+          adminId: supportAdmin.id,
+        },
+        include: includeParticipants,
+      });
+    }
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        conversation,
+        admin: supportAdmin,
+      },
+    });
+  },
+);
+
 /**
  * Get messages for a specific conversation (paginated)
  */
