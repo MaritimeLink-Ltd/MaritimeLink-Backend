@@ -5,13 +5,9 @@ import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
 import { CourseStatus, DocumentCategory } from '../generated/client/index.js';
 
-const TRAINER_EXPIRY_CATEGORIES = [
-  DocumentCategory.LICENSES_ENDORSEMENTS,
-  DocumentCategory.MEDICAL_CERTIFICATES,
-  DocumentCategory.TRAVEL_DOCUMENTS,
-  DocumentCategory.SEAMANS_BOOK,
-  DocumentCategory.ACADEMIC_QUALIFICATIONS,
-  DocumentCategory.RECENT_APPRAISALS,
+const TRAINER_EXPIRY_EXCLUDED_CATEGORIES = [
+  DocumentCategory.CV_RESUME,
+  DocumentCategory.COVER_LETTER,
 ];
 
 const PERIOD_TO_DAYS: Record<string, number> = {
@@ -141,6 +137,32 @@ const getBucketForText = (text: string): TrainerDemandBucketKey => {
 const getBucketLabel = (bucket: TrainerDemandBucketKey) => {
   const found = TRAINER_DEMAND_BUCKETS.find((item) => item.key === bucket);
   return found?.label || 'Other Training';
+};
+
+const buildAvailableRegions = (rows: TrainerExpiryRow[]) => {
+  const regions = new Map<
+    string,
+    { value: string; label: string; count: number }
+  >();
+
+  rows.forEach((row) => {
+    const label =
+      row.location && row.location !== 'Unknown' ? row.location : '';
+    if (!label) return;
+
+    const value = label;
+    const existing = regions.get(value);
+    if (existing) {
+      existing.count += 1;
+      return;
+    }
+
+    regions.set(value, { value, label, count: 1 });
+  });
+
+  return Array.from(regions.values()).sort((a, b) =>
+    a.label.localeCompare(b.label),
+  );
 };
 
 const getProfessionalDisplayLocation = (professional: {
@@ -290,6 +312,7 @@ const matchesTrainerExpiryFilters = (
     if (cert === 'firefighting' && row.bucket !== 'firefighting') return false;
     if (cert === 'gwo' && row.bucket !== 'gwo') return false;
     if (cert === 'medical' && row.bucket !== 'medical') return false;
+    if (cert === 'other' && row.bucket !== 'other') return false;
   }
 
   if (filters.course && filters.course !== 'all') {
@@ -298,6 +321,7 @@ const matchesTrainerExpiryFilters = (
     if (cert === 'firefighting' && row.bucket !== 'firefighting') return false;
     if (cert === 'gwo' && row.bucket !== 'gwo') return false;
     if (cert === 'medical' && row.bucket !== 'medical') return false;
+    if (cert === 'other' && row.bucket !== 'other') return false;
   }
 
   if (filters.rank && filters.rank !== 'all') {
@@ -308,21 +332,6 @@ const matchesTrainerExpiryFilters = (
   if (filters.city && filters.city !== 'all') {
     if (!normalizeText(row.location).includes(normalizeText(filters.city)))
       return false;
-  }
-
-  if (
-    filters.region &&
-    filters.region !== 'global' &&
-    filters.region !== 'my-region' &&
-    filters.region !== 'north-sea'
-  ) {
-    // fall through
-  } else if (filters.region === 'north-sea') {
-    const loc = normalizeText(row.location);
-    if (!loc.includes('aberdeen') && !loc.includes('hull')) return false;
-  } else if (filters.region === 'my-region') {
-    // keep rows with a known city/country for the trainer's default region
-    if (!row.location || row.location === 'Unknown') return false;
   }
 
   if (filters.search) {
@@ -675,7 +684,7 @@ export const getTrainingDemandOverview = catchAsync(
 
     const period = normalizeTrainerPeriod(req.query.period);
     const region =
-      typeof req.query.region === 'string' ? req.query.region : 'my-region';
+      typeof req.query.region === 'string' ? req.query.region : 'all';
     const year = typeof req.query.year === 'string' ? req.query.year : 'all';
     const course =
       typeof req.query.course === 'string' ? req.query.course : 'all';
@@ -690,7 +699,7 @@ export const getTrainingDemandOverview = catchAsync(
       await Promise.all([
         prisma.professionalDocument.findMany({
           where: {
-            category: { in: TRAINER_EXPIRY_CATEGORIES },
+            category: { notIn: TRAINER_EXPIRY_EXCLUDED_CATEGORIES },
             expiryDate: { gte: now, lte: addDays(now, 365) },
           },
           include: {
@@ -745,12 +754,11 @@ export const getTrainingDemandOverview = catchAsync(
           where: {
             course: { recruiterId },
             bookingStatus: 'PENDING',
-            createdAt: { gte: now },
           },
         }),
         prisma.professionalDocument.findMany({
           where: {
-            category: { in: TRAINER_EXPIRY_CATEGORIES },
+            category: { notIn: TRAINER_EXPIRY_EXCLUDED_CATEGORIES },
             expiryDate: { gte: previousWindowStart, lt: now },
           },
           include: {
@@ -786,24 +794,32 @@ export const getTrainingDemandOverview = catchAsync(
         }),
       ]);
 
-    const rows = documents
+    const allRows = documents
       .map((document) => buildTrainerExpiryRow(document, now))
-      .filter((row): row is TrainerExpiryRow => Boolean(row))
-      .filter((row) =>
-        matchesTrainerExpiryFilters(row, {
-          period,
-          region,
-          year,
-          course,
-          search,
-        }),
-      );
+      .filter((row): row is TrainerExpiryRow => Boolean(row));
+    const availableRegions = buildAvailableRegions(allRows);
+
+    /** Year / course / search only — same horizon as the chart (12 months of fetched docs). */
+    const rowsScoped = allRows.filter((row) =>
+      matchesTrainerExpiryFilters(row, {
+        period: 'all',
+        region,
+        year,
+        course,
+        search,
+      }),
+    );
+
+    const rowsInPeriod =
+      period === 'all'
+        ? rowsScoped
+        : rowsScoped.filter((row) => row.daysLeft <= windowDays);
 
     const previousRows = previousDocuments
       .map((document) => buildTrainerExpiryRow(document, now))
       .filter((row): row is TrainerExpiryRow => Boolean(row));
 
-    const currentInWindow = rows.filter((row) => row.daysLeft <= windowDays);
+    const currentInWindow = rowsInPeriod;
     const totalBookedSeats = courses.reduce(
       (sum, courseRecord) => sum + (Number(courseRecord._count.bookings) || 0),
       0,
@@ -815,7 +831,9 @@ export const getTrainingDemandOverview = catchAsync(
     const overallUtilization =
       totalCapacity > 0
         ? Math.round((totalBookedSeats / totalCapacity) * 100)
-        : 0;
+        : totalBookedSeats > 0
+          ? null
+          : 0;
 
     const currentBucketCounts = currentInWindow.reduce(
       (acc, row) => {
@@ -827,6 +845,8 @@ export const getTrainingDemandOverview = catchAsync(
         number
       >,
     );
+
+    const scopedDocIds = new Set(rowsScoped.map((row) => row.id));
 
     const forecastBuckets = buildMonthBuckets(now, 12);
     const forecast = forecastBuckets.map((bucket, index) => {
@@ -842,6 +862,7 @@ export const getTrainingDemandOverview = catchAsync(
       );
 
       const monthRows = documents.filter((document) => {
+        if (!scopedDocIds.has(document.id)) return false;
         if (!document.expiryDate) return false;
         const expiry = document.expiryDate;
         return expiry >= monthStart && expiry <= monthEnd;
@@ -870,7 +891,7 @@ export const getTrainingDemandOverview = catchAsync(
       TrainerDemandBucketKey,
       { count: number; previous: number; locations: Set<string> }
     >();
-    rows.forEach((row) => {
+    rowsScoped.forEach((row) => {
       if (!renewalDemandMap.has(row.bucket)) {
         renewalDemandMap.set(row.bucket, {
           count: 0,
@@ -886,6 +907,7 @@ export const getTrainingDemandOverview = catchAsync(
 
     const renewalDemand = Array.from(renewalDemandMap.entries())
       .map(([bucket, entry]) => ({
+        bucket,
         course: getBucketLabel(bucket),
         expiring: entry.count,
         trend: entry.previous,
@@ -931,10 +953,10 @@ export const getTrainingDemandOverview = catchAsync(
       .slice(0, 4);
 
     const uniqueProfessionals = new Set(
-      currentInWindow.map((row) => row.professionalId),
+      rowsScoped.map((row) => row.professionalId),
     ).size;
     const uniqueCurrentMonth = new Set(
-      documents
+      rowsScoped
         .filter(
           (row) =>
             row.expiryDate &&
@@ -948,8 +970,14 @@ export const getTrainingDemandOverview = catchAsync(
       status: 'success',
       data: {
         summary: {
+          /** Certificates due within the selected period tab (30/60/90d or all). */
           certificatesExpiring: currentInWindow.length,
-          certificatesExpiringWindowLabel: `Next ${windowDays} days`,
+          /** Same filters, full ~12 month horizon returned by this endpoint. */
+          certificatesExpiringTracked: rowsScoped.length,
+          certificatesExpiringWindowLabel:
+            period === 'all'
+              ? 'Next 12 months (tracked)'
+              : `Next ${windowDays} days`,
           certificateSummaryByWindow: {
             '30 Days': currentBucketCounts,
             '60 Days': currentBucketCounts,
@@ -967,6 +995,7 @@ export const getTrainingDemandOverview = catchAsync(
         forecast,
         renewalDemand,
         engagementCourses,
+        availableRegions,
         filters: {
           period,
           region,
@@ -986,7 +1015,7 @@ export const getTrainingExpiringCertificates = catchAsync(
 
     const period = normalizeTrainerPeriod(req.query.period);
     const region =
-      typeof req.query.region === 'string' ? req.query.region : 'my-region';
+      typeof req.query.region === 'string' ? req.query.region : 'all';
     const year = typeof req.query.year === 'string' ? req.query.year : 'all';
     const city = typeof req.query.city === 'string' ? req.query.city : 'all';
     const certificate =
@@ -999,7 +1028,7 @@ export const getTrainingExpiringCertificates = catchAsync(
     const now = startOfDay(new Date());
     const documents = await prisma.professionalDocument.findMany({
       where: {
-        category: { in: TRAINER_EXPIRY_CATEGORIES },
+        category: { notIn: TRAINER_EXPIRY_EXCLUDED_CATEGORIES },
         expiryDate: { gte: now, lte: addDays(now, 365) },
       },
       include: {
@@ -1034,20 +1063,22 @@ export const getTrainingExpiringCertificates = catchAsync(
       orderBy: { expiryDate: 'asc' },
     });
 
-    const rows = documents
+    const allRows = documents
       .map((document) => buildTrainerExpiryRow(document, now))
-      .filter((row): row is TrainerExpiryRow => Boolean(row))
-      .filter((row) =>
-        matchesTrainerExpiryFilters(row, {
-          period,
-          region,
-          year,
-          city,
-          certificate,
-          rank,
-          search,
-        }),
-      );
+      .filter((row): row is TrainerExpiryRow => Boolean(row));
+    const availableRegions = buildAvailableRegions(allRows);
+
+    const rows = allRows.filter((row) =>
+      matchesTrainerExpiryFilters(row, {
+        period,
+        region,
+        year,
+        city,
+        certificate,
+        rank,
+        search,
+      }),
+    );
 
     const start = (page - 1) * limit;
     const paginatedRows = rows.slice(start, start + limit);
@@ -1063,6 +1094,7 @@ export const getTrainingExpiringCertificates = catchAsync(
         pages: Math.max(1, Math.ceil(total / limit)),
       },
       data: {
+        availableRegions,
         expiries: paginatedRows.map((row) => ({
           ...row,
           expiryDate: row.expiryDate,

@@ -1,10 +1,12 @@
 import request from 'supertest';
 import app from '../app.js';
 import { prisma } from '../config/prisma.js';
+import { DocumentCategory } from '../generated/client/index.js';
 
 describe('Recruiter & Trainer Flow E2E Tests', () => {
   let recruiterId: string;
   let trainerId: string;
+  let demandProfessionalId: string;
   let recruiterToken: string;
   let trainerToken: string;
 
@@ -21,6 +23,10 @@ describe('Recruiter & Trainer Flow E2E Tests', () => {
     if (trainerId)
       await prisma.recruiter
         .delete({ where: { id: trainerId } })
+        .catch(() => {});
+    if (demandProfessionalId)
+      await prisma.professional
+        .delete({ where: { id: demandProfessionalId } })
         .catch(() => {});
     await prisma.$disconnect();
   });
@@ -228,6 +234,80 @@ describe('Recruiter & Trainer Flow E2E Tests', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data.stats).toHaveProperty('activeCoursesCount');
+    });
+
+    it('should show expiring medical and STCW documents in demand planning even without a saved location', async () => {
+      const professional = await prisma.professional.create({
+        data: {
+          fullname: 'Demand Test Professional',
+          email: `demand_${Date.now()}@example.com`,
+          password: 'Password123!',
+        },
+      });
+      demandProfessionalId = professional.id;
+
+      const medicalExpiry = new Date();
+      medicalExpiry.setDate(medicalExpiry.getDate() + 12);
+      const stcwExpiry = new Date();
+      stcwExpiry.setDate(stcwExpiry.getDate() + 18);
+
+      await prisma.professionalDocument.createMany({
+        data: [
+          {
+            professionalId: demandProfessionalId,
+            category: DocumentCategory.MEDICAL_CERTIFICATES,
+            name: 'Medical Fitness Certificate',
+            fileUrl: 'https://example.com/medical.pdf',
+            expiryDate: medicalExpiry,
+            ocrData: { sourceCategory: 'MEDICAL_CERTIFICATES' },
+          },
+          {
+            professionalId: demandProfessionalId,
+            category: DocumentCategory.LICENSES_ENDORSEMENTS,
+            name: 'STCW Basic Safety Training',
+            fileUrl: 'https://example.com/stcw.pdf',
+            expiryDate: stcwExpiry,
+            ocrData: { sourceCategory: 'STCW_CERTIFICATES' },
+          },
+        ],
+      });
+
+      const overviewRes = await request(app)
+        .get('/api/trainer/dashboard/demand/overview')
+        .query({
+          period: '30d',
+          year: 'all',
+          search: demandProfessionalId,
+        })
+        .set('Authorization', `Bearer ${trainerToken}`);
+
+      expect(overviewRes.status).toBe(200);
+      expect(overviewRes.body.data.summary.certificatesExpiring).toBe(2);
+      expect(overviewRes.body.data.renewalDemand).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ bucket: 'medical', expiring: 1 }),
+          expect.objectContaining({ bucket: 'stcw', expiring: 1 }),
+        ]),
+      );
+
+      const stcwExpiriesRes = await request(app)
+        .get('/api/trainer/dashboard/demand/expiries')
+        .query({
+          period: '30d',
+          year: 'all',
+          certificate: 'stcw',
+          search: demandProfessionalId,
+        })
+        .set('Authorization', `Bearer ${trainerToken}`);
+
+      expect(stcwExpiriesRes.status).toBe(200);
+      expect(stcwExpiriesRes.body.pagination.total).toBe(1);
+      expect(stcwExpiriesRes.body.data.expiries[0]).toEqual(
+        expect.objectContaining({
+          professionalId: demandProfessionalId,
+          bucket: 'stcw',
+        }),
+      );
     });
   });
 
