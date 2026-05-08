@@ -4,7 +4,11 @@ import { AppError } from '../utils/AppError.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { logActivity } from '../services/activityLogger.js';
 import { CustomRequest } from '../types/index.js';
-import { ActorType, CasePriority } from '../generated/client/index.js';
+import {
+  ActionStatus,
+  ActorType,
+  CasePriority,
+} from '../generated/client/index.js';
 
 export const createCase = catchAsync(
   async (req: CustomRequest, res: Response) => {
@@ -38,10 +42,32 @@ export const createCase = catchAsync(
         where: { id: user.id },
         select: { tier: true },
       });
-      derivedPriority =
-        String(professional?.tier || 'FREE').toUpperCase() === 'PRO'
+      const isPro =
+        String(professional?.tier || 'FREE').toUpperCase() === 'PRO';
+
+      if (isPro) {
+        const reportWindowStart = new Date(
+          Date.now() - 1000 * 60 * 60 * 24 * 30,
+        );
+        const reportActivity = await prisma.activityLog.findFirst({
+          where: {
+            actorId: user.id,
+            actorType: ActorType.PROFESSIONAL,
+            action: {
+              in: ['DOCUMENT_PACK_EXPORTED', 'DOCUMENT_PACK_SHARED'],
+            },
+            status: ActionStatus.SUCCESS,
+            createdAt: { gte: reportWindowStart },
+          },
+          select: { id: true },
+        });
+
+        derivedPriority = reportActivity
           ? CasePriority.HIGH
-          : CasePriority.LOW;
+          : CasePriority.MEDIUM;
+      } else {
+        derivedPriority = CasePriority.LOW;
+      }
     }
 
     const count = await prisma.supportCase.count();

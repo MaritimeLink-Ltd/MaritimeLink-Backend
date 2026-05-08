@@ -203,79 +203,30 @@ export const getDashboardOverview = catchAsync(
       : 0;
 
     // 6. Courses available to this professional.
-    // Match against their own profile keywords so this count is user-specific.
-    const rawCourses = hasProfileTerms
-      ? await prisma.course.findMany({
-          where: {
-            status: 'ACTIVE',
-            bookings: {
-              none: {
-                professionalId,
-                bookingStatus: { in: ['PENDING', 'CONFIRMED', 'COMPLETED'] },
-              },
-            },
-            OR: profileSearchTerms.flatMap(
-              (term) =>
-                [
-                  { title: { contains: term, mode: 'insensitive' as const } },
-                  {
-                    category: { contains: term, mode: 'insensitive' as const },
-                  },
-                  {
-                    description: {
-                      contains: term,
-                      mode: 'insensitive' as const,
-                    },
-                  },
-                  {
-                    curriculum: {
-                      contains: term,
-                      mode: 'insensitive' as const,
-                    },
-                  },
-                  {
-                    requirements: {
-                      contains: term,
-                      mode: 'insensitive' as const,
-                    },
-                  },
-                  {
-                    trainingType: {
-                      contains: term,
-                      mode: 'insensitive' as const,
-                    },
-                  },
-                  {
-                    certificationProvided: {
-                      contains: term,
-                      mode: 'insensitive' as const,
-                    },
-                  },
-                  {
-                    issuingAuthority: {
-                      contains: term,
-                      mode: 'insensitive' as const,
-                    },
-                  },
-                  {
-                    location: { contains: term, mode: 'insensitive' as const },
-                  },
-                ] as Prisma.CourseWhereInput[],
-            ),
+    // Keep this aligned with /api/professional/courses list logic so the
+    // dashboard card matches the courses page total.
+    const rawCourses = await prisma.course.findMany({
+      where: {
+        status: 'ACTIVE',
+        bookings: {
+          none: {
+            professionalId,
+            bookingStatus: { in: ['PENDING', 'CONFIRMED', 'COMPLETED'] },
           },
+        },
+      },
+      include: {
+        sessions: {
           include: {
-            sessions: {
-              include: {
-                bookings: {
-                  select: {
-                    bookingStatus: true,
-                  },
-                },
+            bookings: {
+              select: {
+                bookingStatus: true,
               },
             },
           },
-        })
-      : [];
+        },
+      },
+    });
 
     const now = new Date();
     const availableCoursesCount = rawCourses.filter((course) =>
