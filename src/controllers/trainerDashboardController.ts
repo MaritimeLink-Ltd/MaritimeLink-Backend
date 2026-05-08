@@ -353,6 +353,65 @@ const matchesTrainerExpiryFilters = (
   return true;
 };
 
+type TrainerCourseForCapacity = {
+  title: string;
+  description: string;
+  category: string;
+  certificationProvided?: string | null;
+};
+
+const matchesTrainerCourseMetadataFilters = (
+  courseRecord: TrainerCourseForCapacity,
+  filters: { course: string; search: string },
+) => {
+  const haystack = [
+    courseRecord.title,
+    courseRecord.description,
+    courseRecord.category,
+    courseRecord.certificationProvided || '',
+  ].join(' ');
+
+  if (filters.course && filters.course !== 'all') {
+    const bucket = getBucketForText(haystack);
+    const cert = filters.course.toLowerCase();
+    if (cert === 'stcw' && bucket !== 'stcw') return false;
+    if (cert === 'firefighting' && bucket !== 'firefighting') return false;
+    if (cert === 'gwo' && bucket !== 'gwo') return false;
+    if (cert === 'medical' && bucket !== 'medical') return false;
+    if (cert === 'other' && bucket !== 'other') return false;
+  }
+
+  if (filters.search) {
+    const search = normalizeText(filters.search);
+    if (!normalizeText(haystack).includes(search)) return false;
+  }
+
+  return true;
+};
+
+/**
+ * Upcoming sessions only (start >= today). Year/course/search narrow scope.
+ * Period (30/60/90d) applies to renewal metrics, not seat inventory — otherwise
+ * sessions booked beyond that window show as 0 capacity incorrectly.
+ */
+const buildTrainerCapacitySessionWhere = (now: Date, year: string) => {
+  const and: Array<{ startDate: { gte?: Date; lte?: Date } }> = [
+    { startDate: { gte: now } },
+  ];
+
+  if (year && year !== 'all') {
+    const y = Number.parseInt(year, 10);
+    if (!Number.isNaN(y)) {
+      and.push(
+        { startDate: { gte: new Date(y, 0, 1) } },
+        { startDate: { lte: new Date(y, 11, 31, 23, 59, 59, 999) } },
+      );
+    }
+  }
+
+  return { AND: and };
+};
+
 /**
  * @desc    Get training dashboard stats
  * @route   GET /api/trainer/dashboard/stats
@@ -736,16 +795,8 @@ export const getTrainingDemandOverview = catchAsync(
         prisma.course.findMany({
           where: { recruiterId, status: CourseStatus.ACTIVE },
           include: {
-            _count: {
-              select: {
-                bookings: {
-                  where: {
-                    bookingStatus: {
-                      in: ['PENDING', 'CONFIRMED', 'COMPLETED'],
-                    },
-                  },
-                },
-              },
+            sessions: {
+              where: buildTrainerCapacitySessionWhere(now, year),
             },
           },
           orderBy: { createdAt: 'desc' },
@@ -820,14 +871,21 @@ export const getTrainingDemandOverview = catchAsync(
       .filter((row): row is TrainerExpiryRow => Boolean(row));
 
     const currentInWindow = rowsInPeriod;
-    const totalBookedSeats = courses.reduce(
-      (sum, courseRecord) => sum + (Number(courseRecord._count.bookings) || 0),
-      0,
+
+    const coursesForCapacity = courses.filter((courseRecord) =>
+      matchesTrainerCourseMetadataFilters(courseRecord, { course, search }),
     );
-    const totalCapacity = courses.reduce(
-      (sum, courseRecord) => sum + (Number(courseRecord.capacity) || 0),
-      0,
-    );
+
+    let totalBookedSeats = 0;
+    let totalCapacity = 0;
+    coursesForCapacity.forEach((courseRecord) => {
+      courseRecord.sessions.forEach((session) => {
+        const cap = Number(session.totalSeats) || 0;
+        const avail = Number(session.availableSeats) || 0;
+        totalCapacity += cap;
+        totalBookedSeats += Math.max(0, cap - avail);
+      });
+    });
     const overallUtilization =
       totalCapacity > 0
         ? Math.round((totalBookedSeats / totalCapacity) * 100)
@@ -918,12 +976,18 @@ export const getTrainingDemandOverview = catchAsync(
       .sort((a, b) => b.expiring - a.expiring)
       .slice(0, 5);
 
-    const engagementCourses = courses
+    const engagementCourses = coursesForCapacity
       .map((courseRecord) => {
-        const bookings = Number(courseRecord._count.bookings) || 0;
-        const capacity = courseRecord.capacity || 0;
+        let capacity = 0;
+        let booked = 0;
+        courseRecord.sessions.forEach((session) => {
+          const cap = Number(session.totalSeats) || 0;
+          const avail = Number(session.availableSeats) || 0;
+          capacity += cap;
+          booked += Math.max(0, cap - avail);
+        });
         const utilization =
-          capacity > 0 ? Math.round((bookings / capacity) * 100) : 0;
+          capacity > 0 ? Math.round((booked / capacity) * 100) : 0;
         const statusVariant =
           utilization >= 90
             ? 'warning'
@@ -944,8 +1008,8 @@ export const getTrainingDemandOverview = catchAsync(
                   ? 'Growing'
                   : 'Emerging',
           statusVariant,
-          views: String(bookings * 8 + 100),
-          enquiries: String(Math.max(0, Math.round(bookings * 0.35))),
+          views: String(booked * 8 + 100),
+          enquiries: String(Math.max(0, Math.round(booked * 0.35))),
           utilization,
         };
       })
