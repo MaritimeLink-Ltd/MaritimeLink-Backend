@@ -3,9 +3,11 @@ import { prisma } from '../config/prisma.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { CustomRequest } from '../types/index.js';
 import {
+  DocumentCategory,
   PaymentStatus,
   Prisma,
   RecruiterStatus,
+  VerificationStatus,
 } from '../generated/client/index.js';
 
 const statusColor = (status: string) => {
@@ -108,8 +110,24 @@ const buildReportBuckets = (range: string) => {
 export const getAdminDashboardStats = catchAsync(
   async (req: CustomRequest, res: Response) => {
     const now = new Date();
-    const todayStart = new Date();
+    const todayStart = new Date(now);
     todayStart.setHours(0, 0, 0, 0);
+    const requestedTimeframe =
+      typeof req.query.timeframe === 'string' ? req.query.timeframe : '30d';
+    const timeframe = String(requestedTimeframe).toLowerCase();
+    const daysByTimeframe: Record<string, number> = {
+      today: 1,
+      '7d': 7,
+      '30d': 30,
+      '60d': 60,
+      '90d': 90,
+    };
+    const complianceWindowDays = daysByTimeframe[timeframe] || 30;
+    const complianceWindowEnd = new Date(todayStart);
+    complianceWindowEnd.setDate(
+      complianceWindowEnd.getDate() + complianceWindowDays,
+    );
+    complianceWindowEnd.setHours(23, 59, 59, 999);
 
     // 1. Pending Approvals count (Recruiters + Professional KYC)
     const pendingRecruiters = await prisma.recruiter.count({
@@ -148,12 +166,20 @@ export const getAdminDashboardStats = catchAsync(
       where: { status: 'FLAGGED' },
     });
 
-    // 3. Expiring Compliance count (Professional documents expiring soon)
-    const thirtyDaysFromNow = new Date();
-    thirtyDaysFromNow.setDate(now.getDate() + 30);
-    const expiringCompliance = await prisma.professionalDocument.count({
-      where: { expiryDate: { lte: thirtyDaysFromNow, gte: now } },
+    // 3. Expiring Compliance count (unique professionals with verified compliance docs expiring in window)
+    const expiringCompliance = await prisma.professionalDocument.findMany({
+      where: {
+        expiryDate: { gte: todayStart, lte: complianceWindowEnd },
+        verificationStatus: VerificationStatus.VERIFIED,
+        category: {
+          notIn: [DocumentCategory.CV_RESUME, DocumentCategory.COVER_LETTER],
+        },
+      },
+      select: { professionalId: true },
     });
+    const expiringComplianceCount = new Set(
+      expiringCompliance.map((d) => d.professionalId),
+    ).size;
 
     // 4. Company stats
     const companyCount = await prisma.company.count();
@@ -175,8 +201,8 @@ export const getAdminDashboardStats = catchAsync(
             flaggedRecruiters +
             flaggedProfessionals,
           expiringCompliance: {
-            count: expiringCompliance,
-            timeframe: '30d',
+            count: expiringComplianceCount,
+            timeframe: `${complianceWindowDays}d`,
           },
           companies: {
             total: companyCount,
@@ -245,48 +271,63 @@ export const getPlatformActivity = catchAsync(
  */
 export const getRevenueOverview = catchAsync(
   async (req: CustomRequest, res: Response) => {
-    // Aggregate data from CourseBooking
-    const revenueAgg = await prisma.courseBooking.aggregate({
-      where: { paymentStatus: 'SUCCEEDED' },
-      _sum: {
-        amountPaid: true,
-        platformFee: true,
-        trainerPayout: true,
-      },
-    });
+    // Aggregate data from paid course bookings
+    const [revenueAgg, paidBookings] = await Promise.all([
+      prisma.courseBooking.aggregate({
+        where: { paymentStatus: 'SUCCEEDED' },
+        _sum: {
+          amountPaid: true,
+          platformFee: true,
+          trainerPayout: true,
+        },
+      }),
+      prisma.courseBooking.findMany({
+        where: { paymentStatus: 'SUCCEEDED' },
+        select: {
+          amountPaid: true,
+          trainerPayout: true,
+        },
+      }),
+    ]);
 
     // Real active subscriptions check (users with tier PRO)
     const proPros = await prisma.professional.count({ where: { tier: 'PRO' } });
     const proRecs = await prisma.recruiter.count({ where: { tier: 'PRO' } });
 
-    const totalRevenue = Number(revenueAgg._sum.amountPaid || 0);
+    const grossRevenue = Number(revenueAgg._sum.amountPaid || 0);
+    const platformRevenue = Number(revenueAgg._sum.platformFee || 0);
+    const pendingPayouts = paidBookings
+      .filter((b) => !b.trainerPayout || Number(b.trainerPayout) === 0)
+      .reduce((sum, b) => sum + Number(b.amountPaid) * 0.82, 0);
 
     res.status(200).json({
       status: 'success',
       data: {
         overview: {
           activeSubscriptions: proPros + proRecs,
-          totalRevenue,
+          // Platform earnings (what the platform has earned)
+          totalRevenue: platformRevenue,
           growth: '+12.5%', // Growth still requires time-series calculation, keeping static for now
         },
         breakdown: {
           professionals: {
-            amount: totalRevenue * 0.3,
+            amount: platformRevenue * 0.3,
             active: proPros,
             growth: '+8%',
           },
           recruiters: {
-            amount: totalRevenue * 0.7,
+            amount: platformRevenue * 0.7,
             active: proRecs,
             growth: '+15%',
           },
         },
         training: {
-          totalThisMonth: totalRevenue,
+          totalThisMonth: platformRevenue,
           growth: '+3.2%',
           sources: {
-            courseSales: totalRevenue,
-            pendingPayouts: Number(revenueAgg._sum.trainerPayout || 0),
+            // Keep gross sales visible as a source metric.
+            courseSales: grossRevenue,
+            pendingPayouts,
             refunds: 0,
           },
         },
@@ -344,33 +385,63 @@ export const getAdminActionQueues = catchAsync(
         new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
     );
 
-    // 2. System Alerts (Mocked/Derived from logs if available)
+    // 2. System Alerts (real derived signals only)
+    const [
+      flaggedJobs,
+      flaggedCourses,
+      flaggedRecruiters,
+      flaggedProfessionals,
+      failedLogs,
+      recentFailedLogs,
+    ] = await Promise.all([
+      prisma.job.count({ where: { isFlagged: true } }),
+      prisma.course.count({ where: { isFlagged: true } }),
+      prisma.recruiter.count({ where: { status: RecruiterStatus.FLAGGED } }),
+      prisma.professional.count({ where: { status: 'FLAGGED' } }),
+      prisma.activityLog.count({ where: { status: 'FAILED' } }),
+      prisma.activityLog.findMany({
+        where: { status: 'FAILED' },
+        orderBy: { createdAt: 'desc' },
+        take: 3,
+        select: {
+          id: true,
+          action: true,
+          actorType: true,
+          createdAt: true,
+        },
+      }),
+    ]);
+
+    const totalFlagged =
+      flaggedJobs + flaggedCourses + flaggedRecruiters + flaggedProfessionals;
+
     const systemAlerts = [
-      {
-        type: 'SECURITY',
-        message: 'Multiple accounts flagged',
-        severity: 'red',
-        timestamp: new Date(),
-      },
-      {
-        type: 'TRAFFIC',
-        message: 'Unusual spike in new registrations',
+      totalFlagged > 0
+        ? {
+            id: 'flagged-entities',
+            type: 'SECURITY',
+            message: `${totalFlagged} flagged item${totalFlagged === 1 ? '' : 's'} need review.`,
+            severity: 'red',
+            timestamp: new Date(),
+          }
+        : null,
+      failedLogs > 0
+        ? {
+            id: 'failed-activity-logs',
+            type: 'OPERATIONS',
+            message: `${failedLogs} failed platform action${failedLogs === 1 ? '' : 's'} detected.`,
+            severity: 'yellow',
+            timestamp: new Date(),
+          }
+        : null,
+      ...recentFailedLogs.map((log) => ({
+        id: `failed-log-${log.id}`,
+        type: 'OPERATIONS',
+        message: `${log.action} failed (${log.actorType}).`,
         severity: 'yellow',
-        timestamp: new Date(),
-      },
-      {
-        type: 'MAINTENANCE',
-        message: 'System maintenance scheduled',
-        severity: 'blue',
-        timestamp: new Date(),
-      },
-      {
-        type: 'latency',
-        message: 'Payment gateway latency',
-        severity: 'yellow',
-        timestamp: new Date(),
-      },
-    ];
+        timestamp: log.createdAt,
+      })),
+    ].filter(Boolean);
 
     res.status(200).json({
       status: 'success',
