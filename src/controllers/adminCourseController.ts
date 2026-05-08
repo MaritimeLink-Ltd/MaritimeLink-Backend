@@ -355,12 +355,18 @@ export const getPlatformRevenue = catchAsync(
       },
     });
 
-    const totalRevenue = bookings.reduce(
+    const grossRevenue = bookings.reduce(
       (sum, b) => sum + Number(b.amountPaid),
       0,
     );
-    const platformCommission = totalRevenue * 0.18;
-    const trainerPayouts = totalRevenue * 0.82;
+    const platformCommission = bookings.reduce(
+      (sum, b) => sum + Number(b.platformFee ?? Number(b.amountPaid) * 0.18),
+      0,
+    );
+    const trainerPayouts = bookings.reduce(
+      (sum, b) => sum + Number(b.trainerPayout ?? Number(b.amountPaid) * 0.82),
+      0,
+    );
 
     // Calculate pending payouts (not yet processed)
     const pendingPayouts = bookings.filter(
@@ -408,7 +414,9 @@ export const getPlatformRevenue = catchAsync(
       status: 'success',
       data: {
         summary: {
-          totalRevenue,
+          // Platform earnings (not gross sales)
+          totalRevenue: platformCommission,
+          grossRevenue,
           platformCommission,
           trainerPayouts,
           totalBookings: bookings.length,
