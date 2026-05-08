@@ -608,6 +608,20 @@ router.post(
  *         description: List of documents.
  */
 router.get('/documents', protect, documentController.getDocuments);
+router.post(
+  '/documents/report-generated',
+  protect,
+  documentController.markDocumentReportGenerated,
+);
+router.post(
+  '/documents/share-link',
+  protect,
+  documentController.createDocumentPackShareLink,
+);
+router.get(
+  '/documents/shared/:token',
+  documentController.getSharedDocumentPack,
+);
 
 /**
  * @swagger

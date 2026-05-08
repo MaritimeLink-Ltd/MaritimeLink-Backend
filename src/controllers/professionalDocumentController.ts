@@ -8,12 +8,15 @@ import {
   validateDocumentType,
 } from '../services/geminiService.js';
 import { env } from '../config/env.js';
+import jwt from 'jsonwebtoken';
 import {
   uploadDocumentSchema,
   updateDocumentSchema,
 } from '../validations/documentValidation.js';
 import { CustomRequest } from '../types/index.js';
+import { logActivity } from '../services/activityLogger.js';
 import {
+  ActorType,
   DocumentCategory,
   OCRStatus,
   VerificationStatus,
@@ -24,6 +27,8 @@ const DOCUMENT_CATEGORY_ALIASES: Record<string, DocumentCategory> = {
   STCW_CERTIFICATE: DocumentCategory.LICENSES_ENDORSEMENTS,
   STCW: DocumentCategory.LICENSES_ENDORSEMENTS,
 };
+
+const DOCUMENT_PACK_SHARE_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7;
 
 const STCW_KEYWORDS = [
   'stcw',
@@ -698,6 +703,140 @@ export const getDocuments = catchAsync(
       data: {
         summary,
         documents: filteredDocuments.map((document) => ({
+          ...document,
+          displayCategory: getDocumentDisplayCategory(document),
+        })),
+      },
+    });
+  },
+);
+
+export const markDocumentReportGenerated = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const professionalId = req.user?.id;
+    if (!professionalId) {
+      return next(new AppError('User not authenticated', 401));
+    }
+
+    await logActivity({
+      action: 'DOCUMENT_PACK_EXPORTED',
+      actorId: professionalId,
+      actorType: ActorType.PROFESSIONAL,
+      targetId: professionalId,
+      targetType: 'Professional',
+      metadata: {
+        source: 'documents_wallet',
+        generatedAt: new Date().toISOString(),
+      },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      data: { marked: true },
+    });
+  },
+);
+
+export const createDocumentPackShareLink = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const professionalId = req.user?.id;
+    if (!professionalId) {
+      return next(new AppError('User not authenticated', 401));
+    }
+
+    const professional = await prisma.professional.findUnique({
+      where: { id: professionalId },
+      select: { tier: true },
+    });
+    const tier = String(professional?.tier || 'FREE').toUpperCase();
+    if (tier !== 'PRO') {
+      return next(
+        new AppError(
+          'Premium membership is required for secure share links.',
+          403,
+        ),
+      );
+    }
+
+    const token = jwt.sign(
+      {
+        sub: professionalId,
+        type: 'DOCUMENT_PACK_SHARE',
+      },
+      env.JWT_SECRET,
+      { expiresIn: DOCUMENT_PACK_SHARE_TOKEN_TTL_SECONDS },
+    );
+
+    const backendBase = env.BACKEND_URL || `http://localhost:${env.PORT}`;
+    const secureLink = `${backendBase.replace(/\/+$/, '')}/api/professional/documents/shared/${token}`;
+
+    await logActivity({
+      action: 'DOCUMENT_PACK_SHARED',
+      actorId: professionalId,
+      actorType: ActorType.PROFESSIONAL,
+      targetId: professionalId,
+      targetType: 'Professional',
+      metadata: {
+        source: 'documents_wallet',
+        linkExpiresInSeconds: DOCUMENT_PACK_SHARE_TOKEN_TTL_SECONDS,
+      },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        secureLink,
+        expiresInSeconds: DOCUMENT_PACK_SHARE_TOKEN_TTL_SECONDS,
+      },
+    });
+  },
+);
+
+export const getSharedDocumentPack = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const { token } = req.params;
+    if (!token) {
+      return next(new AppError('Share token is required', 400));
+    }
+
+    let payload: { sub?: string; type?: string } | null = null;
+    try {
+      payload = jwt.verify(token, env.JWT_SECRET) as {
+        sub?: string;
+        type?: string;
+      };
+    } catch {
+      return next(new AppError('Invalid or expired share link', 401));
+    }
+
+    if (!payload?.sub || payload.type !== 'DOCUMENT_PACK_SHARE') {
+      return next(new AppError('Invalid share link', 401));
+    }
+
+    const documents = await prisma.professionalDocument.findMany({
+      where: {
+        professionalId: payload.sub,
+        category: {
+          notIn: [DocumentCategory.CV_RESUME, DocumentCategory.COVER_LETTER],
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        category: true,
+        fileUrl: true,
+        createdAt: true,
+        verificationStatus: true,
+        expiryDate: true,
+      },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      results: documents.length,
+      data: {
+        documents: documents.map((document) => ({
           ...document,
           displayCategory: getDocumentDisplayCategory(document),
         })),
