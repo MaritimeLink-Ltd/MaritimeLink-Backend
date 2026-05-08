@@ -135,13 +135,26 @@ const buildRecruiter = async (id: string) => {
 };
 
 const buildTrainer = async (id: string) => {
-  const trainer = await prisma.recruiter.findFirst({
-    where: { id, role: 'TRAINING_AGENT' },
-    include: {
-      kyc: true,
-      courses: true,
-    },
-  });
+  const [trainer, bookingAgg] = await Promise.all([
+    prisma.recruiter.findFirst({
+      where: { id, role: 'TRAINING_AGENT' },
+      include: {
+        kyc: true,
+        courses: true,
+      },
+    }),
+    prisma.courseBooking.aggregate({
+      where: {
+        paymentStatus: 'SUCCEEDED',
+        course: { recruiterId: id },
+      },
+      _count: { id: true },
+      _sum: {
+        amountPaid: true,
+        trainerPayout: true,
+      },
+    }),
+  ]);
 
   if (!trainer) return null;
 
@@ -151,6 +164,9 @@ const buildTrainer = async (id: string) => {
       ...trainer,
       riskLevel: resolveRecruiterRiskLevel(trainer),
       hasCompanyMismatch: resolveRecruiterMismatch(trainer),
+      traineesCount: Number(bookingAgg?._count?.id || 0),
+      grossRevenue: Number(bookingAgg?._sum?.amountPaid || 0),
+      payoutRevenue: Number(bookingAgg?._sum?.trainerPayout || 0),
     },
   };
 };
