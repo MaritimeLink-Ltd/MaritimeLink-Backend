@@ -8,7 +8,7 @@ import {
   validateDocumentType,
 } from '../services/geminiService.js';
 import { env } from '../config/env.js';
-import jwt from 'jsonwebtoken';
+import jwt, { type JwtPayload } from 'jsonwebtoken';
 import {
   uploadDocumentSchema,
   updateDocumentSchema,
@@ -29,6 +29,28 @@ const DOCUMENT_CATEGORY_ALIASES: Record<string, DocumentCategory> = {
 };
 
 const DOCUMENT_PACK_SHARE_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7;
+
+type DocumentPackShareJwt = JwtPayload & {
+  sub?: string;
+  type?: string;
+  previewOnly?: boolean;
+};
+
+const verifyDocumentPackShareToken = (token: string): DocumentPackShareJwt => {
+  try {
+    const payload = jwt.verify(token, env.JWT_SECRET) as DocumentPackShareJwt;
+    if (
+      typeof payload.sub !== 'string' ||
+      payload.type !== 'DOCUMENT_PACK_SHARE'
+    ) {
+      throw new AppError('Invalid share link', 401);
+    }
+    return payload;
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    throw new AppError('Invalid or expired share link', 401);
+  }
+};
 
 const STCW_KEYWORDS = [
   'stcw',
@@ -762,13 +784,18 @@ export const createDocumentPackShareLink = catchAsync(
       {
         sub: professionalId,
         type: 'DOCUMENT_PACK_SHARE',
+        previewOnly: true,
       },
       env.JWT_SECRET,
       { expiresIn: DOCUMENT_PACK_SHARE_TOKEN_TTL_SECONDS },
     );
 
-    const backendBase = env.BACKEND_URL || `http://localhost:${env.PORT}`;
-    const secureLink = `${backendBase.replace(/\/+$/, '')}/api/professional/documents/shared/${token}`;
+    const frontendBase = env.FRONTEND_URL.replace(/\/+$/, '');
+    const secureLink = `${frontendBase}/personal/documents/shared/${encodeURIComponent(token)}`;
+
+    const expiresAt = new Date(
+      Date.now() + DOCUMENT_PACK_SHARE_TOKEN_TTL_SECONDS * 1000,
+    ).toISOString();
 
     await logActivity({
       action: 'DOCUMENT_PACK_SHARED',
@@ -787,6 +814,8 @@ export const createDocumentPackShareLink = catchAsync(
       data: {
         secureLink,
         expiresInSeconds: DOCUMENT_PACK_SHARE_TOKEN_TTL_SECONDS,
+        expiresAt,
+        previewOnly: true,
       },
     });
   },
@@ -799,23 +828,16 @@ export const getSharedDocumentPack = catchAsync(
       return next(new AppError('Share token is required', 400));
     }
 
-    let payload: { sub?: string; type?: string } | null = null;
+    let payload: DocumentPackShareJwt;
     try {
-      payload = jwt.verify(token, env.JWT_SECRET) as {
-        sub?: string;
-        type?: string;
-      };
-    } catch {
-      return next(new AppError('Invalid or expired share link', 401));
-    }
-
-    if (!payload?.sub || payload.type !== 'DOCUMENT_PACK_SHARE') {
-      return next(new AppError('Invalid share link', 401));
+      payload = verifyDocumentPackShareToken(token);
+    } catch (error) {
+      return next(error);
     }
 
     const documents = await prisma.professionalDocument.findMany({
       where: {
-        professionalId: payload.sub,
+        professionalId: payload.sub!,
         category: {
           notIn: [DocumentCategory.CV_RESUME, DocumentCategory.COVER_LETTER],
         },
@@ -825,23 +847,98 @@ export const getSharedDocumentPack = catchAsync(
         id: true,
         name: true,
         category: true,
-        fileUrl: true,
         createdAt: true,
         verificationStatus: true,
         expiryDate: true,
       },
     });
 
+    const previewOnly = payload.previewOnly !== false;
+    const expiresAt =
+      typeof payload.exp === 'number'
+        ? new Date(payload.exp * 1000).toISOString()
+        : null;
+
     res.status(200).json({
       status: 'success',
       results: documents.length,
       data: {
+        previewOnly,
+        expiresAt,
         documents: documents.map((document) => ({
-          ...document,
+          id: document.id,
+          name: document.name,
+          category: document.category,
+          createdAt: document.createdAt,
+          verificationStatus: document.verificationStatus,
+          expiryDate: document.expiryDate,
           displayCategory: getDocumentDisplayCategory(document),
         })),
       },
     });
+  },
+);
+
+export const streamSharedDocumentFile = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const { token, documentId } = req.params;
+    if (!token || !documentId) {
+      return next(new AppError('Not found', 404));
+    }
+
+    let payload: DocumentPackShareJwt;
+    try {
+      payload = verifyDocumentPackShareToken(token);
+    } catch (error) {
+      return next(error);
+    }
+
+    const previewOnly = payload.previewOnly !== false;
+    if (!previewOnly) {
+      return next(
+        new AppError('This share link does not allow file access.', 403),
+      );
+    }
+
+    const document = await prisma.professionalDocument.findFirst({
+      where: {
+        id: documentId,
+        professionalId: payload.sub!,
+        category: {
+          notIn: [DocumentCategory.CV_RESUME, DocumentCategory.COVER_LETTER],
+        },
+      },
+    });
+
+    if (!document?.fileUrl) {
+      return next(new AppError('Document not found', 404));
+    }
+
+    const upstream = await fetch(document.fileUrl);
+    if (!upstream.ok) {
+      return next(new AppError('File temporarily unavailable', 502));
+    }
+
+    const arrayBuffer = await upstream.arrayBuffer();
+    const buf = Buffer.from(arrayBuffer);
+
+    const contentType =
+      upstream.headers.get('content-type') || 'application/octet-stream';
+    const safeName = String(document.name || 'document')
+      .replace(/[^\w.\- ]+/g, '_')
+      .trim()
+      .slice(0, 120);
+
+    res.setHeader('Content-Type', contentType);
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(document.name || 'document')}`,
+    );
+    res.setHeader('Content-Length', String(buf.length));
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+
+    res.status(200).end(buf);
   },
 );
 

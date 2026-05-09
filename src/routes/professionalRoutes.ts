@@ -619,6 +619,10 @@ router.post(
   documentController.createDocumentPackShareLink,
 );
 router.get(
+  '/documents/shared/:token/file/:documentId',
+  documentController.streamSharedDocumentFile,
+);
+router.get(
   '/documents/shared/:token',
   documentController.getSharedDocumentPack,
 );
