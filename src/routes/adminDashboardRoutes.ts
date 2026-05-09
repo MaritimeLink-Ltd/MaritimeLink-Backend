@@ -38,7 +38,8 @@ router.use(protectAdmin);
  *                   flaggedIssues: 5
  *                   expiringCompliance:
  *                     count: 8
- *                     timeframe: "48h"
+ *                     timeframe: "30d"
+ *                     expiredLookbackDays: 365
  */
 router.get('/stats', adminDashboardController.getAdminDashboardStats);
 

@@ -3,17 +3,24 @@ import { prisma } from '../config/prisma.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
-import { KycRiskLevel, VerificationStatus } from '../generated/client/index.js';
+import {
+  DocumentCategory,
+  KycRiskLevel,
+  VerificationStatus,
+} from '../generated/client/index.js';
 
-const resolveProfessionalRiskLevel = (professional: {
-  kyc: { riskLevel: KycRiskLevel } | null;
-  documents: { id: string }[];
-}) => {
-  if (professional.documents.length > 0) {
+/** Matches admin dashboard expiring-compliance card (past expired + forward window). */
+const ADMIN_COMPLIANCE_EXPIRED_LOOKBACK_DAYS = 365;
+
+const resolveProfessionalRiskLevel = (
+  kyc: { riskLevel: KycRiskLevel } | null | undefined,
+  mismatchDocCount: number,
+) => {
+  if (mismatchDocCount > 0) {
     return KycRiskLevel.HIGH;
   }
 
-  return professional.kyc?.riskLevel ?? KycRiskLevel.LOW;
+  return kyc?.riskLevel ?? KycRiskLevel.LOW;
 };
 
 /**
@@ -26,7 +33,53 @@ export const getProfessionals = catchAsync(
     const skip = (page - 1) * limit;
     const { status, tier, search } = req.query;
 
-    const where: any = {}; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const complianceAttention =
+      String(req.query.complianceAttention ?? '').toLowerCase() === 'true' ||
+      req.query.complianceAttention === '1';
+
+    const requestedTimeframe =
+      typeof req.query.timeframe === 'string' ? req.query.timeframe : '30d';
+    const tf = String(requestedTimeframe).toLowerCase();
+    const daysByTimeframe: Record<string, number> = {
+      today: 1,
+      '7d': 7,
+      '30d': 30,
+      '60d': 60,
+      '90d': 90,
+    };
+    const complianceForwardDays = daysByTimeframe[tf] || 30;
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const complianceWindowEnd = new Date(todayStart);
+    complianceWindowEnd.setDate(
+      complianceWindowEnd.getDate() + complianceForwardDays,
+    );
+    complianceWindowEnd.setHours(23, 59, 59, 999);
+
+    const complianceExpiredLookbackStart = new Date(todayStart);
+    complianceExpiredLookbackStart.setDate(
+      complianceExpiredLookbackStart.getDate() -
+        ADMIN_COMPLIANCE_EXPIRED_LOOKBACK_DAYS,
+    );
+
+    const complianceDocWhere = {
+      expiryDate: {
+        not: null,
+        gte: complianceExpiredLookbackStart,
+        lte: complianceWindowEnd,
+      },
+      verificationStatus: { not: VerificationStatus.REJECTED },
+      category: {
+        notIn: [DocumentCategory.CV_RESUME, DocumentCategory.COVER_LETTER],
+      },
+    };
+
+    const mismatchDocFilter = {
+      verificationStatus: VerificationStatus.MISMATCH,
+    };
+
+    const where: Record<string, unknown> = {};
     if (status) where.status = status;
     if (tier) where.tier = tier;
     if (search) {
@@ -34,6 +87,9 @@ export const getProfessionals = catchAsync(
         { fullname: { contains: search as string, mode: 'insensitive' } },
         { email: { contains: search as string, mode: 'insensitive' } },
       ];
+    }
+    if (complianceAttention) {
+      where.documents = { some: complianceDocWhere };
     }
 
     const professionals = await prisma.professional.findMany({
@@ -58,15 +114,30 @@ export const getProfessionals = catchAsync(
             mismatchDetails: true,
           },
         },
-        documents: {
-          where: {
-            verificationStatus: VerificationStatus.MISMATCH,
-          },
+        _count: {
           select: {
-            id: true,
+            documents: { where: mismatchDocFilter },
           },
-          take: 1,
         },
+        documents: complianceAttention
+          ? {
+              where: complianceDocWhere,
+              select: {
+                id: true,
+                expiryDate: true,
+                category: true,
+                name: true,
+              },
+              orderBy: { expiryDate: 'asc' },
+              take: 1,
+            }
+          : {
+              where: mismatchDocFilter,
+              select: {
+                id: true,
+              },
+              take: 1,
+            },
         resume: {
           select: {
             country: true,
@@ -78,12 +149,28 @@ export const getProfessionals = catchAsync(
     const total = await prisma.professional.count({ where });
 
     const professionalsWithRisk = professionals.map((professional) => {
-      const { documents, ...professionalData } = professional;
+      const { documents, _count, resume, kyc, ...rest } = professional;
+      const mismatchDocCount = _count.documents;
+      const firstDoc = documents[0];
+      const complianceHead =
+        complianceAttention &&
+        firstDoc &&
+        'expiryDate' in firstDoc &&
+        firstDoc.expiryDate
+          ? firstDoc
+          : null;
 
       return {
-        ...professionalData,
-        riskLevel: resolveProfessionalRiskLevel({ ...professional, documents }),
-        hasDocumentMismatch: documents.length > 0,
+        ...rest,
+        kyc,
+        country: resume?.country ?? null,
+        resume: { country: resume?.country ?? null },
+        riskLevel: resolveProfessionalRiskLevel(kyc, mismatchDocCount),
+        hasDocumentMismatch: mismatchDocCount > 0,
+        nearestComplianceExpiry: complianceHead?.expiryDate
+          ? complianceHead.expiryDate.toISOString()
+          : undefined,
+        nearestComplianceDocumentName: complianceHead?.name,
       };
     });
 

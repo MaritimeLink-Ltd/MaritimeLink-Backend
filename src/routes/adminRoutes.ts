@@ -238,6 +238,14 @@ router.get('/recruiters/stats', adminRecruiterController.getRecruiterStats);
  *       - in: query
  *         name: limit
  *         schema: { type: integer, default: 10 }
+ *       - in: query
+ *         name: complianceAttention
+ *         schema: { type: string, enum: ['true', '1'] }
+ *         description: When true, only professionals with wallet documents expired (lookback) or expiring within timeframe
+ *       - in: query
+ *         name: timeframe
+ *         schema: { type: string, enum: [today, 7d, 30d, 60d, 90d], default: 30d }
+ *         description: Forward window for expiring docs when complianceAttention is set
  *     responses:
  *       200:
  *         description: A paginated list of professionals

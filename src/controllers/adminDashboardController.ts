@@ -47,6 +47,9 @@ const getReportStartDate = (range: string) => {
   return startDate;
 };
 
+/** How far back to count already-expired compliance docs (unique professionals). */
+const ADMIN_COMPLIANCE_EXPIRED_LOOKBACK_DAYS = 365;
+
 const formatBucketLabel = (date: Date, range: string) => {
   if (range === 'today') {
     return date.toLocaleTimeString('en-US', {
@@ -129,6 +132,12 @@ export const getAdminDashboardStats = catchAsync(
     );
     complianceWindowEnd.setHours(23, 59, 59, 999);
 
+    const complianceExpiredLookbackStart = new Date(todayStart);
+    complianceExpiredLookbackStart.setDate(
+      complianceExpiredLookbackStart.getDate() -
+        ADMIN_COMPLIANCE_EXPIRED_LOOKBACK_DAYS,
+    );
+
     // 1. Pending Approvals count (Recruiters + Professional KYC)
     const pendingRecruiters = await prisma.recruiter.count({
       where: { status: 'PENDING' },
@@ -166,20 +175,23 @@ export const getAdminDashboardStats = catchAsync(
       where: { status: 'FLAGGED' },
     });
 
-    // 3. Expiring Compliance count (unique professionals with verified compliance docs expiring in window)
-    const expiringCompliance = await prisma.professionalDocument.findMany({
+    // 3. Compliance renewal attention: unique professionals with a compliance doc
+    //    expired within lookback OR expiring by end of forward window (not only VERIFIED).
+    const expiringComplianceGroups = await prisma.professionalDocument.groupBy({
+      by: ['professionalId'],
       where: {
-        expiryDate: { gte: todayStart, lte: complianceWindowEnd },
-        verificationStatus: VerificationStatus.VERIFIED,
+        expiryDate: {
+          not: null,
+          gte: complianceExpiredLookbackStart,
+          lte: complianceWindowEnd,
+        },
+        verificationStatus: { not: VerificationStatus.REJECTED },
         category: {
           notIn: [DocumentCategory.CV_RESUME, DocumentCategory.COVER_LETTER],
         },
       },
-      select: { professionalId: true },
     });
-    const expiringComplianceCount = new Set(
-      expiringCompliance.map((d) => d.professionalId),
-    ).size;
+    const expiringComplianceCount = expiringComplianceGroups.length;
 
     // 4. Company stats
     const companyCount = await prisma.company.count();
@@ -203,6 +215,7 @@ export const getAdminDashboardStats = catchAsync(
           expiringCompliance: {
             count: expiringComplianceCount,
             timeframe: `${complianceWindowDays}d`,
+            expiredLookbackDays: ADMIN_COMPLIANCE_EXPIRED_LOOKBACK_DAYS,
           },
           companies: {
             total: companyCount,
