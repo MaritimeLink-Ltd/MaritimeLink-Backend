@@ -4,11 +4,11 @@ import { AppError } from '../utils/AppError.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { logActivity } from '../services/activityLogger.js';
 import { CustomRequest } from '../types/index.js';
+import { ActorType, CasePriority } from '../generated/client/index.js';
 import {
-  ActionStatus,
-  ActorType,
-  CasePriority,
-} from '../generated/client/index.js';
+  deriveUserSupportCasePriority,
+  normalizeStoredCasePriority,
+} from '../utils/supportCasePriority.js';
 
 export const createCase = catchAsync(
   async (req: CustomRequest, res: Response) => {
@@ -35,39 +35,15 @@ export const createCase = catchAsync(
       : ActorType.PROFESSIONAL;
 
     let derivedPriority: CasePriority = CasePriority.LOW;
-    if (isStaffAccount) {
-      derivedPriority = CasePriority.MEDIUM;
-    } else {
+    if (!isStaffAccount) {
       const professional = await prisma.professional.findUnique({
         where: { id: user.id },
         select: { tier: true },
       });
-      const isPro =
-        String(professional?.tier || 'FREE').toUpperCase() === 'PRO';
-
-      if (isPro) {
-        const reportWindowStart = new Date(
-          Date.now() - 1000 * 60 * 60 * 24 * 30,
-        );
-        const reportActivity = await prisma.activityLog.findFirst({
-          where: {
-            actorId: user.id,
-            actorType: ActorType.PROFESSIONAL,
-            action: {
-              in: ['DOCUMENT_PACK_EXPORTED', 'DOCUMENT_PACK_SHARED'],
-            },
-            status: ActionStatus.SUCCESS,
-            createdAt: { gte: reportWindowStart },
-          },
-          select: { id: true },
-        });
-
-        derivedPriority = reportActivity
-          ? CasePriority.HIGH
-          : CasePriority.MEDIUM;
-      } else {
-        derivedPriority = CasePriority.LOW;
-      }
+      derivedPriority = deriveUserSupportCasePriority(
+        false,
+        professional?.tier,
+      );
     }
 
     const count = await prisma.supportCase.count();
@@ -97,7 +73,12 @@ export const createCase = catchAsync(
 
     res.status(201).json({
       status: 'success',
-      data: { case: newCase },
+      data: {
+        case: {
+          ...newCase,
+          priority: normalizeStoredCasePriority(newCase.priority),
+        },
+      },
     });
   },
 );
@@ -130,7 +111,12 @@ export const getMyCases = catchAsync(
         total,
         pages: Math.ceil(total / limit),
       },
-      data: { cases },
+      data: {
+        cases: cases.map((c) => ({
+          ...c,
+          priority: normalizeStoredCasePriority(c.priority),
+        })),
+      },
     });
   },
 );
@@ -161,7 +147,12 @@ export const getCaseDetails = catchAsync(
 
     res.status(200).json({
       status: 'success',
-      data: { case: supportCase },
+      data: {
+        case: {
+          ...supportCase,
+          priority: normalizeStoredCasePriority(supportCase.priority),
+        },
+      },
     });
   },
 );

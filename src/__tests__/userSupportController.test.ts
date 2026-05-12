@@ -118,7 +118,7 @@ describe('userSupportController.createCase', () => {
     );
   });
 
-  it('assigns MEDIUM priority to recruiters and trainers', async () => {
+  it('assigns LOW priority to recruiters and trainers', async () => {
     const next = jest.fn();
     const req = {
       user: {
@@ -143,7 +143,7 @@ describe('userSupportController.createCase', () => {
     expect(mockPrisma.supportCase.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          priority: 'MEDIUM',
+          priority: 'LOW',
           userType: 'RECRUITER',
         }),
       }),

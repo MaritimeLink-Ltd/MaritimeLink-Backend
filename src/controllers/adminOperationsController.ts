@@ -8,7 +8,12 @@ import {
   ActorType,
   AdminRole,
   RecruiterRole,
+  CasePriority,
 } from '../generated/client/index.js';
+import {
+  normalizeStoredCasePriority,
+  isPremiumProfessionalTier,
+} from '../utils/supportCasePriority.js';
 
 type ActivityActor = {
   id: string;
@@ -431,6 +436,40 @@ const getSupportUserSummary = async (
   } satisfies SupportUserSummary;
 };
 
+const deriveAdminSupportCasePriority = async (
+  userType: unknown,
+  userId: unknown,
+): Promise<CasePriority> => {
+  const ut = String(userType || '').toUpperCase();
+  const uid =
+    typeof userId === 'string' && userId.trim()
+      ? userId.trim()
+      : userId != null
+        ? String(userId).trim()
+        : '';
+  if (ut === 'PROFESSIONAL' && uid) {
+    const prof = await prisma.professional.findUnique({
+      where: { id: uid },
+      select: { tier: true },
+    });
+    return isPremiumProfessionalTier(prof?.tier)
+      ? CasePriority.HIGH
+      : CasePriority.LOW;
+  }
+  return CasePriority.LOW;
+};
+
+const formatAdminNoteAuthorName = (email: string) => {
+  const local = email.split('@')[0] || email;
+  return local
+    .replace(/[._-]+/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ')
+    .trim();
+};
+
 const buildSupportCaseNote = async (note: {
   id: string;
   content: string;
@@ -447,7 +486,7 @@ const buildSupportCaseNote = async (note: {
     author: admin
       ? {
           id: admin.id,
-          name: admin.email.split('@')[0].replace(/[._-]+/g, ' '),
+          name: formatAdminNoteAuthorName(admin.email),
           email: admin.email,
           role: 'Admin',
           avatar: buildSupportAvatar(admin.email, admin.id),
@@ -500,6 +539,7 @@ const enrichSupportCase = async (supportCase: {
 
   return {
     ...supportCase,
+    priority: normalizeStoredCasePriority(supportCase.priority),
     user,
     userLabel: user?.name || supportCase.userId || 'Unknown user',
     assignedTo,
@@ -689,7 +729,14 @@ export const getSupportCases = catchAsync(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const where: any = {};
     if (status) where.status = status;
-    if (priority) where.priority = priority;
+    if (priority) {
+      const p = String(priority).toUpperCase();
+      if (p === 'LOW') {
+        where.priority = { in: [CasePriority.LOW, CasePriority.MEDIUM] };
+      } else {
+        where.priority = priority;
+      }
+    }
     if (userId) where.userId = userId;
 
     const [cases, total] = await Promise.all([
@@ -723,12 +770,16 @@ export const getSupportCases = catchAsync(
 
 export const createSupportCase = catchAsync(
   async (req: Request, res: Response) => {
-    const { subject, description, category, priority, userId, userType } =
-      req.body;
+    const { subject, description, category, userId, userType } = req.body;
 
     // Generate a friendly ID (SC-XXXX)
     const count = await prisma.supportCase.count();
     const caseId = `SC-${2000 + count + 1}`;
+
+    const priorityResolved = await deriveAdminSupportCasePriority(
+      userType,
+      userId,
+    );
 
     const newCase = await prisma.supportCase.create({
       data: {
@@ -736,7 +787,7 @@ export const createSupportCase = catchAsync(
         subject,
         description,
         category,
-        priority: priority || 'MEDIUM',
+        priority: priorityResolved,
         userId,
         userType,
       },
@@ -744,7 +795,12 @@ export const createSupportCase = catchAsync(
 
     res.status(201).json({
       status: 'success',
-      data: { case: newCase },
+      data: {
+        case: {
+          ...newCase,
+          priority: normalizeStoredCasePriority(newCase.priority),
+        },
+      },
     });
   },
 );
@@ -759,7 +815,7 @@ export const getCaseById = catchAsync(
         assignedTo: { select: { id: true, email: true, role: true } },
         notes: {
           include: { admin: { select: { id: true, email: true } } },
-          orderBy: { createdAt: 'desc' },
+          orderBy: { createdAt: 'asc' },
         },
       },
     });
@@ -790,18 +846,21 @@ export const updateCaseStatus = catchAsync(
       throw new AppError('No case found with that ID', 404);
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = {};
+    if (status !== undefined) data.status = status;
+    if (priority !== undefined)
+      data.priority = normalizeStoredCasePriority(priority);
+    if (assignedToId !== undefined) data.assignedToId = assignedToId;
+
     const updatedCase = await prisma.supportCase.update({
       where: { id: supportCase.id },
-      data: {
-        status,
-        priority,
-        assignedToId,
-      },
+      data,
       include: {
         assignedTo: { select: { id: true, email: true, role: true } },
         notes: {
           include: { admin: { select: { id: true, email: true } } },
-          orderBy: { createdAt: 'desc' },
+          orderBy: { createdAt: 'asc' },
         },
       },
     });
@@ -816,11 +875,16 @@ export const updateCaseStatus = catchAsync(
 export const addCaseNote = catchAsync(
   async (req: CustomRequest, res: Response) => {
     const { id } = req.params;
-    const { content, isInternal } = req.body;
+    const { content } = req.body;
     const adminId = req.user?.id; // From adminAuthMiddleware
 
     if (!adminId) {
       throw new AppError('Admin not authenticated', 401);
+    }
+
+    const normalizedContent = String(content || '').trim();
+    if (!normalizedContent) {
+      throw new AppError('Note content is required', 400);
     }
 
     const supportCase = await prisma.supportCase.findFirst({
@@ -836,12 +900,18 @@ export const addCaseNote = catchAsync(
       data: {
         caseId: supportCase.id,
         adminId,
-        content,
-        isInternal: isInternal ?? true,
+        content: normalizedContent,
+        // Team-only notes on the admin case view (not shown to the end user in-app)
+        isInternal: true,
       },
       include: {
         admin: { select: { id: true, email: true } },
       },
+    });
+
+    await prisma.supportCase.update({
+      where: { id: supportCase.id },
+      data: { updatedAt: new Date() },
     });
 
     res.status(201).json({
