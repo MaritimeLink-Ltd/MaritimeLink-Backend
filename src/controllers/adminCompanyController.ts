@@ -50,13 +50,11 @@ export const getCompaniesOverview = catchAsync(
     ]);
 
     // Aggregate stats for widgets
-    const [totalCount, claimedCount, unclaimedCount, mergeRequestsCount] =
-      await Promise.all([
-        prisma.company.count(),
-        prisma.company.count({ where: { isClaimed: true } }),
-        prisma.company.count({ where: { isClaimed: false } }),
-        prisma.companyMergeRequest.count({ where: { status: 'PENDING' } }),
-      ]);
+    const [totalCount, claimedCount, unclaimedCount] = await Promise.all([
+      prisma.company.count(),
+      prisma.company.count({ where: { isClaimed: true } }),
+      prisma.company.count({ where: { isClaimed: false } }),
+    ]);
 
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
@@ -74,7 +72,6 @@ export const getCompaniesOverview = catchAsync(
           total: { count: totalCount, today: joinedToday },
           claimed: claimedCount,
           unclaimed: unclaimedCount,
-          mergeRequests: mergeRequestsCount,
         },
       },
     });
