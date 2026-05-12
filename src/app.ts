@@ -39,7 +39,13 @@ app.get('/health', (req: Request, res: Response) => {
 });
 
 // Security & optimization middleware
-app.use(helmet());
+// CORP "same-origin" blocks cross-origin clients (e.g. Swagger UI on another host,
+// local dev frontends) from reading responses even when CORS allows the origin.
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  }),
+);
 app.use(cors());
 app.use(compression());
 
