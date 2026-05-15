@@ -542,8 +542,9 @@ export const rejectAttendee = catchAsync(
         );
       }
 
-      const stripeRefund =
-        await stripeService.refundPayment(resolvedPaymentIntentId);
+      const stripeRefund = await stripeService.refundPayment(
+        resolvedPaymentIntentId,
+      );
       refundProcessed = true;
       stripeRefundId = stripeRefund.id;
       refundAmount =
