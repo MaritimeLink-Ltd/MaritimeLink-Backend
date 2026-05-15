@@ -284,13 +284,29 @@ export const confirmBooking = catchAsync(
       return next(new AppError('Booking not found', 404));
     }
 
-    // Usually, we rely on webhooks, but we can verify status here if needed
-    // For this flow, we'll mark as pending_approval if status is succeeded
+    if (!booking.stripePaymentIntentId) {
+      return next(
+        new AppError('Payment has not been started for this booking', 400),
+      );
+    }
+
+    const paymentIntent = await stripeService.retrievePaymentIntent(
+      booking.stripePaymentIntentId,
+    );
+
+    if (paymentIntent.status !== 'succeeded') {
+      return next(new AppError('Payment has not been completed yet', 400));
+    }
+
     const updatedBooking = await prisma.courseBooking.update({
       where: { id: bookingId },
       data: {
-        // bookingStatus: 'PENDING', // already pending, moves to confirmed on webhook or approval
-        paymentStatus: 'SUCCEEDED', // assuming frontend passed client-side success
+        paymentStatus: 'SUCCEEDED',
+        bookingStatus:
+          booking.bookingStatus === 'PENDING'
+            ? 'CONFIRMED'
+            : booking.bookingStatus,
+        paidAt: booking.paidAt || new Date(),
       },
     });
 

@@ -3,6 +3,7 @@ import { env } from '../config/env.js';
 import { prisma } from '../config/prisma.js';
 import { logActivity } from './activityLogger.js';
 import { ActionStatus, ActorType } from '../generated/client/index.js';
+import { AppError } from '../utils/AppError.js';
 
 const stripe = new Stripe(env.STRIPE_SECRET_KEY, {
   apiVersion: '2026-01-28.clover',
@@ -20,6 +21,16 @@ interface CreateCheckoutSessionParams {
 }
 
 let cachedPriceId: string | null = null;
+
+function normalizePaymentIntentId(value: unknown): string | null {
+  if (!value) return null;
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object' && value !== null && 'id' in value) {
+    const id = (value as { id?: string }).id;
+    return id ? String(id) : null;
+  }
+  return null;
+}
 
 export const stripeService = {
   /**
@@ -416,12 +427,14 @@ export const stripeService = {
       return;
     }
 
+    const paymentIntentId = normalizePaymentIntentId(session.payment_intent);
+
     await prisma.courseBooking.update({
       where: { id: bookingId },
       data: {
         paymentStatus: 'SUCCEEDED',
-        bookingStatus: 'PENDING',
-        stripePaymentIntentId: session.payment_intent as string,
+        bookingStatus: 'CONFIRMED',
+        ...(paymentIntentId ? { stripePaymentIntentId: paymentIntentId } : {}),
         paidAt: new Date(),
       },
     });
@@ -458,11 +471,37 @@ export const stripeService = {
         where: { id: booking.id },
         data: {
           paymentStatus: 'SUCCEEDED',
-          bookingStatus: 'PENDING',
+          bookingStatus: 'CONFIRMED',
           paidAt: new Date(),
         },
       });
     }
+  },
+
+  /**
+   * Resolve Stripe PaymentIntent id from a booking record.
+   */
+  async resolvePaymentIntentIdForBooking(booking: {
+    stripePaymentIntentId?: string | null;
+    stripeSessionId?: string | null;
+  }): Promise<string | null> {
+    const fromBooking = normalizePaymentIntentId(booking.stripePaymentIntentId);
+    if (fromBooking) return fromBooking;
+
+    if (!booking.stripeSessionId) return null;
+
+    const session = await stripe.checkout.sessions.retrieve(
+      booking.stripeSessionId,
+    );
+    return normalizePaymentIntentId(session.payment_intent);
+  },
+
+  async retrievePaymentIntent(paymentIntentId: string) {
+    const id = normalizePaymentIntentId(paymentIntentId);
+    if (!id) {
+      throw new AppError('Invalid payment reference', 400);
+    }
+    return stripe.paymentIntents.retrieve(id);
   },
 
   /**
@@ -531,17 +570,35 @@ export const stripeService = {
   },
 
   /**
-   * Refund a payment
+   * Refund a card payment back to the professional (full amount on the PaymentIntent).
    */
   async refundPayment(paymentIntentId: string) {
+    const id = normalizePaymentIntentId(paymentIntentId);
+    if (!id) {
+      throw new AppError('Invalid payment reference for refund', 400);
+    }
+
     try {
-      const refund = await stripe.refunds.create({
-        payment_intent: paymentIntentId,
-      });
-      return refund;
+      const paymentIntent = await stripe.paymentIntents.retrieve(id);
+      const refundParams: Stripe.RefundCreateParams = {
+        payment_intent: id,
+      };
+
+      // Connect destination charges need transfer reversal so funds return to the card.
+      if (paymentIntent.transfer_data?.destination) {
+        refundParams.reverse_transfer = true;
+        refundParams.refund_application_fee = true;
+      }
+
+      return await stripe.refunds.create(refundParams);
     } catch (error) {
       console.error('Stripe refund error:', error);
-      throw new Error('Failed to process refund');
+      if (error instanceof AppError) throw error;
+      const message =
+        error instanceof Stripe.errors.StripeError
+          ? error.message
+          : 'Failed to process refund with Stripe';
+      throw new AppError(message, 400);
     }
   },
 };

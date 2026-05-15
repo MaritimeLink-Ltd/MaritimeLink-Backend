@@ -488,7 +488,7 @@ export const approveAttendee = catchAsync(
  */
 export const rejectAttendee = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
-    const { bookingId } = req.params;
+    const { bookingId, sessionId } = req.params;
     const recruiterId = req.user?.id;
 
     if (!recruiterId) return next(new AppError('Unauthorized', 401));
@@ -497,6 +497,7 @@ export const rejectAttendee = catchAsync(
       where: {
         id: bookingId,
         course: { recruiterId },
+        ...(sessionId ? { sessions: { some: { id: sessionId } } } : {}),
       },
     });
 
@@ -507,11 +508,22 @@ export const rejectAttendee = catchAsync(
     }
 
     let refundProcessed = false;
-    if (
-      booking.paymentStatus === 'SUCCEEDED' &&
-      booking.stripePaymentIntentId
-    ) {
-      await stripeService.refundPayment(booking.stripePaymentIntentId);
+    let resolvedPaymentIntentId: string | null = null;
+
+    if (booking.paymentStatus === 'SUCCEEDED') {
+      resolvedPaymentIntentId =
+        await stripeService.resolvePaymentIntentIdForBooking(booking);
+
+      if (!resolvedPaymentIntentId) {
+        return next(
+          new AppError(
+            'This booking was paid but has no Stripe payment on file. Contact support to refund manually.',
+            400,
+          ),
+        );
+      }
+
+      await stripeService.refundPayment(resolvedPaymentIntentId);
       refundProcessed = true;
     }
 
@@ -520,6 +532,9 @@ export const rejectAttendee = catchAsync(
       data: {
         bookingStatus: 'CANCELLED',
         paymentStatus: refundProcessed ? 'REFUNDED' : booking.paymentStatus,
+        ...(resolvedPaymentIntentId && !booking.stripePaymentIntentId
+          ? { stripePaymentIntentId: resolvedPaymentIntentId }
+          : {}),
       },
       include: {
         course: true,
@@ -556,13 +571,14 @@ export const rejectAttendee = catchAsync(
           ? 'Course Booking Rejected and Refunded'
           : 'Course Booking Rejected',
         message: refundProcessed
-          ? `Your booking for "${updatedBooking.course.title}" was rejected and your payment was refunded.`
+          ? `Your booking for "${updatedBooking.course.title}" was rejected. A full refund has been issued to your card and may take 5–10 business days to appear.`
           : `Your booking for "${updatedBooking.course.title}" was rejected.`,
         metadata: {
           bookingId: booking.id,
           courseTitle: updatedBooking.course.title,
           status: 'CANCELLED',
           refundProcessed,
+          paymentStatus: refundProcessed ? 'REFUNDED' : booking.paymentStatus,
         },
       },
     });

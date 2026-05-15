@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { ZodError } from 'zod';
 import { AppError } from '../utils/AppError.js';
 
 export const errorHandler = (
@@ -8,6 +9,16 @@ export const errorHandler = (
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   next: NextFunction,
 ): void => {
+  if (err instanceof ZodError) {
+    const message =
+      err.issues[0]?.message || 'Please check your input and try again.';
+    res.status(400).json({
+      status: 'error',
+      message,
+    });
+    return;
+  }
+
   if (err instanceof AppError) {
     res.status(err.statusCode).json({
       status: 'error',

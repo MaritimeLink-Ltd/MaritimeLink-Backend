@@ -55,7 +55,11 @@ export const updateSummary = catchAsync(
     const professionalId = req.user?.id;
     if (!professionalId) return next(new AppError('Unauthorized', 401));
 
-    const { summary } = summaryStepSchema.parse(req.body);
+    const validation = summaryStepSchema.safeParse(req.body);
+    if (!validation.success) {
+      return next(new AppError(validation.error.issues[0].message, 400));
+    }
+    const { summary } = validation.data;
 
     await prisma.professionalResume.upsert({
       where: { professionalId },

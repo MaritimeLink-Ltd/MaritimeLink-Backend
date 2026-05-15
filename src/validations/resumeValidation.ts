@@ -20,7 +20,10 @@ export const personalInfoStepSchema = z.object({
 });
 
 export const summaryStepSchema = z.object({
-  summary: z.string().min(20).max(2000),
+  summary: z
+    .string()
+    .min(20, 'Write at least 20 characters.')
+    .max(2000, 'Summary must be at most 2000 characters.'),
 });
 
 export const skillStepSchema = z.object({
