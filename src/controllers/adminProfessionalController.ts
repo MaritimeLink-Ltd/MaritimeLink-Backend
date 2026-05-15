@@ -5,23 +5,12 @@ import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
 import {
   DocumentCategory,
-  KycRiskLevel,
   VerificationStatus,
 } from '../generated/client/index.js';
+import { resolveProfessionalRiskLevel } from '../utils/kycRiskLevel.js';
 
 /** Matches admin dashboard expiring-compliance card (past expired + forward window). */
 const ADMIN_COMPLIANCE_EXPIRED_LOOKBACK_DAYS = 365;
-
-const resolveProfessionalRiskLevel = (
-  kyc: { riskLevel: KycRiskLevel } | null | undefined,
-  mismatchDocCount: number,
-) => {
-  if (mismatchDocCount > 0) {
-    return KycRiskLevel.HIGH;
-  }
-
-  return kyc?.riskLevel ?? KycRiskLevel.LOW;
-};
 
 /**
  * Get all professionals with filtering and pagination

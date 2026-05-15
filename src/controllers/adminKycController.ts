@@ -3,6 +3,11 @@ import { prisma } from '../config/prisma.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { CustomRequest } from '../types/index.js';
 import { AppError } from '../utils/AppError.js';
+import {
+  countMismatchDocumentsByProfessionalIds,
+  resolveProfessionalRiskLevel,
+  resolveRecruiterRiskLevel,
+} from '../utils/kycRiskLevel.js';
 
 /**
  * @desc    Get all KYC submissions (Professionals + Recruiters)
@@ -19,7 +24,10 @@ export const getAllKYCSubmissions = catchAsync(
 
     const whereClause: any = {}; // eslint-disable-line @typescript-eslint/no-explicit-any
     if (status) whereClause.status = status as any; // eslint-disable-line @typescript-eslint/no-explicit-any
-    if (riskLevel) whereClause.riskLevel = riskLevel as any; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const riskLevelFilter =
+      typeof riskLevel === 'string' && riskLevel.length > 0
+        ? (riskLevel as string).toUpperCase()
+        : null;
 
     if (timeframe) {
       const now = new Date();
@@ -102,6 +110,8 @@ export const getAllKYCSubmissions = catchAsync(
               email: true,
               lastActive: true,
               role: true,
+              organizationRiskLevel: true,
+              organizationVerified: true,
               company: {
                 select: { name: true },
               },
@@ -112,54 +122,78 @@ export const getAllKYCSubmissions = catchAsync(
       });
     }
 
+    const professionalIds = proKycs.map((k) => k.professionalId);
+    const mismatchDocCounts =
+      await countMismatchDocumentsByProfessionalIds(professionalIds);
+
     const allSubmissions = [
-      ...proKycs.map((k) => ({
-        id: k.id,
-        userId: k.professionalId,
-        userType: 'PROFESSIONAL',
-        roleLabel: k.professional.subcategory || 'Professional',
-        name: k.professional.fullname,
-        email: k.professional.email,
-        companyName: 'Individual',
-        status: k.status,
-        riskLevel: k.riskLevel,
-        reviewStep: k.reviewStep,
-        mismatchDetected: k.mismatchDetected,
-        ocrConfidence: k.ocrConfidence,
-        submittedAt: k.createdAt,
-        updatedAt: k.updatedAt,
-        slaStatus: getSLAStatus(k.createdAt, k.updatedAt, k.status),
-      })),
-      ...recKycs.map((k) => ({
-        id: k.id,
-        userId: k.recruiterId,
-        userType:
-          k.recruiter.role === 'TRAINING_AGENT'
-            ? 'TRAINING_PROVIDER'
-            : 'RECRUITER',
-        roleLabel:
-          k.recruiter.role === 'TRAINING_AGENT'
-            ? 'Training Provider'
-            : 'Recruitment Agent',
-        name: k.recruiter.organizationName || k.recruiter.email,
-        email: k.recruiter.email,
-        companyName: k.recruiter.company?.name || 'N/A',
-        status: k.status,
-        riskLevel: k.riskLevel,
-        reviewStep: k.reviewStep,
-        mismatchDetected: k.mismatchDetected,
-        ocrConfidence: k.ocrConfidence,
-        submittedAt: k.createdAt,
-        updatedAt: k.updatedAt,
-        slaStatus: getSLAStatus(k.createdAt, k.updatedAt, k.status),
-      })),
+      ...proKycs.map((k) => {
+        const mismatchDocCount = mismatchDocCounts.get(k.professionalId) ?? 0;
+        const effectiveRisk = resolveProfessionalRiskLevel(k, mismatchDocCount);
+
+        return {
+          id: k.id,
+          userId: k.professionalId,
+          userType: 'PROFESSIONAL',
+          roleLabel: k.professional.subcategory || 'Professional',
+          name: k.professional.fullname,
+          email: k.professional.email,
+          companyName: 'Individual',
+          status: k.status,
+          riskLevel: effectiveRisk,
+          storedRiskLevel: k.riskLevel,
+          reviewStep: k.reviewStep,
+          mismatchDetected: k.mismatchDetected || mismatchDocCount > 0,
+          documentMismatchCount: mismatchDocCount,
+          ocrConfidence: k.ocrConfidence,
+          submittedAt: k.createdAt,
+          updatedAt: k.updatedAt,
+          slaStatus: getSLAStatus(k.createdAt, k.updatedAt, k.status),
+        };
+      }),
+      ...recKycs.map((k) => {
+        const effectiveRisk = resolveRecruiterRiskLevel({
+          organizationRiskLevel: k.recruiter.organizationRiskLevel,
+          organizationVerified: k.recruiter.organizationVerified,
+          kyc: k,
+        });
+
+        return {
+          id: k.id,
+          userId: k.recruiterId,
+          userType:
+            k.recruiter.role === 'TRAINING_AGENT'
+              ? 'TRAINING_PROVIDER'
+              : 'RECRUITER',
+          roleLabel:
+            k.recruiter.role === 'TRAINING_AGENT'
+              ? 'Training Provider'
+              : 'Recruitment Agent',
+          name: k.recruiter.organizationName || k.recruiter.email,
+          email: k.recruiter.email,
+          companyName: k.recruiter.company?.name || 'N/A',
+          status: k.status,
+          riskLevel: effectiveRisk,
+          storedRiskLevel: k.riskLevel,
+          reviewStep: k.reviewStep,
+          mismatchDetected: k.mismatchDetected,
+          ocrConfidence: k.ocrConfidence,
+          submittedAt: k.createdAt,
+          updatedAt: k.updatedAt,
+          slaStatus: getSLAStatus(k.createdAt, k.updatedAt, k.status),
+        };
+      }),
     ].sort(
       (a, b) =>
         new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
     );
 
-    const total = allSubmissions.length;
-    const paginatedSubmissions = allSubmissions.slice(skip, skip + limit);
+    const filteredSubmissions = riskLevelFilter
+      ? allSubmissions.filter((s) => s.riskLevel === riskLevelFilter)
+      : allSubmissions;
+
+    const total = filteredSubmissions.length;
+    const paginatedSubmissions = filteredSubmissions.slice(skip, skip + limit);
 
     res.status(200).json({
       status: 'success',
@@ -357,11 +391,40 @@ export const getKYCStats = catchAsync(
       prisma.professionalKyc.count({ where: { status: 'PENDING' } }),
       prisma.professionalKyc.count({ where: { status: 'APPROVED' } }),
       prisma.professionalKyc.count({ where: { status: 'REJECTED' } }),
-      prisma.professionalKyc.count({ where: { riskLevel: 'HIGH' } }),
+      prisma.professionalKyc.count({
+        where: {
+          OR: [
+            { riskLevel: 'HIGH' },
+            { mismatchDetected: true },
+            {
+              professional: {
+                documents: {
+                  some: { verificationStatus: 'MISMATCH' },
+                },
+              },
+            },
+          ],
+        },
+      }),
       prisma.recruiterKyc.count({ where: { status: 'PENDING' } }),
       prisma.recruiterKyc.count({ where: { status: 'APPROVED' } }),
       prisma.recruiterKyc.count({ where: { status: 'REJECTED' } }),
-      prisma.recruiterKyc.count({ where: { riskLevel: 'HIGH' } }),
+      prisma.recruiterKyc.count({
+        where: {
+          OR: [
+            { riskLevel: 'HIGH' },
+            { mismatchDetected: true },
+            {
+              recruiter: {
+                OR: [
+                  { organizationRiskLevel: 'HIGH' },
+                  { organizationVerified: false },
+                ],
+              },
+            },
+          ],
+        },
+      }),
       prisma.professionalKyc.count({ where: { createdAt: { gte: today } } }),
       prisma.recruiterKyc.count({ where: { createdAt: { gte: today } } }),
     ]);
