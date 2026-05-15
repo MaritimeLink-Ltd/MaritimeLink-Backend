@@ -14,6 +14,7 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:pull": "prisma db pull",
     "test": "NODE_OPTIONS=--experimental-vm-modules jest",
+    "stripe:setup-membership": "tsx src/scripts/setup-stripe-membership-prices.ts",
     "prepare": "if [ \"$NODE_ENV\" != \"production\" ]; then husky; fi"
   },
   "keywords": [],

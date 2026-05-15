@@ -7,7 +7,10 @@ import {
   updateBookingStatusSchema,
   messageTraineeSchema,
 } from '../validations/jobValidation.js';
-import { stripeService } from '../services/stripeService.js';
+import {
+  stripeService,
+  isBookingPaymentSucceeded,
+} from '../services/stripeService.js';
 
 const bookingDocumentSelect = {
   id: true,
@@ -507,12 +510,28 @@ export const rejectAttendee = catchAsync(
       return next(new AppError('Completed attendees cannot be rejected', 400));
     }
 
+    if (booking.bookingStatus === 'CANCELLED') {
+      return next(new AppError('This booking is already cancelled', 400));
+    }
+
+    if (booking.paymentStatus === 'REFUNDED') {
+      return next(new AppError('This booking has already been refunded', 400));
+    }
+
     let refundProcessed = false;
     let resolvedPaymentIntentId: string | null = null;
+    let stripeRefundId: string | null = null;
+    let refundAmount: number | null = null;
+    let refundCurrency: string | null = null;
+    let refundNote: string | null = null;
 
-    if (booking.paymentStatus === 'SUCCEEDED') {
+    if (isBookingPaymentSucceeded(booking.paymentStatus)) {
       resolvedPaymentIntentId =
-        await stripeService.resolvePaymentIntentIdForBooking(booking);
+        await stripeService.resolvePaymentIntentIdForBooking({
+          id: booking.id,
+          stripePaymentIntentId: booking.stripePaymentIntentId,
+          stripeSessionId: booking.stripeSessionId,
+        });
 
       if (!resolvedPaymentIntentId) {
         return next(
@@ -523,8 +542,21 @@ export const rejectAttendee = catchAsync(
         );
       }
 
-      await stripeService.refundPayment(resolvedPaymentIntentId);
+      const stripeRefund =
+        await stripeService.refundPayment(resolvedPaymentIntentId);
       refundProcessed = true;
+      stripeRefundId = stripeRefund.id;
+      refundAmount =
+        stripeRefund.amount != null
+          ? stripeRefund.amount / 100
+          : Number(booking.amountPaid);
+      refundCurrency = (
+        stripeRefund.currency ||
+        booking.currency ||
+        'GBP'
+      ).toUpperCase();
+    } else {
+      refundNote = `No card refund: payment status is ${booking.paymentStatus || 'unknown'} (only SUCCEEDED/PAID bookings are refunded).`;
     }
 
     const updatedBooking = await prisma.courseBooking.update({
@@ -590,12 +622,30 @@ export const rejectAttendee = catchAsync(
       });
     }
 
+    const refund = {
+      processed: refundProcessed,
+      amount: refundAmount,
+      currency: refundCurrency,
+      stripeRefundId,
+      stripePaymentIntentId: resolvedPaymentIntentId,
+      note: refundNote,
+    };
+
+    const message = refundProcessed
+      ? `Attendee rejected. ${refundAmount} ${refundCurrency} is being refunded to the professional's card (usually 5–10 business days).`
+      : refundNote
+        ? `Attendee rejected. ${refundNote}`
+        : 'Attendee rejected successfully.';
+
     res.status(200).json({
       status: 'success',
-      message: refundProcessed
-        ? 'Attendee rejected successfully. Payment refunded.'
-        : 'Attendee rejected successfully.',
-      data: { booking: updatedBooking, refundProcessed },
+      refundProcessed,
+      message,
+      data: {
+        booking: updatedBooking,
+        refundProcessed,
+        refund,
+      },
     });
   },
 );

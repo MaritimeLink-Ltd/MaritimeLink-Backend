@@ -388,6 +388,16 @@ router.get('/me', protect, authController.getMyAccount);
 router.patch('/availability', protect, authController.updateAvailability);
 router.post('/feedback', protect, authController.submitFeedback);
 router.get('/membership', protect, authController.getMembership);
+router.post(
+  '/membership/checkout',
+  protect,
+  authController.createMembershipCheckout,
+);
+router.post(
+  '/membership/confirm',
+  protect,
+  authController.confirmMembershipCheckout,
+);
 router.patch('/membership', protect, authController.updateMembership);
 router.patch(
   '/profile-photo',

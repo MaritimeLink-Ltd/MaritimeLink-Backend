@@ -22,6 +22,7 @@ import { CustomRequest } from '../types/index.js';
 import { logActivity } from '../services/activityLogger.js';
 import { ActorType, ActionStatus } from '../generated/client/index.js';
 import { getClientIp } from '../utils/requestMetadata.js';
+import { stripeService } from '../services/stripeService.js';
 
 /**
  * Step 1: Registration
@@ -330,7 +331,7 @@ export const submitFeedback = catchAsync(
 );
 
 export const getMembership = catchAsync(
-  async (req: CustomRequest, res: Response) => {
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
     const professional = await prisma.professional.findUnique({
       where: { id: req.user?.id },
       select: {
@@ -339,23 +340,124 @@ export const getMembership = catchAsync(
       },
     });
 
+    let plans;
+    try {
+      plans = await stripeService.listMembershipPlansForApp();
+    } catch (error) {
+      console.error('Failed to load Stripe membership plans:', error);
+      return next(
+        new AppError(
+          'Unable to load membership plans from Stripe. Check your Stripe configuration.',
+          503,
+        ),
+      );
+    }
+
     res.status(200).json({
       status: 'success',
       data: {
         membership: {
           tier: professional?.tier ?? 'FREE',
           membershipUpdatedAt: professional?.membershipUpdatedAt ?? null,
-          plans: [
-            { id: 'FREE', name: 'Free', price: 0, interval: 'month' },
-            {
-              id: 'PRO',
-              name: 'Maritime Premium',
-              price: 19.99,
-              interval: 'month',
-            },
-          ],
+          plans,
         },
       },
+    });
+  },
+);
+
+export const createMembershipCheckout = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const professionalId = req.user?.id;
+    if (!professionalId) {
+      return next(new AppError('Unauthorized', 401));
+    }
+
+    const stripePriceId =
+      req.body.stripePriceId || req.body.priceId || req.body.id;
+    if (!stripePriceId || typeof stripePriceId !== 'string') {
+      return next(
+        new AppError(
+          'stripePriceId is required. Choose a plan from GET /membership first.',
+          400,
+        ),
+      );
+    }
+
+    const professional = await prisma.professional.findUnique({
+      where: { id: professionalId },
+      select: { email: true, tier: true },
+    });
+
+    if (!professional?.email) {
+      return next(new AppError('Professional account not found', 404));
+    }
+
+    if (professional.tier === 'PRO') {
+      return next(new AppError('You already have an active premium plan', 400));
+    }
+
+    const selectedPlan =
+      await stripeService.validateMembershipPriceId(stripePriceId);
+
+    const checkout = await stripeService.createMembershipCheckoutSession({
+      professionalId,
+      email: professional.email,
+      stripePriceId,
+      planCode: req.body.planCode || selectedPlan.planCode,
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Checkout session created.',
+      data: checkout,
+    });
+  },
+);
+
+export const confirmMembershipCheckout = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const professionalId = req.user?.id;
+    if (!professionalId) {
+      return next(new AppError('Unauthorized', 401));
+    }
+
+    const sessionId =
+      (req.query.session_id as string) || (req.body.sessionId as string);
+    if (!sessionId) {
+      return next(new AppError('session_id is required', 400));
+    }
+
+    const session = await stripeService.getCheckoutSession(sessionId);
+    const sessionProfessionalId =
+      session.metadata?.professionalId || session.client_reference_id;
+
+    if (sessionProfessionalId !== professionalId) {
+      return next(
+        new AppError('Checkout session does not belong to this account', 403),
+      );
+    }
+
+    if (session.metadata?.type !== 'membership') {
+      return next(new AppError('Invalid checkout session type', 400));
+    }
+
+    const membership =
+      await stripeService.activateMembershipFromSession(session);
+
+    if (!membership) {
+      return next(
+        new AppError(
+          'Payment is not complete yet. Please wait a moment and refresh.',
+          400,
+        ),
+      );
+    }
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Membership activated successfully.',
+      data: { membership },
     });
   },
 );
@@ -366,6 +468,15 @@ export const updateMembership = catchAsync(
 
     if (!['FREE', 'PRO'].includes(tier)) {
       return next(new AppError('Membership tier must be FREE or PRO', 400));
+    }
+
+    if (tier === 'PRO') {
+      return next(
+        new AppError(
+          'Paid plans require card checkout. Use membership checkout instead.',
+          400,
+        ),
+      );
     }
 
     const professional = await prisma.professional.update({

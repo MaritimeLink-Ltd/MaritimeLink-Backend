@@ -22,6 +22,41 @@ interface CreateCheckoutSessionParams {
 
 let cachedPriceId: string | null = null;
 
+export type MembershipPlanCode = 'FREE' | 'BASIC' | 'PRO' | 'PREMIUM';
+
+export interface MembershipPlanOption {
+  /** Stripe Price id for paid plans, or `FREE` for the free tier */
+  id: string;
+  planCode: MembershipPlanCode;
+  name: string;
+  description: string | null;
+  price: number;
+  currency: string;
+  interval: string;
+  stripePriceId: string | null;
+  /** Tier stored on Professional after successful subscription */
+  membershipTier: 'FREE' | 'PRO';
+  popular: boolean;
+}
+
+const EXCLUDED_MEMBERSHIP_PRODUCT_NAMES = new Set(['course']);
+
+function deriveMembershipPlanCode(productName: string): MembershipPlanCode {
+  const name = productName.toLowerCase();
+  if (name.includes('basic')) return 'BASIC';
+  if (name.includes('plus')) return 'PREMIUM';
+  if (name.includes('professional')) return 'PRO';
+  if (name.includes('premium')) return 'PREMIUM';
+  return 'PRO';
+}
+
+export function isBookingPaymentSucceeded(
+  paymentStatus: string | null | undefined,
+): boolean {
+  const status = String(paymentStatus || '').toUpperCase();
+  return status === 'SUCCEEDED' || status === 'PAID';
+}
+
 function normalizePaymentIntentId(value: unknown): string | null {
   if (!value) return null;
   if (typeof value === 'string') return value;
@@ -342,6 +377,236 @@ export const stripeService = {
   },
 
   /**
+   * List active recurring membership products/prices from Stripe (no env price IDs).
+   */
+  async listMembershipPlans(): Promise<MembershipPlanOption[]> {
+    const [products, prices] = await Promise.all([
+      stripe.products.list({ active: true, limit: 100 }),
+      stripe.prices.list({ active: true, type: 'recurring', limit: 100 }),
+    ]);
+
+    const plans: MembershipPlanOption[] = [];
+
+    for (const product of products.data) {
+      const productName = (product.name || '').trim();
+      const nameLower = productName.toLowerCase();
+      if (!productName || EXCLUDED_MEMBERSHIP_PRODUCT_NAMES.has(nameLower)) {
+        continue;
+      }
+
+      const productPrices = prices.data.filter((p) => p.product === product.id);
+      const price =
+        productPrices.find((p) => p.recurring?.interval === 'month') ||
+        productPrices.sort(
+          (a, b) => (a.unit_amount ?? 0) - (b.unit_amount ?? 0),
+        )[0];
+
+      if (!price?.unit_amount) continue;
+
+      const planCode = deriveMembershipPlanCode(productName);
+
+      plans.push({
+        id: price.id,
+        planCode,
+        name: productName,
+        description: product.description ?? null,
+        price: price.unit_amount / 100,
+        currency: price.currency.toUpperCase(),
+        interval: price.recurring?.interval || 'month',
+        stripePriceId: price.id,
+        membershipTier: 'PRO',
+        popular: planCode === 'PRO',
+      });
+    }
+
+    plans.sort((a, b) => a.price - b.price);
+    return plans;
+  },
+
+  /**
+   * Plans shown in the app: free tier + Stripe catalog.
+   */
+  async listMembershipPlansForApp(): Promise<MembershipPlanOption[]> {
+    const paidPlans = await this.listMembershipPlans();
+    return [
+      {
+        id: 'FREE',
+        planCode: 'FREE',
+        name: 'Free',
+        description: 'Basic access with standard profile visibility.',
+        price: 0,
+        currency: paidPlans[0]?.currency || 'GBP',
+        interval: 'month',
+        stripePriceId: null,
+        membershipTier: 'FREE',
+        popular: false,
+      },
+      ...paidPlans,
+    ];
+  },
+
+  async validateMembershipPriceId(
+    stripePriceId: string,
+  ): Promise<MembershipPlanOption> {
+    const plans = await this.listMembershipPlans();
+    const match = plans.find((p) => p.stripePriceId === stripePriceId);
+    if (match) return match;
+
+    const price = await stripe.prices.retrieve(stripePriceId);
+    if (!price.active || price.type !== 'recurring') {
+      throw new AppError(
+        'Selected plan is not an active subscription price',
+        400,
+      );
+    }
+
+    const productId =
+      typeof price.product === 'string' ? price.product : price.product.id;
+    const product = await stripe.products.retrieve(productId);
+    const nameLower = (product.name || '').toLowerCase();
+    if (EXCLUDED_MEMBERSHIP_PRODUCT_NAMES.has(nameLower)) {
+      throw new AppError(
+        'This product cannot be used as a membership plan',
+        400,
+      );
+    }
+
+    if (!price.unit_amount) {
+      throw new AppError('Selected plan has no price amount', 400);
+    }
+
+    const planCode = deriveMembershipPlanCode(product.name || '');
+    return {
+      id: price.id,
+      planCode,
+      name: product.name || 'Membership',
+      description: product.description ?? null,
+      price: price.unit_amount / 100,
+      currency: price.currency.toUpperCase(),
+      interval: price.recurring?.interval || 'month',
+      stripePriceId: price.id,
+      membershipTier: 'PRO',
+      popular: planCode === 'PRO',
+    };
+  },
+
+  /**
+   * Stripe Checkout (subscription) for professional membership upgrade.
+   */
+  async createMembershipCheckoutSession(params: {
+    professionalId: string;
+    email: string;
+    stripePriceId: string;
+    planCode?: string;
+  }) {
+    const plan = await this.validateMembershipPriceId(params.stripePriceId);
+    const planCode = params.planCode || plan.planCode;
+
+    const checkoutSession = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      payment_method_types: ['card'],
+      line_items: [{ price: params.stripePriceId, quantity: 1 }],
+      success_url: `${env.FRONTEND_URL}/personal/profile?membership=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${env.FRONTEND_URL}/personal/profile?membership=canceled`,
+      customer_email: params.email,
+      client_reference_id: params.professionalId,
+      metadata: {
+        type: 'membership',
+        professionalId: params.professionalId,
+        plan: planCode,
+        stripePriceId: params.stripePriceId,
+      },
+      subscription_data: {
+        metadata: {
+          type: 'membership',
+          professionalId: params.professionalId,
+          plan: planCode,
+          stripePriceId: params.stripePriceId,
+        },
+      },
+    });
+
+    if (!checkoutSession.url) {
+      throw new AppError('Stripe did not return a checkout URL', 502);
+    }
+
+    return {
+      checkoutUrl: checkoutSession.url,
+      sessionId: checkoutSession.id,
+    };
+  },
+
+  /**
+   * Activate PRO tier after successful membership checkout (webhook or success redirect).
+   */
+  async activateMembershipFromSession(session: Stripe.Checkout.Session) {
+    if (session.metadata?.type !== 'membership') {
+      return null;
+    }
+
+    const professionalId =
+      session.metadata?.professionalId || session.client_reference_id;
+    if (!professionalId) {
+      console.error('Membership checkout missing professionalId');
+      return null;
+    }
+
+    const isComplete =
+      session.payment_status === 'paid' ||
+      session.payment_status === 'no_payment_required' ||
+      session.status === 'complete';
+    if (!isComplete) {
+      return null;
+    }
+
+    const professional = await prisma.professional.update({
+      where: { id: professionalId },
+      data: {
+        tier: 'PRO',
+        membershipUpdatedAt: new Date(),
+      },
+      select: {
+        tier: true,
+        membershipUpdatedAt: true,
+      },
+    });
+
+    await logActivity({
+      action: 'MEMBERSHIP_UPGRADED',
+      actorId: professionalId,
+      actorType: ActorType.PROFESSIONAL,
+      targetId: professionalId,
+      targetType: 'Professional',
+      status: ActionStatus.SUCCESS,
+      metadata: {
+        plan: session.metadata?.plan || 'PRO',
+        stripeSessionId: session.id,
+        stripeSubscriptionId:
+          typeof session.subscription === 'string'
+            ? session.subscription
+            : session.subscription?.id,
+      },
+    });
+
+    return professional;
+  },
+
+  async handleSubscriptionDeleted(subscription: Stripe.Subscription) {
+    const professionalId = subscription.metadata?.professionalId;
+    if (!professionalId || subscription.metadata?.type !== 'membership') {
+      return;
+    }
+
+    await prisma.professional.update({
+      where: { id: professionalId },
+      data: {
+        tier: 'FREE',
+        membershipUpdatedAt: new Date(),
+      },
+    });
+  },
+
+  /**
    * Handle Stripe webhook events
    */
   async handleWebhook(signature: string, rawBody: Buffer) {
@@ -373,6 +638,12 @@ export const stripeService = {
         );
         break;
 
+      case 'customer.subscription.deleted':
+        await this.handleSubscriptionDeleted(
+          event.data.object as Stripe.Subscription,
+        );
+        break;
+
       default:
         console.log(`Unhandled event type: ${event.type}`);
     }
@@ -399,6 +670,11 @@ export const stripeService = {
    * Handle successful checkout session
    */
   async handleCheckoutComplete(session: Stripe.Checkout.Session) {
+    if (session.metadata?.type === 'membership') {
+      await this.activateMembershipFromSession(session);
+      return;
+    }
+
     const bookingId = session.metadata?.bookingId;
 
     if (!bookingId) {
@@ -482,18 +758,39 @@ export const stripeService = {
    * Resolve Stripe PaymentIntent id from a booking record.
    */
   async resolvePaymentIntentIdForBooking(booking: {
+    id?: string;
     stripePaymentIntentId?: string | null;
     stripeSessionId?: string | null;
   }): Promise<string | null> {
     const fromBooking = normalizePaymentIntentId(booking.stripePaymentIntentId);
     if (fromBooking) return fromBooking;
 
-    if (!booking.stripeSessionId) return null;
+    if (booking.stripeSessionId) {
+      const session = await stripe.checkout.sessions.retrieve(
+        booking.stripeSessionId,
+        { expand: ['payment_intent'] },
+      );
+      const fromSession = normalizePaymentIntentId(session.payment_intent);
+      if (fromSession) return fromSession;
+    }
 
-    const session = await stripe.checkout.sessions.retrieve(
-      booking.stripeSessionId,
-    );
-    return normalizePaymentIntentId(session.payment_intent);
+    if (!booking.id) return null;
+
+    try {
+      const search = await stripe.paymentIntents.search({
+        query: `metadata['bookingId']:'${booking.id}'`,
+        limit: 1,
+      });
+      const fromSearch = search.data[0]?.id;
+      if (fromSearch) return fromSearch;
+    } catch (error) {
+      console.warn(
+        `Stripe PaymentIntent search failed for booking ${booking.id}:`,
+        error,
+      );
+    }
+
+    return null;
   },
 
   async retrievePaymentIntent(paymentIntentId: string) {
@@ -588,6 +885,14 @@ export const stripeService = {
       if (paymentIntent.transfer_data?.destination) {
         refundParams.reverse_transfer = true;
         refundParams.refund_application_fee = true;
+      }
+
+      const existingRefunds = await stripe.refunds.list({
+        payment_intent: id,
+        limit: 1,
+      });
+      if (existingRefunds.data.length > 0) {
+        return existingRefunds.data[0];
       }
 
       return await stripe.refunds.create(refundParams);
