@@ -282,6 +282,7 @@ export const getJobById = catchAsync(
     // If the viewer is a logged-in professional, include application & saved status
     let hasApplied = false;
     let applicationStatus: string | null = null;
+    let applicationRejectionReason: string | null = null;
     let applicationId: string | null = null;
     let isSaved = false;
 
@@ -294,7 +295,7 @@ export const getJobById = catchAsync(
               professionalId: userId,
             },
           },
-          select: { id: true, status: true },
+          select: { id: true, status: true, rejectionReason: true },
         }),
         prisma.savedJob.findUnique({
           where: {
@@ -310,6 +311,7 @@ export const getJobById = catchAsync(
       if (application) {
         hasApplied = true;
         applicationStatus = application.status;
+        applicationRejectionReason = application.rejectionReason || null;
         applicationId = application.id;
       }
       isSaved = !!savedJob;
@@ -321,6 +323,7 @@ export const getJobById = catchAsync(
         job: effectiveJob,
         hasApplied,
         applicationStatus,
+        applicationRejectionReason,
         applicationId,
         isSaved,
       },

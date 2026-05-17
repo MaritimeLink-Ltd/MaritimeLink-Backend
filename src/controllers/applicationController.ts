@@ -189,7 +189,12 @@ export const getMyApplicationStatus = catchAsync(
           professionalId: userId,
         },
       },
-      select: { status: true, createdAt: true, id: true },
+      select: {
+        status: true,
+        createdAt: true,
+        id: true,
+        rejectionReason: true,
+      },
     });
 
     if (!application) {
@@ -387,16 +392,41 @@ export const withdrawApplication = catchAsync(
 /**
  * Update Application Status (Recruiter)
  */
+const buildRejectionAlertMessage = (
+  jobTitle: string,
+  reason?: string | null,
+) => {
+  const trimmedReason = String(reason || '').trim();
+  const base = `Your application was not selected this time. Job: "${jobTitle}".`;
+  if (!trimmedReason) return base;
+  return `${base} Reason: ${trimmedReason}`;
+};
+
 export const updateApplicationStatus = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const { id } = req.params;
-    const { status } = req.body;
+    const body = (req.body || {}) as Record<string, unknown>;
+    const { status } = body;
+    const rejectionReasonRaw =
+      body.rejectionReason ?? body.reason ?? body.rejectReason;
     const userId = req.user?.id;
     const normalizedStatus = normalizeApplicationStatus(status);
 
     // Validate Status Enum
     if (!normalizedStatus) {
       return next(new AppError('Invalid status', 400));
+    }
+
+    if (normalizedStatus === ApplicationStatus.REJECTED) {
+      const rejectionReason = String(rejectionReasonRaw || '').trim();
+      if (!rejectionReason) {
+        return next(
+          new AppError(
+            'A rejection reason is required when rejecting an applicant',
+            400,
+          ),
+        );
+      }
     }
 
     // Ensure Recruiter owns the job
@@ -415,9 +445,20 @@ export const updateApplicationStatus = catchAsync(
       return next(new AppError('Not authorized to update this status', 403));
     }
 
+    const rejectionReason =
+      normalizedStatus === ApplicationStatus.REJECTED
+        ? String(rejectionReasonRaw || '').trim()
+        : null;
+
     const updated = await prisma.jobApplication.update({
       where: { id },
-      data: { status: normalizedStatus },
+      data: {
+        status: normalizedStatus,
+        rejectionReason:
+          normalizedStatus === ApplicationStatus.REJECTED
+            ? rejectionReason
+            : null,
+      },
     });
 
     const statusMessages: Record<ApplicationStatus, string> = {
@@ -435,16 +476,27 @@ export const updateApplicationStatus = catchAsync(
         'Your application was marked as withdrawn.',
     };
 
+    const alertMessage =
+      normalizedStatus === ApplicationStatus.REJECTED
+        ? buildRejectionAlertMessage(application.job.title, rejectionReason)
+        : `${statusMessages[normalizedStatus]} Job: "${application.job.title}".`;
+
     const alert = await prisma.alert.create({
       data: {
         professionalId: application.professionalId,
         type: 'JOB_APPLICATION_STATUS',
-        title: 'Application Status Updated',
-        message: `${statusMessages[normalizedStatus]} Job: "${application.job.title}".`,
+        title:
+          normalizedStatus === ApplicationStatus.REJECTED
+            ? 'Application not selected'
+            : 'Application Status Updated',
+        message: alertMessage,
         metadata: {
           applicationId: application.id,
           jobId: application.jobId,
           status: normalizedStatus,
+          ...(normalizedStatus === ApplicationStatus.REJECTED && rejectionReason
+            ? { rejectionReason }
+            : {}),
         },
       },
     });
@@ -475,6 +527,7 @@ export const updateApplicationStatus = catchAsync(
           requestedStatus: status,
           newStatus: normalizedStatus,
           jobId: application.jobId,
+          ...(rejectionReason ? { rejectionReason } : {}),
         },
       });
     }

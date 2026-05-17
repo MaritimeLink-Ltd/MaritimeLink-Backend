@@ -396,6 +396,7 @@ model JobApplication {
   jobId             String
   professionalId    String
   status            ApplicationStatus      @default(APPLIED)
+  rejectionReason   String?
   coverLetter       String?
   resumeSnapshot    Json?
   createdAt         DateTime               @default(now())
