@@ -4,6 +4,10 @@ import { catchAsync } from '../utils/catchAsync.js';
 import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
 import { CourseStatus, DocumentCategory } from '../generated/client/index.js';
+import {
+  filterRecruiterInAppNotifications,
+  getRecruiterNotificationPreferences,
+} from '../services/recruiterAccountSettingsService.js';
 
 const TRAINER_EXPIRY_EXCLUDED_CATEGORIES = [
   DocumentCategory.CV_RESUME,
@@ -605,6 +609,19 @@ export const getTrainingNotifications = catchAsync(
     const recruiterId = req.user?.id;
     if (!recruiterId) return next(new AppError('User not authenticated', 401));
 
+    const trainerAccount = await prisma.recruiter.findUnique({
+      where: { id: recruiterId },
+      select: {
+        accountSettings: true,
+        organizationVerificationData: true,
+      },
+    });
+
+    const notificationPreferences = getRecruiterNotificationPreferences(
+      trainerAccount?.accountSettings,
+      trainerAccount?.organizationVerificationData,
+    );
+
     const [
       pendingBookings,
       coursesNoSessions,
@@ -704,10 +721,17 @@ export const getTrainingNotifications = catchAsync(
       })),
     ].filter(Boolean);
 
+    const filteredNotifications = filterRecruiterInAppNotifications(
+      notifications.filter((item): item is NonNullable<typeof item> =>
+        Boolean(item),
+      ),
+      notificationPreferences,
+    );
+
     res.status(200).json({
       status: 'success',
-      results: notifications.length,
-      data: { notifications },
+      results: filteredNotifications.length,
+      data: { notifications: filteredNotifications },
     });
   },
 );

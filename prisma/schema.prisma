@@ -104,6 +104,7 @@ model Recruiter {
   profilePhotoUrl                    String?
   organizationRiskLevel              KycRiskLevel?
   organizationVerificationData       Json?
+  accountSettings                    Json?
   organizationVerificationDecision   String?
   organizationVerificationSelectedAt DateTime?
   organizationVerificationSource     String?

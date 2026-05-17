@@ -89,7 +89,38 @@ const getFallbackName = (domain: string) =>
   domain.split('.')[0].charAt(0).toUpperCase() + domain.split('.')[0].slice(1);
 
 const getFaviconUrl = (domain: string) =>
-  `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
+  `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128`;
+
+const normalizeWebsiteUrl = (value?: string | null) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  return /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+};
+
+/** Resolve Gemini logo (often relative or broken) to absolute URL; favicon as last resort. */
+const resolveLogoUrl = (
+  logo?: string | null,
+  website?: string | null,
+): string | null => {
+  const domain = normalizeDomain(website);
+  const favicon = domain ? getFaviconUrl(domain) : null;
+  const raw = String(logo || '').trim();
+  if (!raw) return favicon;
+
+  if (/^https?:\/\//i.test(raw)) {
+    return raw;
+  }
+
+  const base = normalizeWebsiteUrl(website || domain);
+  if (!base) return favicon;
+
+  try {
+    const path = raw.startsWith('/') ? raw : `/${raw}`;
+    return new URL(path, base).href;
+  } catch {
+    return favicon;
+  }
+};
 
 const extractJsonObject = (text: string) => {
   const cleaned = text.replace(/```json|```/g, '').trim();
@@ -203,7 +234,9 @@ Schema:
       ...details,
       company_website:
         details.company_website || (domain ? `https://${domain}` : null),
-      logo: details.logo || (domain ? getFaviconUrl(domain) : null),
+      logo:
+        resolveLogoUrl(details.logo, details.company_website || domain) ||
+        (domain ? getFaviconUrl(domain) : null),
       source: 'GEMINI_GOOGLE_SEARCH',
       sources: getGroundingSources(groundingMetadata),
       searchQueries: groundingMetadata?.webSearchQueries || [],
@@ -305,7 +338,11 @@ export const getCompanyMetadata = async (domain: string) => {
 
     return {
       name: details?.name || fallback.name,
-      logo: details?.logo || fallback.logo,
+      logo:
+        resolveLogoUrl(
+          details?.logo,
+          details?.company_website || normalizedDomain,
+        ) || fallback.logo,
       domain: normalizedDomain,
       details,
       source: details?.source || null,

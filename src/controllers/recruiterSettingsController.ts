@@ -1,61 +1,15 @@
 import { NextFunction, Response } from 'express';
-import { Prisma } from '../generated/client/index.js';
 import { prisma } from '../config/prisma.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
 import { uploadToSupabase } from '../services/storageService.js';
 import { env } from '../config/env.js';
-
-const DEFAULT_NOTIFICATION_PREFERENCES = {
-  securityAlerts: true,
-  newApplications: true,
-  candidateMessages: true,
-  jobPostings: true,
-  marketing: false,
-  desktopSounds: true,
-  urgentAlerts: true,
-};
-
-type JsonRecord = Record<string, unknown>;
-
-const isRecord = (value: unknown): value is JsonRecord =>
-  Boolean(value) && typeof value === 'object' && !Array.isArray(value);
-
-const getNotificationPreferences = (value: unknown) => {
-  if (!isRecord(value)) return DEFAULT_NOTIFICATION_PREFERENCES;
-  const settings = isRecord(value._recruiterSettings)
-    ? value._recruiterSettings
-    : {};
-  const notifications = isRecord(settings.notifications)
-    ? settings.notifications
-    : {};
-
-  return {
-    ...DEFAULT_NOTIFICATION_PREFERENCES,
-    ...notifications,
-  };
-};
-
-const mergeSettingsJson = (
-  current: unknown,
-  patch: Partial<{ notifications: typeof DEFAULT_NOTIFICATION_PREFERENCES }>,
-): Prisma.InputJsonValue => {
-  const base: JsonRecord = isRecord(current) ? { ...current } : {};
-  const currentSettings = isRecord(base._recruiterSettings)
-    ? { ...base._recruiterSettings }
-    : {};
-
-  if (patch.notifications) {
-    currentSettings.notifications = {
-      ...DEFAULT_NOTIFICATION_PREFERENCES,
-      ...patch.notifications,
-    };
-  }
-
-  base._recruiterSettings = currentSettings;
-  return base as Prisma.InputJsonValue;
-};
+import {
+  getRecruiterNotificationPreferences,
+  mergeRecruiterAccountSettings,
+  normalizeNotificationPreferences,
+} from '../services/recruiterAccountSettingsService.js';
 
 const mapBilling = (tier: string) => {
   const normalizedTier = String(tier || 'FREE').toUpperCase();
@@ -116,6 +70,7 @@ export const getRecruiterSettings = catchAsync(
         companyZip: true,
         companyCountry: true,
         tier: true,
+        accountSettings: true,
         organizationVerificationData: true,
       },
     });
@@ -146,7 +101,8 @@ export const getRecruiterSettings = catchAsync(
           postcode: recruiter.companyZip || '',
           country: recruiter.companyCountry || '',
         },
-        notifications: getNotificationPreferences(
+        notifications: getRecruiterNotificationPreferences(
+          recruiter.accountSettings,
           recruiter.organizationVerificationData,
         ),
         billing: mapBilling(recruiter.tier),
@@ -293,20 +249,13 @@ export const updateRecruiterNotificationSettings = catchAsync(
       return next(new AppError('Recruiter account not found', 401));
     }
 
-    const payload = req.body as Record<string, boolean>;
-    const normalized = {
-      securityAlerts: Boolean(payload.securityAlerts),
-      newApplications: Boolean(payload.newApplications),
-      candidateMessages: Boolean(payload.candidateMessages),
-      jobPostings: Boolean(payload.jobPostings),
-      marketing: Boolean(payload.marketing),
-      desktopSounds: Boolean(payload.desktopSounds),
-      urgentAlerts: Boolean(payload.urgentAlerts),
-    };
+    const normalized = normalizeNotificationPreferences(
+      (req.body || {}) as Record<string, unknown>,
+    );
 
     const recruiter = await prisma.recruiter.findUnique({
       where: { id: recruiterId },
-      select: { organizationVerificationData: true },
+      select: { accountSettings: true },
     });
 
     if (!recruiter) {
@@ -316,9 +265,9 @@ export const updateRecruiterNotificationSettings = catchAsync(
     await prisma.recruiter.update({
       where: { id: recruiterId },
       data: {
-        organizationVerificationData: mergeSettingsJson(
-          recruiter.organizationVerificationData,
-          { notifications: normalized },
+        accountSettings: mergeRecruiterAccountSettings(
+          recruiter.accountSettings,
+          normalized,
         ),
       },
     });

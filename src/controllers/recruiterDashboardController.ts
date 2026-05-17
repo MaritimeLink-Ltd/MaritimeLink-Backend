@@ -5,6 +5,10 @@ import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
 import { JobStatus } from '../generated/client/index.js';
 import { matchesProfessionalForJob } from '../utils/jobMatching.js';
+import {
+  filterRecruiterInAppNotifications,
+  getRecruiterNotificationPreferences,
+} from '../services/recruiterAccountSettingsService.js';
 
 /**
  * @desc    Get recruiter dashboard stats
@@ -347,6 +351,19 @@ export const getRecruiterNotifications = catchAsync(
     const threeDaysFromNow = new Date();
     threeDaysFromNow.setDate(now.getDate() + 3);
 
+    const recruiter = await prisma.recruiter.findUnique({
+      where: { id: recruiterId },
+      select: {
+        accountSettings: true,
+        organizationVerificationData: true,
+      },
+    });
+
+    const notificationPreferences = getRecruiterNotificationPreferences(
+      recruiter?.accountSettings,
+      recruiter?.organizationVerificationData,
+    );
+
     const [newApplications, expiringJobs, zeroApplicantJobs, draftJobs] =
       await Promise.all([
         prisma.jobApplication.count({
@@ -421,10 +438,17 @@ export const getRecruiterNotifications = catchAsync(
       })),
     ].filter(Boolean);
 
+    const filteredNotifications = filterRecruiterInAppNotifications(
+      notifications.filter((item): item is NonNullable<typeof item> =>
+        Boolean(item),
+      ),
+      notificationPreferences,
+    );
+
     res.status(200).json({
       status: 'success',
-      results: notifications.length,
-      data: { notifications },
+      results: filteredNotifications.length,
+      data: { notifications: filteredNotifications },
     });
   },
 );
