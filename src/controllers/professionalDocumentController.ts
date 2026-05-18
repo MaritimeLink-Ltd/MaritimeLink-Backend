@@ -942,6 +942,174 @@ export const streamSharedDocumentFile = catchAsync(
   },
 );
 
+export const replaceDocumentFile = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    if (!req.file) {
+      return next(new AppError('Please upload a document file', 400));
+    }
+
+    const { id } = req.params;
+    const existing = await prisma.professionalDocument.findUnique({
+      where: { id },
+    });
+
+    if (!existing) {
+      return next(new AppError('Document not found', 404));
+    }
+
+    if (existing.professionalId !== req.user?.id) {
+      return next(
+        new AppError('You are not authorized to update this document', 403),
+      );
+    }
+
+    const professionalId = req.user?.id;
+    if (!professionalId) {
+      return next(new AppError('User not authenticated', 401));
+    }
+
+    const sanitizedOriginalName = req.file.originalname.replace(
+      /[^a-zA-Z0-9.]/g,
+      '_',
+    );
+    const fileName = `${professionalId}/${Date.now()}-${sanitizedOriginalName}`;
+    const publicUrl = await uploadToSupabase(
+      req.file,
+      fileName,
+      env.SUPABASE_DOCUMENT_WALLET_BUCKET,
+    );
+
+    let ocrData: Record<string, unknown> | null = null;
+    try {
+      if (req.file.buffer) {
+        const result = await analyzeDocument(
+          req.file.buffer,
+          req.file.mimetype,
+        );
+        if (result) {
+          ocrData = result as Record<string, unknown>;
+        }
+      }
+    } catch (error) {
+      console.error('OCR analysis failed on document replace:', error);
+    }
+
+    try {
+      if (req.file.buffer) {
+        await validateDocumentType(
+          req.file.buffer,
+          req.file.mimetype,
+          existing.category,
+        );
+      }
+    } catch (error) {
+      console.error('Document type validation failed on replace:', error);
+    }
+
+    const enteredName = existing.name || null;
+    const enteredNumber = existing.number || null;
+    const enteredIssuingCountry = existing.issuingCountry || null;
+    const enteredIssueDate = toDateOnly(existing.issueDate) || null;
+    const enteredExpiryDate = toDateOnly(existing.expiryDate) || null;
+
+    const matchDetails = {
+      name: {
+        entered: enteredName,
+        extracted: (ocrData?.name as string) || null,
+        isMatched: ocrData?.name
+          ? isTextMatch(enteredName, ocrData.name as string)
+          : true,
+      },
+      number: {
+        entered: enteredNumber,
+        extracted: (ocrData?.number as string) || null,
+        isMatched: isTextMatch(enteredNumber, ocrData?.number as string),
+      },
+      issuingCountry: {
+        entered: enteredIssuingCountry,
+        extracted: (ocrData?.issuingCountry as string) || null,
+        isMatched: isTextMatch(
+          enteredIssuingCountry,
+          ocrData?.issuingCountry as string,
+        ),
+      },
+      issueDate: {
+        entered: enteredIssueDate,
+        extracted: toDateOnly(ocrData?.issueDate as string | Date) || null,
+        isMatched: isDateMatch(enteredIssueDate, ocrData?.issueDate as string),
+      },
+      expiryDate: {
+        entered: enteredExpiryDate,
+        extracted: toDateOnly(ocrData?.expiryDate as string | Date) || null,
+        isMatched: isDateMatch(
+          enteredExpiryDate,
+          ocrData?.expiryDate as string,
+        ),
+      },
+    };
+
+    let isFullyMatched = true;
+    if (enteredName && !matchDetails.name.isMatched) isFullyMatched = false;
+    if (enteredNumber && !matchDetails.number.isMatched) isFullyMatched = false;
+    if (enteredIssuingCountry && !matchDetails.issuingCountry.isMatched) {
+      isFullyMatched = false;
+    }
+    if (enteredIssueDate && !matchDetails.issueDate.isMatched) {
+      isFullyMatched = false;
+    }
+    if (enteredExpiryDate && !matchDetails.expiryDate.isMatched) {
+      isFullyMatched = false;
+    }
+    if (!ocrData || Object.keys(ocrData).length === 0) isFullyMatched = false;
+
+    const hasOcrData = Boolean(ocrData && Object.keys(ocrData).length > 0);
+    const hasComparisonMismatch =
+      hasOcrData &&
+      [
+        matchDetails.name,
+        matchDetails.number,
+        matchDetails.issuingCountry,
+        matchDetails.issueDate,
+        matchDetails.expiryDate,
+      ].some(
+        (detail) =>
+          Boolean(detail.entered) &&
+          Boolean(detail.extracted) &&
+          !detail.isMatched,
+      );
+
+    const savedOcrData: Prisma.InputJsonValue | undefined = ocrData
+      ? { ...ocrData, sourceCategory: existing.category }
+      : undefined;
+
+    const updatedDocument = await prisma.professionalDocument.update({
+      where: { id },
+      data: {
+        fileUrl: publicUrl,
+        mimeType: req.file.mimetype,
+        ocrData: savedOcrData,
+        ocrStatus: hasOcrData ? OCRStatus.COMPLETED : OCRStatus.FAILED,
+        verificationStatus: hasComparisonMismatch
+          ? VerificationStatus.MISMATCH
+          : VerificationStatus.PENDING,
+      },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        document: updatedDocument,
+        ocrData,
+        matchStatus: {
+          isFullyMatched,
+          comparisonSource: 'existing',
+          details: matchDetails,
+        },
+      },
+    });
+  },
+);
+
 export const updateDocument = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const { id } = req.params;

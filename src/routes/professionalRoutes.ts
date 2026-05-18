@@ -668,6 +668,12 @@ router.get(
  *       200:
  *         description: Document updated successfully.
  */
+router.patch(
+  '/documents/:id/file',
+  protect,
+  upload.single('document'),
+  documentController.replaceDocumentFile,
+);
 router.patch('/documents/:id', protect, documentController.updateDocument);
 
 /**
