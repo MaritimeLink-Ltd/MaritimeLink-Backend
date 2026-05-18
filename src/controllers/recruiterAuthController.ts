@@ -28,6 +28,10 @@ import {
   Prisma,
 } from '../generated/client/index.js';
 import { getClientIp } from '../utils/requestMetadata.js';
+import {
+  recruiterKycLoginSelect,
+  mapKycForLogin,
+} from '../utils/kycLoginPayload.js';
 
 import {
   agentRegisterSchema,
@@ -662,7 +666,10 @@ export const login = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const { email, password } = req.body;
 
-    const recruiter = await prisma.recruiter.findUnique({ where: { email } });
+    const recruiter = await prisma.recruiter.findUnique({
+      where: { email },
+      include: { kyc: { select: recruiterKycLoginSelect } },
+    });
 
     if (!recruiter || !(await bcrypt.compare(password, recruiter.password))) {
       return next(new AppError('Incorrect email or password', 401));
@@ -700,6 +707,8 @@ export const login = catchAsync(
       userAgent: req.get('user-agent'),
     });
 
+    const { kyc, kycSubmitted } = mapKycForLogin(recruiter.kyc);
+
     res.status(200).json({
       status: 'success',
       token,
@@ -711,6 +720,8 @@ export const login = catchAsync(
           organizationName: recruiter.organizationName,
           profilePhotoUrl: recruiter.profilePhotoUrl,
           status: recruiter.status,
+          kyc,
+          kycSubmitted,
         },
       },
     });

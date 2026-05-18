@@ -22,6 +22,10 @@ import { CustomRequest } from '../types/index.js';
 import { logActivity } from '../services/activityLogger.js';
 import { ActorType, ActionStatus } from '../generated/client/index.js';
 import { getClientIp } from '../utils/requestMetadata.js';
+import {
+  professionalKycLoginSelect,
+  mapKycForLogin,
+} from '../utils/kycLoginPayload.js';
 import { stripeService } from '../services/stripeService.js';
 
 /**
@@ -616,6 +620,7 @@ export const login = catchAsync(
 
     const professional = await prisma.professional.findUnique({
       where: { email },
+      include: { kyc: { select: professionalKycLoginSelect } },
     });
 
     if (
@@ -644,6 +649,8 @@ export const login = catchAsync(
       userAgent: req.get('user-agent'),
     });
 
+    const { kyc, kycSubmitted } = mapKycForLogin(professional.kyc);
+
     res.status(200).json({
       status: 'success',
       token,
@@ -656,6 +663,8 @@ export const login = catchAsync(
           profilePhotoUrl: professional.profilePhotoUrl,
           idPassportUrl: professional.idPassportUrl,
           status: professional.status,
+          kyc,
+          kycSubmitted,
         },
       },
     });
