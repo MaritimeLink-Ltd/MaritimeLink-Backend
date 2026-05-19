@@ -86,4 +86,41 @@ describe('recruiterAccountSettingsService', () => {
 
     expect(filtered).toHaveLength(0);
   });
+
+  it('hides urgent severity notifications when urgentAlerts is off', () => {
+    const prefs = getRecruiterNotificationPreferences({
+      notifications: {
+        urgentAlerts: false,
+        jobPostings: true,
+        marketing: true,
+      },
+    });
+
+    const filtered = filterRecruiterInAppNotifications(
+      [
+        { id: 'zero-applicant-jobs', type: 'warning', severity: 'warning' },
+        {
+          id: 'recruiter-announcement',
+          type: 'announcement',
+          severity: 'info',
+        },
+      ],
+      prefs,
+    );
+
+    expect(filtered.map((item) => item.id)).toEqual(['recruiter-announcement']);
+  });
+
+  it('filters chat notifications when candidateMessages is off', () => {
+    const prefs = getRecruiterNotificationPreferences({
+      notifications: { candidateMessages: false },
+    });
+
+    const filtered = filterRecruiterInAppNotifications(
+      [{ id: 'new-chat-message', type: 'message' }],
+      prefs,
+    );
+
+    expect(filtered).toHaveLength(0);
+  });
 });

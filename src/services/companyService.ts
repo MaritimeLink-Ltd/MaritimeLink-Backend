@@ -215,7 +215,7 @@ Schema:
         tools: [{ google_search: {} }],
       },
       {
-        timeout: 45000,
+        timeout: 60000,
         headers: {
           'Content-Type': 'application/json',
           'x-goog-api-key': env.GEMINI_API_KEY,

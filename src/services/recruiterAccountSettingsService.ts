@@ -129,34 +129,40 @@ export const isRecruiterInAppNotificationEnabled = (
   preferences: RecruiterNotificationPreferences,
 ): boolean => {
   const id = String(notification.id || '');
+  const severity = String(
+    notification.severity || notification.type || '',
+  ).toLowerCase();
 
   if (id === 'new-applications' || id === 'pending-bookings') {
-    return preferences.newApplications;
-  }
-  if (
+    if (!preferences.newApplications) return false;
+  } else if (
     id === 'zero-applicant-jobs' ||
     id === 'draft-jobs' ||
     id === 'courses-no-sessions' ||
     id.startsWith('expiring-') ||
     id.startsWith('capacity-')
   ) {
-    return preferences.jobPostings;
-  }
-  if (id === 'recruiter-announcement' || id === 'trainer-announcement') {
-    return preferences.marketing;
-  }
-  if (notification.title === 'Recent Course Booking') {
-    return preferences.newApplications;
-  }
-  if (id.includes('security') || notification.type === 'security') {
-    return preferences.securityAlerts;
-  }
-  if (
+    if (!preferences.jobPostings) return false;
+  } else if (id === 'recruiter-announcement' || id === 'trainer-announcement') {
+    if (!preferences.marketing) return false;
+  } else if (notification.title === 'Recent Course Booking') {
+    if (!preferences.newApplications) return false;
+  } else if (id.includes('security') || notification.type === 'security') {
+    if (!preferences.securityAlerts) return false;
+  } else if (
     id.includes('message') ||
+    id.includes('chat') ||
     notification.type === 'message' ||
     notification.type === 'chat'
   ) {
-    return preferences.candidateMessages;
+    if (!preferences.candidateMessages) return false;
+  }
+
+  if (
+    !preferences.urgentAlerts &&
+    (severity === 'warning' || severity === 'error')
+  ) {
+    return false;
   }
 
   return true;
