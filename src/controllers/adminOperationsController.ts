@@ -85,6 +85,7 @@ const humanizeAction = (action: string) => {
     COURSE_CREATED: 'Course Created',
     COURSE_DRAFT_CREATED: 'Course Draft Saved',
     COURSE_PUBLISHED: 'Course Published',
+    COURSE_UNPUBLISHED: 'Course Unpublished',
     COURSE_PURCHASED: 'Purchase Completed',
     COURSE_PURCHASE_FAILED: 'Purchase Failed',
     CASE_CREATED: 'Support Case Created',
@@ -134,6 +135,10 @@ const describeLog = (action: string, metadata: Record<string, unknown>) => {
       return courseTitle
         ? `Published course "${courseTitle}"`
         : 'Published a course';
+    case 'COURSE_UNPUBLISHED':
+      return courseTitle
+        ? `Unpublished course "${courseTitle}"`
+        : 'Unpublished a course';
     case 'COURSE_PURCHASED':
       return courseTitle
         ? `Completed payment for "${courseTitle}"`

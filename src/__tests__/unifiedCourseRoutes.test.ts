@@ -94,6 +94,23 @@ describe('Unified Course Routes Integration Tests', () => {
     draftCourseId = res.body.data.course.id;
   });
 
+  it('POST /api/courses/drafts - should allow saving draft without a long description', async () => {
+    const res = await request(app)
+      .post('/api/courses/drafts')
+      .set('Authorization', `Bearer ${trainerToken}`)
+      .send({
+        title: 'Quick Draft Course',
+        category: 'SAFETY',
+        description: '',
+        price: 0,
+        courseType: 'INTERNAL',
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.data.course.status).toBe('DRAFT');
+    expect(res.body.data.course.description).toBe('');
+  });
+
   it('PATCH /api/courses/:id/publish - should publish an owned draft course', async () => {
     const res = await request(app)
       .patch(`/api/courses/${draftCourseId}/publish`)
@@ -101,6 +118,15 @@ describe('Unified Course Routes Integration Tests', () => {
 
     expect(res.status).toBe(200);
     expect(res.body.data.course.status).toBe('ACTIVE');
+  });
+
+  it('PATCH /api/courses/:id/unpublish - should unpublish an active course', async () => {
+    const res = await request(app)
+      .patch(`/api/courses/${draftCourseId}/unpublish`)
+      .set('Authorization', `Bearer ${trainerToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.course.status).toBe('DRAFT');
   });
 
   it('GET /api/courses/my - should list trainer specific courses', async () => {

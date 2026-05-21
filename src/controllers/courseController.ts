@@ -9,6 +9,7 @@ import { getClientIp } from '../utils/requestMetadata.js';
 import {
   createCourseSchema,
   createCourseDraftSchema,
+  publishCourseSchema,
   updateCourseSchema,
 } from '../validations/jobValidation.js';
 
@@ -298,7 +299,7 @@ export const publishCourse = catchAsync(
       return next(new AppError('Only draft courses can be published', 400));
     }
 
-    const publishableCourse = createCourseDraftSchema.safeParse({
+    const publishableCourse = publishCourseSchema.safeParse({
       title: course.title,
       location: course.location || undefined,
       category: course.category,
@@ -352,6 +353,71 @@ export const publishCourse = catchAsync(
     res.status(200).json({
       status: 'success',
       message: 'Course published successfully',
+      data: { course: updatedCourse },
+    });
+  },
+);
+
+/**
+ * Unpublish an active course (returns it to draft).
+ */
+export const unpublishCourse = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const { id } = req.params;
+    const userId = req.user?.id;
+    const userRole = req.user?.role;
+
+    if (!userId || !userRole) {
+      return next(new AppError('User context missing', 400));
+    }
+
+    const actorId = userId;
+
+    const course = await prisma.course.findUnique({
+      where: { id },
+    });
+
+    if (!course) {
+      return next(new AppError('Course not found', 404));
+    }
+
+    if (!userOwnsCourse(course, userId, userRole)) {
+      return next(new AppError('Unauthorized', 403));
+    }
+
+    if (course.status !== 'ACTIVE') {
+      return next(
+        new AppError('Only published courses can be unpublished', 400),
+      );
+    }
+
+    const updatedCourse = await prisma.course.update({
+      where: { id },
+      data: { status: 'DRAFT' },
+    });
+
+    await logActivity({
+      action: 'COURSE_UNPUBLISHED',
+      actorId,
+      actorType:
+        userRole && adminRoles.includes(userRole)
+          ? ActorType.ADMIN
+          : ActorType.RECRUITER,
+      targetId: updatedCourse.id,
+      targetType: 'Course',
+      status: ActionStatus.SUCCESS,
+      ipAddress: getClientIp(req),
+      userAgent: req.get('user-agent') || undefined,
+      metadata: {
+        courseTitle: updatedCourse.title,
+        courseType: updatedCourse.courseType,
+        location: updatedCourse.location,
+      },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Course unpublished successfully',
       data: { course: updatedCourse },
     });
   },

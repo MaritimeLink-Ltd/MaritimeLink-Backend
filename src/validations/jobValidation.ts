@@ -40,7 +40,28 @@ export const createCourseSchema = z.object({
   requirements: z.string().optional(),
 });
 
-export const createCourseDraftSchema = createCourseSchema.omit({
+/** Lenient validation for saving incomplete courses as draft. */
+export const createCourseDraftSchema = z.object({
+  title: z.string().min(1).max(100),
+  location: z.string().max(100).optional(),
+  category: z.string().min(1).max(50),
+  contractType: z.string().max(50).optional(),
+  description: z.string().max(10000).optional().default(''),
+  price: z.coerce.number().min(0).default(0),
+  currency: z.string().min(3).max(3).optional(),
+  trainingType: z.string().optional(),
+  issuingAuthority: z.string().optional(),
+  duration: z.string().optional(),
+  courseType: z.enum(['INTERNAL', 'EXTERNAL']).optional().default('INTERNAL'),
+  externalUrl: z.union([z.string().url(), z.literal('')]).optional(),
+  capacity: z.number().int().positive().optional(),
+  certificationProvided: z.string().max(100).optional(),
+  curriculum: z.string().optional(),
+  requirements: z.string().optional(),
+});
+
+/** Strict validation before publishing a draft to the marketplace. */
+export const publishCourseSchema = createCourseSchema.omit({
   status: true,
 });
 

@@ -266,6 +266,32 @@ router.patch(
 
 /**
  * @swagger
+ * /api/courses/{id}/unpublish:
+ *   patch:
+ *     summary: Unpublish an active course
+ *     description: Change an owned active course from ACTIVE to DRAFT so it is hidden from the marketplace.
+ *     tags: [Courses]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string, format: uuid }
+ *     responses:
+ *       200:
+ *         description: Course unpublished successfully
+ *       400:
+ *         description: Course is not published
+ */
+router.patch(
+  '/:id/unpublish',
+  protectAdminOrRecruiter,
+  courseController.unpublishCourse,
+);
+
+/**
+ * @swagger
  * /api/courses/{id}:
  *   delete:
  *     summary: Remove a course offering
