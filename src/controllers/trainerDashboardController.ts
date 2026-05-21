@@ -416,44 +416,95 @@ const buildTrainerCapacitySessionWhere = (now: Date, year: string) => {
   return { AND: and };
 };
 
+const getDemandWindowDays = (period: string) => PERIOD_TO_DAYS[period] ?? 30;
+
+const formatBookingStatusLabel = (raw: string | null | undefined) => {
+  const s = String(raw || '').toUpperCase();
+  if (s === 'CONFIRMED') return 'Pending approval';
+  if (s === 'PENDING') return 'Awaiting payment';
+  if (s === 'COMPLETED') return 'Completed';
+  if (s === 'CANCELLED') return 'Cancelled';
+  return raw ? String(raw) : 'Unknown';
+};
+
 /**
  * @desc    Get training dashboard stats
  * @route   GET /api/trainer/dashboard/stats
  * @access  Private (Trainer)
  */
+const trainerExpiryProfessionalSelect = {
+  id: true,
+  fullname: true,
+  firstName: true,
+  lastName: true,
+  profession: true,
+  subcategory: true,
+  resume: {
+    select: {
+      city: true,
+      country: true,
+      category: true,
+      subcategory: true,
+      seaService: {
+        select: { role: true },
+        orderBy: { joiningDate: 'desc' as const },
+        take: 1,
+      },
+    },
+  },
+};
+
 export const getTrainingDashboardStats = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const recruiterId = req.user?.id;
     if (!recruiterId) return next(new AppError('User not authenticated', 401));
 
-    const timeframe = (req.query.timeframe as string) || '7d';
+    const period = normalizeTrainerPeriod(req.query.timeframe as string);
+    const bookingNow = new Date();
+    const demandNow = startOfDay(new Date());
 
-    // 1. Timeframe logic
-    const now = new Date();
-    const startDate = new Date();
-    if (timeframe === 'today') {
-      startDate.setHours(0, 0, 0, 0);
-    } else if (timeframe === '7d') {
-      startDate.setDate(now.getDate() - 7);
+    const bookingStartDate = new Date();
+    if (period === 'today') {
+      bookingStartDate.setHours(0, 0, 0, 0);
+    } else if (period === 'all') {
+      bookingStartDate.setTime(0);
     } else {
-      startDate.setDate(now.getDate() - 7);
+      bookingStartDate.setDate(
+        bookingNow.getDate() - getDemandWindowDays(period),
+      );
     }
 
-    // 2. Active Courses
-    const activeCoursesCount = await prisma.course.count({
-      where: { recruiterId, status: CourseStatus.ACTIVE },
-    });
+    const [activeCoursesCount, newBookingsCount, expiryDocuments] =
+      await Promise.all([
+        prisma.course.count({
+          where: { recruiterId, status: CourseStatus.ACTIVE },
+        }),
+        prisma.courseBooking.count({
+          where: {
+            course: { recruiterId },
+            createdAt: { gte: bookingStartDate },
+          },
+        }),
+        prisma.professionalDocument.findMany({
+          where: {
+            category: { notIn: TRAINER_EXPIRY_EXCLUDED_CATEGORIES },
+            expiryDate: { gte: demandNow, lte: addDays(demandNow, 365) },
+          },
+          include: {
+            professional: { select: trainerExpiryProfessionalSelect },
+          },
+        }),
+      ]);
 
-    // 3. New Bookings since timeframe
-    const newBookingsCount = await prisma.courseBooking.count({
-      where: {
-        course: { recruiterId },
-        createdAt: { gte: startDate },
-      },
-    });
+    const expiryRows = expiryDocuments
+      .map((document) => buildTrainerExpiryRow(document, demandNow))
+      .filter((row): row is TrainerExpiryRow => Boolean(row));
 
-    // 4. Demand signals are not wired to real data yet; avoid showing dummy counts.
-    const demandSignalsCount = 0;
+    const windowDays = getDemandWindowDays(period);
+    const demandSignalsCount =
+      period === 'all'
+        ? expiryRows.length
+        : expiryRows.filter((row) => row.daysLeft <= windowDays).length;
 
     res.status(200).json({
       status: 'success',
@@ -623,13 +674,21 @@ export const getTrainingNotifications = catchAsync(
     );
 
     const [
-      pendingBookings,
+      pendingPaymentBookings,
+      awaitingApprovalBookings,
       coursesNoSessions,
       nearlyFullCourses,
       recentBookings,
     ] = await Promise.all([
       prisma.courseBooking.count({
         where: { course: { recruiterId }, bookingStatus: 'PENDING' },
+      }),
+      prisma.courseBooking.count({
+        where: {
+          course: { recruiterId },
+          bookingStatus: 'CONFIRMED',
+          paymentStatus: 'SUCCEEDED',
+        },
       }),
       prisma.course.count({
         where: {
@@ -654,8 +713,11 @@ export const getTrainingNotifications = catchAsync(
         take: 5,
       }),
       prisma.courseBooking.findMany({
-        where: { course: { recruiterId } },
-        take: 5,
+        where: {
+          course: { recruiterId },
+          bookingStatus: { not: 'CANCELLED' },
+        },
+        take: 15,
         orderBy: { createdAt: 'desc' },
         include: {
           professional: {
@@ -674,22 +736,23 @@ export const getTrainingNotifications = catchAsync(
     );
 
     const notifications = [
-      {
-        id: 'trainer-announcement',
-        type: 'announcement',
-        severity: 'info',
-        title: 'Training Provider Dashboard Update',
-        message:
-          'Booking alerts, course capacity warnings, and scheduling notifications are now live.',
-        createdAt: new Date(),
-      },
-      pendingBookings > 0
+      awaitingApprovalBookings > 0
+        ? {
+            id: 'awaiting-approval-bookings',
+            type: 'booking',
+            severity: 'success',
+            title: 'Bookings Awaiting Approval',
+            message: `${awaitingApprovalBookings} paid booking(s) need your approval in session attendance.`,
+            createdAt: new Date(),
+          }
+        : null,
+      pendingPaymentBookings > 0
         ? {
             id: 'pending-bookings',
-            type: 'success',
-            severity: 'success',
-            title: 'New Booking Requests',
-            message: `${pendingBookings} learners are waiting for booking confirmation.`,
+            type: 'booking',
+            severity: 'info',
+            title: 'Incomplete Bookings',
+            message: `${pendingPaymentBookings} booking(s) are awaiting payment.`,
             createdAt: new Date(),
           }
         : null,
@@ -712,11 +775,11 @@ export const getTrainingNotifications = catchAsync(
         createdAt: new Date(),
       })),
       ...recentBookings.map((booking) => ({
-        id: booking.id,
-        type: 'info',
+        id: `booking-${booking.id}`,
+        type: 'booking',
         severity: 'info',
         title: 'Recent Course Booking',
-        message: `${booking.professional.fullname || booking.professional.email} booked "${booking.course.title}".`,
+        message: `${booking.professional.fullname || booking.professional.email} booked "${booking.course.title}" (${formatBookingStatusLabel(booking.bookingStatus)}).`,
         createdAt: booking.createdAt,
       })),
     ].filter(Boolean);
@@ -735,8 +798,6 @@ export const getTrainingNotifications = catchAsync(
     });
   },
 );
-
-const getDemandWindowDays = (period: string) => PERIOD_TO_DAYS[period] ?? 30;
 
 const getMonthKey = (date: Date) =>
   date.toLocaleString('en-US', { month: 'short' });

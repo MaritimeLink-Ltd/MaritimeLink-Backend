@@ -234,6 +234,7 @@ describe('Recruiter & Trainer Flow E2E Tests', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.data.stats).toHaveProperty('activeCoursesCount');
+      expect(res.body.data.stats).toHaveProperty('demandSignalsCount');
     });
 
     it('should show expiring medical and STCW documents in demand planning even without a saved location', async () => {
@@ -289,6 +290,14 @@ describe('Recruiter & Trainer Flow E2E Tests', () => {
           expect.objectContaining({ bucket: 'stcw', expiring: 1 }),
         ]),
       );
+
+      const statsRes = await request(app)
+        .get('/api/trainer/dashboard/stats')
+        .query({ timeframe: '30d' })
+        .set('Authorization', `Bearer ${trainerToken}`);
+
+      expect(statsRes.status).toBe(200);
+      expect(statsRes.body.data.stats.demandSignalsCount).toBe(2);
 
       const stcwExpiriesRes = await request(app)
         .get('/api/trainer/dashboard/demand/expiries')
