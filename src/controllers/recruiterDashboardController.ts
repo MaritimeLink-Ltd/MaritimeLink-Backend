@@ -389,15 +389,6 @@ export const getRecruiterNotifications = catchAsync(
       ]);
 
     const notifications = [
-      {
-        id: 'recruiter-announcement',
-        type: 'announcement',
-        severity: 'info',
-        title: 'Recruiter Dashboard Update',
-        message:
-          'Candidate matching, job action items, and notifications are connected to your live jobs.',
-        createdAt: new Date(),
-      },
       newApplications > 0
         ? {
             id: 'new-applications',

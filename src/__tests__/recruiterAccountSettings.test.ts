@@ -84,10 +84,41 @@ describe('recruiterAccountSettingsService', () => {
       prefs,
     );
 
-    expect(filtered).toHaveLength(0);
+    expect(filtered.map((item) => item.id)).toEqual([
+      'pending-bookings',
+      'booking-1',
+    ]);
   });
 
-  it('hides urgent severity notifications when urgentAlerts is off', () => {
+  it('always shows course booking notifications regardless of application prefs', () => {
+    const prefs = getRecruiterNotificationPreferences({
+      notifications: {
+        newApplications: false,
+        jobPostings: false,
+        marketing: false,
+      },
+    });
+
+    const filtered = filterRecruiterInAppNotifications(
+      [
+        {
+          id: 'awaiting-approval-bookings',
+          type: 'booking',
+          title: 'Bookings Awaiting Approval',
+        },
+        {
+          id: 'booking-abc',
+          type: 'booking',
+          title: 'Recent Course Booking',
+        },
+      ],
+      prefs,
+    );
+
+    expect(filtered).toHaveLength(2);
+  });
+
+  it('shows operational warnings when job postings enabled regardless of urgentAlerts', () => {
     const prefs = getRecruiterNotificationPreferences({
       notifications: {
         urgentAlerts: false,
@@ -108,7 +139,7 @@ describe('recruiterAccountSettingsService', () => {
       prefs,
     );
 
-    expect(filtered.map((item) => item.id)).toEqual(['recruiter-announcement']);
+    expect(filtered.map((item) => item.id)).toEqual(['zero-applicant-jobs']);
   });
 
   it('filters chat notifications when candidateMessages is off', () => {
