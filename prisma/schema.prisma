@@ -351,6 +351,7 @@ model Admin {
   email                String         @unique
   password             String
   role                 AdminRole      @default(SUPER_ADMIN)
+  accountSettings      Json?
   passwordResetToken   String?
   passwordResetExpires DateTime?
   createdAt            DateTime       @default(now())
@@ -916,7 +917,6 @@ enum CasePriority {
 
 enum CaseStatus {
   OPEN
-  IN_PROGRESS
   RESOLVED
   CLOSED
 }
