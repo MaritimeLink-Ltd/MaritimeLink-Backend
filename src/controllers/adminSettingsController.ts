@@ -22,7 +22,9 @@ type AdminProfileSettings = {
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-const readProfileSettings = (accountSettings: unknown): AdminProfileSettings => {
+const readProfileSettings = (
+  accountSettings: unknown,
+): AdminProfileSettings => {
   if (!isRecord(accountSettings) || !isRecord(accountSettings.profile)) {
     return {};
   }
@@ -80,7 +82,8 @@ const mapAdminProfile = (admin: {
 
   return {
     displayName: stored.displayName || derivedName,
-    firstName: stored.displayName?.split(/\s+/)[0] || derivedName.split(/\s+/)[0],
+    firstName:
+      stored.displayName?.split(/\s+/)[0] || derivedName.split(/\s+/)[0],
     lastName: stored.displayName?.split(/\s+/).slice(1).join(' ') || '',
     email: admin.email,
     adminId: admin.id,
@@ -175,9 +178,12 @@ export const updateAdminProfile = catchAsync(
     }
 
     const profilePatch: AdminProfileSettings = {};
-    if (body.displayName !== undefined) profilePatch.displayName = body.displayName;
-    if (body.companyName !== undefined) profilePatch.companyName = body.companyName;
-    if (body.department !== undefined) profilePatch.department = body.department;
+    if (body.displayName !== undefined)
+      profilePatch.displayName = body.displayName;
+    if (body.companyName !== undefined)
+      profilePatch.companyName = body.companyName;
+    if (body.department !== undefined)
+      profilePatch.department = body.department;
     if (body.region !== undefined) profilePatch.region = body.region;
 
     const data: Prisma.AdminUpdateInput = {};
