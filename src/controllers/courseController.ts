@@ -15,8 +15,7 @@ import {
 
 const adminRoles = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'];
 
-const isPlatformAdminRole = (role?: string) =>
-  adminRoles.includes(role || '');
+const isPlatformAdminRole = (role?: string) => adminRoles.includes(role || '');
 
 /** Recruiters own recruiterId rows; platform admins manage MaritimeLink (adminId) listings. */
 const canManageCourse = (

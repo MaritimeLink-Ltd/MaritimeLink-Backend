@@ -33,6 +33,39 @@ const resolveTimeframeStart = (timeframe?: string) => {
   return start;
 };
 
+/** Oversight provider rows use all-time counts unless a narrow window is explicitly requested. */
+const oversightJobCreatedAtFilter = (
+  timeframe?: string,
+): Prisma.JobWhereInput => {
+  const normalized = String(timeframe || 'all').toLowerCase();
+  if (normalized === 'all') return {};
+  return { createdAt: { gte: resolveTimeframeStart(timeframe) } };
+};
+
+const oversightCourseCreatedAtFilter = (
+  timeframe?: string,
+): Prisma.CourseWhereInput => {
+  const normalized = String(timeframe || 'all').toLowerCase();
+  if (normalized === 'all') return {};
+  return { createdAt: { gte: resolveTimeframeStart(timeframe) } };
+};
+
+type MarketplaceScope = 'listings' | 'oversight';
+
+const resolveMarketplaceScope = (raw?: string): MarketplaceScope =>
+  String(raw || '').toLowerCase() === 'listings' ? 'listings' : 'oversight';
+
+/** MaritimeLink Listings = admin-created; Oversight = recruiter / training agent created. */
+const jobScopeWhere = (scope: MarketplaceScope): Prisma.JobWhereInput =>
+  scope === 'listings'
+    ? { adminId: { not: null } }
+    : { recruiterId: { not: null } };
+
+const courseScopeWhere = (scope: MarketplaceScope): Prisma.CourseWhereInput =>
+  scope === 'listings'
+    ? { adminId: { not: null } }
+    : { recruiterId: { not: null } };
+
 type MarketplaceOversightRow = {
   id: string;
   name: string;
@@ -54,6 +87,9 @@ type MarketplaceOversightRow = {
 export const getMarketplaceStats = catchAsync(
   async (req: CustomRequest, res: Response) => {
     const timeframeStart = resolveTimeframeStart(req.query.timeframe as string);
+    const scope = resolveMarketplaceScope(req.query.scope as string);
+    const jobScope = jobScopeWhere(scope);
+    const courseScope = courseScopeWhere(scope);
 
     const [
       liveJobs,
@@ -70,17 +106,25 @@ export const getMarketplaceStats = catchAsync(
       upcomingSessions,
     ] = await Promise.all([
       // Jobs Stats
-      prisma.job.count({ where: { status: 'ACTIVE' } }),
-      prisma.job.count({
-        where: { status: 'ACTIVE', createdAt: { gte: timeframeStart } },
-      }),
-      prisma.jobApplication.count(),
-      prisma.jobApplication.count({
-        where: { createdAt: { gte: timeframeStart } },
-      }),
-      prisma.job.count({ where: { isFlagged: true } }),
+      prisma.job.count({ where: { status: 'ACTIVE', ...jobScope } }),
       prisma.job.count({
         where: {
+          status: 'ACTIVE',
+          createdAt: { gte: timeframeStart },
+          ...jobScope,
+        },
+      }),
+      prisma.jobApplication.count({ where: { job: jobScope } }),
+      prisma.jobApplication.count({
+        where: {
+          createdAt: { gte: timeframeStart },
+          job: jobScope,
+        },
+      }),
+      prisma.job.count({ where: { isFlagged: true, ...jobScope } }),
+      prisma.job.count({
+        where: {
+          ...jobScope,
           status: {
             in: [JobStatus.REMOVED, JobStatus.EXPIRED, JobStatus.FILLED],
           },
@@ -88,17 +132,25 @@ export const getMarketplaceStats = catchAsync(
       }),
 
       // Courses Stats
-      prisma.course.count({ where: { status: 'ACTIVE' } }),
+      prisma.course.count({ where: { status: 'ACTIVE', ...courseScope } }),
       prisma.course.count({
-        where: { status: 'ACTIVE', createdAt: { gte: timeframeStart } },
+        where: {
+          status: 'ACTIVE',
+          createdAt: { gte: timeframeStart },
+          ...courseScope,
+        },
       }),
-      prisma.courseBooking.count(),
+      prisma.courseBooking.count({ where: { course: courseScope } }),
       prisma.courseBooking.count({
-        where: { createdAt: { gte: timeframeStart } },
+        where: {
+          createdAt: { gte: timeframeStart },
+          course: courseScope,
+        },
       }),
-      prisma.course.count({ where: { isFlagged: true } }),
+      prisma.course.count({ where: { isFlagged: true, ...courseScope } }),
       prisma.courseSession.count({
         where: {
+          course: courseScope,
           startDate: {
             gte: new Date(),
             lte: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
@@ -138,14 +190,12 @@ export const getMarketplaceOversight = catchAsync(
     const limit = parseInt(req.query.limit as string) || 10;
     const skip = (page - 1) * limit;
     const { type, search, status, riskLevel } = req.query; // type: JOBS or COURSES
-    const timeframeStart = resolveTimeframeStart(
-      req.query.timeframe as string | undefined,
-    );
+    const oversightTimeframe = req.query.timeframe as string | undefined;
 
     if (type === 'COURSES') {
       const courseWhere: Prisma.CourseWhereInput = {
         recruiterId: { not: null },
-        createdAt: { gte: timeframeStart },
+        ...oversightCourseCreatedAtFilter(oversightTimeframe),
         ...(search && {
           OR: [
             {
@@ -255,11 +305,11 @@ export const getMarketplaceOversight = catchAsync(
       });
     }
 
-    // Default to JOBS
+    // Default to JOBS — agent-created listings only (recruiters / training agents)
     const jobWhere: Prisma.JobWhereInput = {
       AND: [
-        { OR: [{ recruiterId: { not: null } }, { adminId: { not: null } }] },
-        { createdAt: { gte: timeframeStart } },
+        { recruiterId: { not: null } },
+        oversightJobCreatedAtFilter(oversightTimeframe),
         ...(search
           ? [
               {
@@ -343,24 +393,15 @@ export const getMarketplaceOversight = catchAsync(
 
     const grouped = new Map<string, MarketplaceOversightRow>();
     jobs.forEach((job) => {
-      const creatorId = job.recruiterId || job.adminId;
-      if (!creatorId) return;
-
-      const isAdminCreated = !job.recruiterId && !!job.adminId;
+      if (!job.recruiterId || !job.recruiter) return;
+      const creatorId = job.recruiterId;
       const current = grouped.get(creatorId) || {
         id: creatorId,
-        name: isAdminCreated
-          ? job.admin?.email || 'Platform Admin'
-          : job.recruiter?.organizationName ||
-            job.recruiter?.email ||
-            'Recruiter',
-        email: isAdminCreated
-          ? job.admin?.email || ''
-          : job.recruiter?.email || '',
-        company: isAdminCreated
-          ? 'MaritimeLink Admin'
-          : job.recruiter?.company?.name || 'N/A',
-        creatorType: isAdminCreated ? 'ADMIN' : 'RECRUITER',
+        name:
+          job.recruiter.organizationName || job.recruiter.email || 'Recruiter',
+        email: job.recruiter.email || '',
+        company: job.recruiter.company?.name || 'N/A',
+        creatorType: 'RECRUITER',
         totalActive: 0,
         totalPosted: 0,
         totalInteractions: 0,
@@ -647,6 +688,7 @@ export const getAllCoursesForAdmin = catchAsync(
     if (status) where.status = status as CourseStatus;
     if (isFlagged !== undefined) where.isFlagged = isFlagged === 'true';
     if (recruiterId) where.recruiterId = recruiterId;
+    if (req.query.adminId) where.adminId = String(req.query.adminId);
     if (companyId) where.companyId = companyId;
     if (type) where.courseType = type as CourseType;
 

@@ -578,7 +578,7 @@ const options: swaggerJsdoc.Options = {
             category: { type: 'string' },
             status: {
               type: 'string',
-              enum: ['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED'],
+              enum: ['OPEN', 'RESOLVED', 'CLOSED'],
             },
             priority: {
               type: 'string',

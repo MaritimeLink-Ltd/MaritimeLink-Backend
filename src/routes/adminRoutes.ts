@@ -1345,7 +1345,7 @@ router.get('/operations/stats', adminOperationsController.getSystemStats);
  *         schema: { type: integer, default: 10 }
  *       - in: query
  *         name: status
- *         schema: { type: string, enum: [OPEN, IN_PROGRESS, RESOLVED, CLOSED] }
+ *         schema: { type: string, enum: [OPEN, RESOLVED, CLOSED] }
  *       - in: query
  *         name: priority
  *         schema: { type: string, enum: [HIGH, MEDIUM, LOW] }
@@ -1465,7 +1465,7 @@ router.get('/support/cases/:id', adminOperationsController.getCaseById);
  *           schema:
  *             type: object
  *             properties:
- *               status: { type: string, enum: [OPEN, IN_PROGRESS, RESOLVED, CLOSED] }
+ *               status: { type: string, enum: [OPEN, RESOLVED, CLOSED] }
  *               priority: { type: string, enum: [HIGH, MEDIUM, LOW] }
  *               assignedToId: { type: string, format: uuid }
  *     responses:

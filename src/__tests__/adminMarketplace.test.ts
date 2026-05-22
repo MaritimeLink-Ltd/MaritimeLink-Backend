@@ -134,7 +134,23 @@ describe('Admin Marketplace Management Tests', () => {
   });
 
   describe('Marketplace Oversight', () => {
-    it('should only count recruiter jobs within the selected timeframe', async () => {
+    it('should count all recruiter jobs when timeframe is all', async () => {
+      const res = await request(app)
+        .get('/api/admin/marketplace/oversight?type=JOBS&timeframe=all')
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('success');
+      expect(Array.isArray(res.body.data.oversight)).toBe(true);
+      const row = res.body.data.oversight.find(
+        (r: { id: string }) => r.id === recruiterId,
+      );
+      expect(row).toBeDefined();
+      expect(row.totalPosted).toBeGreaterThanOrEqual(2);
+      expect(row.totalActive).toBeGreaterThanOrEqual(2);
+    });
+
+    it('should only count recruiter jobs within a narrow timeframe when requested', async () => {
       const res = await request(app)
         .get(
           '/api/admin/marketplace/oversight?type=JOBS&timeframe=today&search=Test Job for Admin Filtering',
@@ -142,28 +158,74 @@ describe('Admin Marketplace Management Tests', () => {
         .set('Authorization', `Bearer ${adminToken}`);
 
       expect(res.status).toBe(200);
-      expect(res.body.status).toBe('success');
-      expect(Array.isArray(res.body.data.oversight)).toBe(true);
       expect(res.body.data.oversight.length).toBe(1);
-      expect(res.body.data.oversight[0].id).toBe(recruiterId);
       expect(res.body.data.oversight[0].totalPosted).toBe(1);
-      expect(res.body.data.oversight[0].totalActive).toBe(1);
     });
 
-    it('should include admin-created jobs in oversight rows', async () => {
+    it('should not include admin-created jobs in oversight rows', async () => {
       const res = await request(app)
         .get(
-          '/api/admin/marketplace/oversight?type=JOBS&timeframe=today&search=Test Admin Marketplace Job',
+          '/api/admin/marketplace/oversight?type=JOBS&timeframe=all&search=Test Admin Marketplace Job',
         )
         .set('Authorization', `Bearer ${adminToken}`);
 
       expect(res.status).toBe(200);
-      expect(res.body.status).toBe('success');
-      expect(Array.isArray(res.body.data.oversight)).toBe(true);
-      expect(res.body.data.oversight.length).toBe(1);
-      expect(res.body.data.oversight[0].creatorType).toBe('ADMIN');
-      expect(res.body.data.oversight[0].totalPosted).toBe(1);
-      expect(res.body.data.oversight[0].totalActive).toBe(1);
+      expect(res.body.data.oversight).toEqual([]);
+    });
+  });
+
+  describe('MaritimeLink Listings', () => {
+    it('should return only admin-created jobs', async () => {
+      const res = await request(app)
+        .get('/api/admin/marketplace/listings?type=JOBS&limit=50')
+        .set('Authorization', `Bearer ${adminToken}`);
+
+      expect(res.status).toBe(200);
+      const listings = res.body.data.listings as Array<{
+        adminId: string | null;
+        recruiterId: string | null;
+        title: string;
+      }>;
+      expect(listings.length).toBeGreaterThan(0);
+      expect(listings.every((j) => j.adminId != null)).toBe(true);
+      expect(listings.every((j) => j.recruiterId == null)).toBe(true);
+      expect(
+        listings.some((j) => j.title === 'Test Admin Marketplace Job'),
+      ).toBe(true);
+      expect(
+        listings.some((j) => j.title === 'Test Job for Admin Filtering'),
+      ).toBe(false);
+    });
+
+    it('should scope stats to listings vs oversight', async () => {
+      const [
+        listingsStats,
+        oversightStats,
+        adminActiveJobs,
+        recruiterActiveJobs,
+      ] = await Promise.all([
+        request(app)
+          .get('/api/admin/marketplace/stats?scope=listings&timeframe=30d')
+          .set('Authorization', `Bearer ${adminToken}`),
+        request(app)
+          .get('/api/admin/marketplace/stats?scope=oversight&timeframe=30d')
+          .set('Authorization', `Bearer ${adminToken}`),
+        prisma.job.count({
+          where: { adminId: { not: null }, status: 'ACTIVE' },
+        }),
+        prisma.job.count({
+          where: { recruiterId: { not: null }, status: 'ACTIVE' },
+        }),
+      ]);
+
+      expect(listingsStats.status).toBe(200);
+      expect(oversightStats.status).toBe(200);
+      expect(listingsStats.body.data.jobs.live.count).toBe(adminActiveJobs);
+      expect(oversightStats.body.data.jobs.live.count).toBe(
+        recruiterActiveJobs,
+      );
+      expect(adminActiveJobs).toBeGreaterThanOrEqual(1);
+      expect(recruiterActiveJobs).toBeGreaterThanOrEqual(2);
     });
   });
 
