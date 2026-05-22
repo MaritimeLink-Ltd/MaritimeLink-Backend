@@ -838,6 +838,8 @@ export const getCaseById = catchAsync(
   },
 );
 
+const ALLOWED_CASE_STATUSES = ['OPEN', 'RESOLVED', 'CLOSED'] as const;
+
 export const updateCaseStatus = catchAsync(
   async (req: Request, res: Response) => {
     const { id } = req.params;
@@ -853,7 +855,20 @@ export const updateCaseStatus = catchAsync(
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data: any = {};
-    if (status !== undefined) data.status = status;
+    if (status !== undefined) {
+      const normalizedStatus = String(status).toUpperCase();
+      if (
+        !ALLOWED_CASE_STATUSES.includes(
+          normalizedStatus as (typeof ALLOWED_CASE_STATUSES)[number],
+        )
+      ) {
+        throw new AppError(
+          'Invalid case status. Allowed values: OPEN, RESOLVED, CLOSED.',
+          400,
+        );
+      }
+      data.status = normalizedStatus;
+    }
     if (priority !== undefined)
       data.priority = normalizeStoredCasePriority(priority);
     if (assignedToId !== undefined) data.assignedToId = assignedToId;

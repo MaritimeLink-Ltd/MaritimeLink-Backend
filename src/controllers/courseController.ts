@@ -15,13 +15,21 @@ import {
 
 const adminRoles = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'];
 
-const userOwnsCourse = (
+const isPlatformAdminRole = (role?: string) =>
+  adminRoles.includes(role || '');
+
+/** Recruiters own recruiterId rows; platform admins manage MaritimeLink (adminId) listings. */
+const canManageCourse = (
   course: { adminId: string | null; recruiterId: string | null },
-  userId: string | undefined,
-  userRole: string | undefined,
-) => {
-  const isAdmin = adminRoles.includes(userRole || '');
-  return isAdmin ? course.adminId === userId : course.recruiterId === userId;
+  userId: string,
+  userRole?: string,
+): boolean => {
+  if (isPlatformAdminRole(userRole)) {
+    if (course.adminId) return true;
+    if (!course.recruiterId) return true;
+    return false;
+  }
+  return course.recruiterId === userId;
 };
 
 export const createCourse = catchAsync(
@@ -249,8 +257,7 @@ export const updateCourse = catchAsync(
       return next(new AppError('Course not found', 404));
     }
 
-    // Ownership check
-    if (!userOwnsCourse(course, userId, userRole)) {
+    if (!userId || !canManageCourse(course, userId, userRole)) {
       return next(new AppError('Unauthorized', 403));
     }
 
@@ -291,7 +298,7 @@ export const publishCourse = catchAsync(
       return next(new AppError('Course not found', 404));
     }
 
-    if (!userOwnsCourse(course, userId, userRole)) {
+    if (!canManageCourse(course, userId, userRole)) {
       return next(new AppError('Unauthorized', 403));
     }
 
@@ -381,7 +388,7 @@ export const unpublishCourse = catchAsync(
       return next(new AppError('Course not found', 404));
     }
 
-    if (!userOwnsCourse(course, userId, userRole)) {
+    if (!canManageCourse(course, userId, userRole)) {
       return next(new AppError('Unauthorized', 403));
     }
 
@@ -440,8 +447,7 @@ export const deleteCourse = catchAsync(
       return next(new AppError('Course not found', 404));
     }
 
-    // Ownership check
-    if (!userOwnsCourse(course, userId, userRole)) {
+    if (!userId || !canManageCourse(course, userId, userRole)) {
       return next(new AppError('Unauthorized', 403));
     }
 

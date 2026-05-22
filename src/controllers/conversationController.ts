@@ -1,5 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma.js';
+import { MessageSender } from '../generated/client/index.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
@@ -8,6 +9,15 @@ import {
   getMessagesSchema,
   sendMessageSchema,
 } from '../validations/chatValidation.js';
+import { formatAdminChatDisplayName } from '../utils/adminDisplayName.js';
+
+/** Hide empty admin threads until an administrator has sent at least one message. */
+const supportChatVisibleToUserFilter = {
+  OR: [
+    { adminId: null },
+    { messages: { some: { senderType: MessageSender.ADMIN } } },
+  ],
+};
 
 export const getConversations = catchAsync(
   async (req: CustomRequest, res: Response) => {
@@ -15,10 +25,10 @@ export const getConversations = catchAsync(
     const userType = req.user!.userType;
     const whereClause =
       userType === 'PROFESSIONAL'
-        ? { professionalId: userId }
+        ? { professionalId: userId, ...supportChatVisibleToUserFilter }
         : userType === 'ADMIN'
           ? { adminId: userId }
-          : { recruiterId: userId };
+          : { recruiterId: userId, ...supportChatVisibleToUserFilter };
 
     const conversations = await prisma.conversation.findMany({
       where: whereClause,
@@ -170,7 +180,11 @@ export const createConversation = catchAsync(
   },
 );
 
-export const bootstrapSupportConversation = catchAsync(
+/**
+ * Returns an existing support chat only after an admin has sent at least one message.
+ * Does not create conversations — admins start support chats from the admin panel.
+ */
+export const getSupportConversation = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const userId = req.user!.id;
     const userType = req.user!.userType;
@@ -184,21 +198,45 @@ export const bootstrapSupportConversation = catchAsync(
       );
     }
 
-    const supportAdmin = await prisma.admin.findFirst({
-      orderBy: { createdAt: 'asc' },
-      select: { id: true, email: true, role: true },
-    });
+    const caseIdParam =
+      typeof req.query.caseId === 'string' ? req.query.caseId.trim() : '';
 
-    if (!supportAdmin) {
-      return next(new AppError('Support admin not available.', 404));
+    let preferredAdminId: string | null = null;
+    if (caseIdParam) {
+      const supportCase = await prisma.supportCase.findFirst({
+        where: {
+          OR: [{ id: caseIdParam }, { caseId: caseIdParam }],
+          userId,
+        },
+        select: { assignedToId: true },
+      });
+      preferredAdminId = supportCase?.assignedToId ?? null;
     }
 
+    const participantWhere =
+      userType === 'PROFESSIONAL'
+        ? {
+            professionalId: userId,
+            recruiterId: null,
+            adminId: { not: null },
+          }
+        : {
+            professionalId: null,
+            recruiterId: userId,
+            adminId: { not: null },
+          };
+
+    const adminHasMessaged = {
+      ...participantWhere,
+      messages: { some: { senderType: MessageSender.ADMIN } },
+    };
+
     const includeParticipants = {
-      professional: { select: { id: true, fullname: true } },
-      recruiter: { select: { id: true, organizationName: true } },
+      professional: { select: { id: true, fullname: true, email: true } },
+      recruiter: { select: { id: true, organizationName: true, email: true } },
       admin: { select: { id: true, email: true, role: true } },
       messages: {
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: 'desc' as const },
         take: 1,
       },
       _count: {
@@ -206,37 +244,32 @@ export const bootstrapSupportConversation = catchAsync(
           messages: {
             where: {
               isRead: false,
-              NOT: {
-                senderId: userId,
-              },
+              NOT: { senderId: userId },
             },
           },
         },
       },
-    } as const;
+    };
 
-    const conversationWhere =
-      userType === 'PROFESSIONAL'
-        ? {
-            professionalId: userId,
-            adminId: supportAdmin.id,
-            recruiterId: null,
-          }
-        : {
-            professionalId: null,
-            recruiterId: userId,
-            adminId: supportAdmin.id,
-          };
+    let conversation = null;
 
-    let conversation = await prisma.conversation.findFirst({
-      where: conversationWhere,
-      include: includeParticipants,
-    });
+    if (preferredAdminId) {
+      conversation = await prisma.conversation.findFirst({
+        where: {
+          ...participantWhere,
+          adminId: preferredAdminId,
+          messages: { some: { senderType: MessageSender.ADMIN } },
+        },
+        include: includeParticipants,
+        orderBy: { lastMessageAt: 'desc' },
+      });
+    }
 
     if (!conversation) {
-      conversation = await prisma.conversation.create({
-        data: conversationWhere,
+      conversation = await prisma.conversation.findFirst({
+        where: adminHasMessaged,
         include: includeParticipants,
+        orderBy: { lastMessageAt: 'desc' },
       });
     }
 
@@ -244,7 +277,10 @@ export const bootstrapSupportConversation = catchAsync(
       status: 'success',
       data: {
         conversation,
-        admin: supportAdmin,
+        admin: conversation?.admin ?? null,
+        adminDisplayName: conversation?.admin
+          ? formatAdminChatDisplayName(conversation.admin)
+          : null,
       },
     });
   },

@@ -24,6 +24,27 @@ const normalizeFieldValue = (value: unknown) => {
   return value ?? null;
 };
 
+const PLATFORM_ADMIN_ROLES = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'] as const;
+
+const isPlatformAdminRole = (role?: string) =>
+  PLATFORM_ADMIN_ROLES.includes(
+    (role || '') as (typeof PLATFORM_ADMIN_ROLES)[number],
+  );
+
+/** Recruiters own recruiterId rows; platform admins manage MaritimeLink (adminId) listings. */
+const canManageJob = (
+  job: { adminId: string | null; recruiterId: string | null },
+  userId: string,
+  userRole?: string,
+): boolean => {
+  if (isPlatformAdminRole(userRole)) {
+    if (job.adminId) return true;
+    if (!job.recruiterId) return true;
+    return false;
+  }
+  return job.recruiterId === userId;
+};
+
 const resolveEffectiveJobStatus = <
   T extends { status: JobStatus; closingDate?: Date | null },
 >(
@@ -59,8 +80,7 @@ export const createJob = catchAsync(
       return next(new AppError('User context missing', 400));
     }
 
-    // Admins have specific roles
-    const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'].includes(userRole);
+    const isAdmin = isPlatformAdminRole(userRole);
 
     const { closingDate, ...jobData } = validatedData;
     const job = await prisma.job.create({
@@ -379,10 +399,6 @@ export const updateJobStatus = catchAsync(
     const userId = req.user?.id;
     const userRole = req.user?.role;
 
-    const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'].includes(
-      userRole || '',
-    );
-
     const job = await prisma.job.findUnique({
       where: { id },
     });
@@ -391,10 +407,7 @@ export const updateJobStatus = catchAsync(
       return next(new AppError('Job not found', 404));
     }
 
-    if (isAdmin) {
-      if (job.adminId !== userId)
-        return next(new AppError('Unauthorized', 403));
-    } else if (job.recruiterId !== userId) {
+    if (!userId || !canManageJob(job, userId, userRole)) {
       return next(new AppError('Unauthorized', 403));
     }
 
@@ -420,10 +433,6 @@ export const updateJob = catchAsync(
     const userId = req.user?.id;
     const userRole = req.user?.role;
 
-    const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'].includes(
-      userRole || '',
-    );
-
     const job = await prisma.job.findUnique({
       where: { id },
     });
@@ -432,13 +441,8 @@ export const updateJob = catchAsync(
       return next(new AppError('Job not found', 404));
     }
 
-    // Ownership check
-    if (isAdmin) {
-      if (job.adminId !== userId)
-        return next(new AppError('Unauthorized', 403));
-    } else {
-      if (job.recruiterId !== userId)
-        return next(new AppError('Unauthorized', 403));
+    if (!userId || !canManageJob(job, userId, userRole)) {
+      return next(new AppError('Unauthorized', 403));
     }
 
     const { closingDate } = validatedData;
@@ -534,10 +538,6 @@ export const deleteJob = catchAsync(
     const userId = req.user?.id;
     const userRole = req.user?.role;
 
-    const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'].includes(
-      userRole || '',
-    );
-
     const job = await prisma.job.findUnique({
       where: { id },
     });
@@ -546,13 +546,8 @@ export const deleteJob = catchAsync(
       return next(new AppError('Job not found', 404));
     }
 
-    // Ownership check
-    if (isAdmin) {
-      if (job.adminId !== userId)
-        return next(new AppError('Unauthorized', 403));
-    } else {
-      if (job.recruiterId !== userId)
-        return next(new AppError('Unauthorized', 403));
+    if (!userId || !canManageJob(job, userId, userRole)) {
+      return next(new AppError('Unauthorized', 403));
     }
 
     await prisma.job.delete({
