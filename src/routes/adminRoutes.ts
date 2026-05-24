@@ -932,6 +932,7 @@ router.get(
  *                     trainer: { $ref: '#/components/schemas/Recruiter' }
  */
 router.get('/trainers/:id', adminTrainerController.getTrainerById);
+router.post('/trainers/:id/notes', adminTrainerController.addTrainerNote);
 
 /**
  * @swagger
@@ -958,6 +959,7 @@ router.get('/trainers/:id', adminTrainerController.getTrainerById);
  *       200:
  *         description: Resolved account data
  */
+router.get('/accounts/rejected', adminAccountController.getRejectedAccounts);
 router.get('/accounts/:id', adminAccountController.getAccountById);
 
 // --- TRAINER PAYOUT & STRIPE CONNECT ROUTES ---
@@ -1068,6 +1070,7 @@ router.patch(
   '/recruiters/:id/status',
   adminRecruiterController.updateRecruiterStatus,
 );
+router.post('/recruiters/:id/notes', adminRecruiterController.addRecruiterNote);
 
 /**
  * @swagger

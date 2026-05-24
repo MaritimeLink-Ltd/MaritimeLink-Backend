@@ -4,6 +4,10 @@ import { catchAsync } from '../utils/catchAsync.js';
 import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
 import { KycRiskLevel } from '../generated/client/index.js';
+import {
+  createRecruiterAccountNote,
+  kycNotesInclude,
+} from '../services/adminAccountNotesService.js';
 
 const resolveTrainerRiskLevel = (trainer: {
   organizationRiskLevel?: KycRiskLevel | null;
@@ -62,7 +66,9 @@ export const getTrainerById = catchAsync(
     const trainer = await prisma.recruiter.findUnique({
       where: { id, role: 'TRAINING_AGENT' },
       include: {
-        kyc: true,
+        kyc: {
+          include: kycNotesInclude,
+        },
         courses: true,
       },
     });
@@ -80,6 +86,34 @@ export const getTrainerById = catchAsync(
           hasCompanyMismatch: resolveTrainerMismatch(trainer),
         },
       },
+    });
+  },
+);
+
+export const addTrainerNote = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const { id } = req.params;
+    const { content } = req.body;
+    const adminId = req.user?.id;
+
+    if (!adminId) {
+      return next(new AppError('Admin authentication required', 401));
+    }
+
+    const trainer = await prisma.recruiter.findUnique({
+      where: { id, role: 'TRAINING_AGENT' },
+      select: { id: true },
+    });
+
+    if (!trainer) {
+      return next(new AppError('Trainer not found', 404));
+    }
+
+    const note = await createRecruiterAccountNote(id, adminId, content);
+
+    res.status(201).json({
+      status: 'success',
+      data: { note },
     });
   },
 );

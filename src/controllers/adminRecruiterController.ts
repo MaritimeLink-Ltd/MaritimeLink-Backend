@@ -4,6 +4,10 @@ import { catchAsync } from '../utils/catchAsync.js';
 import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
 import { KycRiskLevel } from '../generated/client/index.js';
+import {
+  createRecruiterAccountNote,
+  kycNotesInclude,
+} from '../services/adminAccountNotesService.js';
 
 const resolveRecruiterRiskLevel = (recruiter: {
   organizationRiskLevel?: KycRiskLevel | null;
@@ -65,8 +69,12 @@ export const getRecruiters = catchAsync(
 
 export const getRecruiterStats = catchAsync(
   async (req: CustomRequest, res: Response) => {
-    const { role } = req.query;
-    const baseWhere: any = role ? { role: role as any } : {}; // eslint-disable-line @typescript-eslint/no-explicit-any
+    const roleParam = req.query.role as string | undefined;
+    const baseWhere = {
+      role: (roleParam || 'RECRUITMENT_AGENT') as
+        | 'RECRUITMENT_AGENT'
+        | 'TRAINING_AGENT',
+    };
 
     const total = await prisma.recruiter.count({ where: baseWhere });
     const pending = await prisma.recruiter.count({
@@ -106,7 +114,9 @@ export const getRecruiterById = catchAsync(
     const recruiter = await prisma.recruiter.findUnique({
       where: { id },
       include: {
-        kyc: true,
+        kyc: {
+          include: kycNotesInclude,
+        },
         jobs: true,
       },
     });
@@ -124,6 +134,25 @@ export const getRecruiterById = catchAsync(
           hasCompanyMismatch: resolveRecruiterMismatch(recruiter),
         },
       },
+    });
+  },
+);
+
+export const addRecruiterNote = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const { id } = req.params;
+    const { content } = req.body;
+    const adminId = req.user?.id;
+
+    if (!adminId) {
+      return next(new AppError('Admin authentication required', 401));
+    }
+
+    const note = await createRecruiterAccountNote(id, adminId, content);
+
+    res.status(201).json({
+      status: 'success',
+      data: { note },
     });
   },
 );

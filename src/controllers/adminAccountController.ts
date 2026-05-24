@@ -179,6 +179,96 @@ function normalizeAccountTypeHint(value?: string | null) {
     .replace(/[\s-]+/g, '_');
 }
 
+export const getRejectedAccounts = catchAsync(
+  async (req: CustomRequest, res: Response) => {
+    const [recruiters, professionals] = await Promise.all([
+      prisma.recruiter.findMany({
+        where: { status: 'REJECTED' },
+        select: {
+          id: true,
+          email: true,
+          role: true,
+          organizationName: true,
+          firstName: true,
+          lastName: true,
+          updatedAt: true,
+        },
+        orderBy: { updatedAt: 'desc' },
+      }),
+      prisma.professional.findMany({
+        where: {
+          kyc: { status: 'REJECTED' },
+        },
+        select: {
+          id: true,
+          email: true,
+          fullname: true,
+          firstName: true,
+          lastName: true,
+          updatedAt: true,
+          kyc: { select: { updatedAt: true } },
+        },
+        orderBy: { updatedAt: 'desc' },
+      }),
+    ]);
+
+    const accounts = [
+      ...recruiters.map((recruiter) => {
+        const name =
+          recruiter.organizationName ||
+          [recruiter.firstName, recruiter.lastName].filter(Boolean).join(' ') ||
+          'Unknown';
+        const isTrainer = recruiter.role === 'TRAINING_AGENT';
+        return {
+          id: recruiter.id,
+          accountName: name,
+          accountType: isTrainer ? 'Training Provider' : 'Recruiter',
+          accountKind: isTrainer ? 'trainer' : 'recruiter',
+          email: recruiter.email,
+          issueType: 'Account Rejected',
+          issueDescription:
+            'This account was rejected by an admin during review.',
+          severity: 'CRITICAL',
+          status: 'Rejected',
+          rejectedAt: recruiter.updatedAt.toISOString(),
+        };
+      }),
+      ...professionals.map((professional) => {
+        const name =
+          professional.fullname ||
+          [professional.firstName, professional.lastName]
+            .filter(Boolean)
+            .join(' ') ||
+          'Unknown';
+        return {
+          id: professional.id,
+          accountName: name,
+          accountType: 'Professional',
+          accountKind: 'professional',
+          email: professional.email,
+          issueType: 'Account Rejected',
+          issueDescription:
+            'KYC verification was rejected by an admin during review.',
+          severity: 'CRITICAL',
+          status: 'Rejected',
+          rejectedAt: (
+            professional.kyc?.updatedAt || professional.updatedAt
+          ).toISOString(),
+        };
+      }),
+    ].sort(
+      (a, b) =>
+        new Date(b.rejectedAt).getTime() - new Date(a.rejectedAt).getTime(),
+    );
+
+    res.status(200).json({
+      status: 'success',
+      results: accounts.length,
+      data: { accounts },
+    });
+  },
+);
+
 export const getAccountById = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const { id } = req.params;
