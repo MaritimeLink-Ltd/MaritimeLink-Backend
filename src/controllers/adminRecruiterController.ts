@@ -8,6 +8,7 @@ import {
   createRecruiterAccountNote,
   kycNotesInclude,
 } from '../services/adminAccountNotesService.js';
+import { notifyKycStatusChange } from '../services/kycNotificationService.js';
 
 const resolveRecruiterRiskLevel = (recruiter: {
   organizationRiskLevel?: KycRiskLevel | null;
@@ -215,7 +216,7 @@ export const getPendingKYCs = catchAsync(
 export const updateKYCStatus = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const { id } = req.params; // recruiterKyc id or recruiterId? Let's use recruiterId for convenience
-    const { status } = req.body; // APPROVED or REJECTED
+    const { status, rejectionReason } = req.body; // APPROVED or REJECTED
 
     if (!['APPROVED', 'REJECTED'].includes(status)) {
       return next(new AppError('Invalid status', 400));
@@ -226,9 +227,14 @@ export const updateKYCStatus = catchAsync(
       data: { status },
     });
 
-    // If KYC is approved, we might also want to approve the recruiter account?
-    // Or keep them separate. Usually KYC approval is a prerequisite for account approval.
-    // Let's just update KYC status for now as requested.
+    void notifyKycStatusChange({
+      audience: 'RECRUITER',
+      userId: id,
+      status,
+      rejectionReason:
+        typeof rejectionReason === 'string' ? rejectionReason : undefined,
+      io: req.app.get('io'),
+    });
 
     res.status(200).json({
       status: 'success',

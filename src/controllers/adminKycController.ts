@@ -8,6 +8,7 @@ import {
   resolveProfessionalRiskLevel,
   resolveRecruiterRiskLevel,
 } from '../utils/kycRiskLevel.js';
+import { notifyKycStatusChange } from '../services/kycNotificationService.js';
 
 /**
  * @desc    Get all KYC submissions (Professionals + Recruiters)
@@ -330,6 +331,19 @@ export const updateKycVerification = catchAsync(
           data: { isVerified: true, status: 'APPROVED' },
         });
       }
+    }
+
+    if (status === 'APPROVED' || status === 'REJECTED') {
+      const subjectId =
+        userType === 'PROFESSIONAL'
+          ? updated.professionalId
+          : updated.recruiterId;
+      void notifyKycStatusChange({
+        audience: userType === 'PROFESSIONAL' ? 'PROFESSIONAL' : 'RECRUITER',
+        userId: subjectId,
+        status,
+        io: req.app.get('io'),
+      });
     }
 
     res.status(200).json({

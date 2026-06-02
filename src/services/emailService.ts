@@ -63,6 +63,64 @@ export const sendPasswordResetEmail = async (to: string, resetLink: string) => {
   await transporter.sendMail(mailOptions);
 };
 
+export type KycEmailStatus = 'APPROVED' | 'REJECTED';
+
+export type SendKycStatusEmailParams = {
+  to: string;
+  recipientName: string;
+  accountLabel: string;
+  status: KycEmailStatus;
+  dashboardUrl: string;
+  rejectionReason?: string;
+};
+
+export const sendKycStatusEmail = async ({
+  to,
+  recipientName,
+  accountLabel,
+  status,
+  dashboardUrl,
+  rejectionReason,
+}: SendKycStatusEmailParams) => {
+  const approved = status === 'APPROVED';
+  const subject = approved
+    ? 'Your identity verification was approved'
+    : 'Update on your identity verification';
+
+  const headline = approved
+    ? 'Verification approved'
+    : 'Verification not approved';
+
+  const bodyHtml = approved
+    ? `<p style="font-size: 15px; color: #555;">Good news — your ${accountLabel.toLowerCase()} identity verification (KYC) on Maritime Link has been approved. You can sign in and continue using the platform.</p>`
+    : `<p style="font-size: 15px; color: #555;">We reviewed your ${accountLabel.toLowerCase()} identity verification (KYC) submission on Maritime Link. Unfortunately, we could not approve it at this time.</p>${
+        rejectionReason?.trim()
+          ? `<p style="font-size: 15px; color: #555;"><strong>Reason:</strong> ${rejectionReason.trim()}</p>`
+          : ''
+      }<p style="font-size: 15px; color: #555;">You may update your documents and resubmit, or contact support if you believe this was a mistake.</p>`;
+
+  const accent = approved ? '#16a34a' : '#dc2626';
+
+  const mailOptions = {
+    from: env.SMTP_FROM,
+    to,
+    subject,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
+        <h2 style="color: ${accent};">${headline}</h2>
+        <p style="font-size: 16px; color: #555;">Hi ${recipientName},</p>
+        ${bodyHtml}
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${dashboardUrl}" style="background-color: #0f172a; color: white; padding: 12px 25px; text-decoration: none; border-radius: 5px; font-weight: bold; display: inline-block;">Go to dashboard</a>
+        </div>
+        <p style="font-size: 14px; color: #888;">If you did not submit verification on Maritime Link, you can ignore this email.</p>
+      </div>
+    `,
+  };
+
+  await transporter.sendMail(mailOptions);
+};
+
 export const sendPhoneOTPEmail = async (to: string, otp: string) => {
   const mailOptions = {
     from: env.SMTP_FROM,
