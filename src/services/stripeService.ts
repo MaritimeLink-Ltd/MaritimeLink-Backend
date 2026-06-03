@@ -4,6 +4,11 @@ import { prisma } from '../config/prisma.js';
 import { logActivity } from './activityLogger.js';
 import { ActionStatus, ActorType } from '../generated/client/index.js';
 import { AppError } from '../utils/AppError.js';
+import {
+  notifyCourseBookingPaymentSuccess,
+  notifyPaymentOutcome,
+  safeNotify,
+} from './eventNotificationService.js';
 
 const stripe = new Stripe(env.STRIPE_SECRET_KEY, {
   apiVersion: '2026-01-28.clover',
@@ -588,6 +593,17 @@ export const stripeService = {
       },
     });
 
+    const amountTotal = session.amount_total;
+    safeNotify('membership-payment', () =>
+      notifyPaymentOutcome({
+        professionalId,
+        success: true,
+        description: `Your Maritime Link ${session.metadata?.plan || 'PRO'} membership payment was successful.`,
+        amount: amountTotal != null ? amountTotal / 100 : undefined,
+        currency: session.currency?.toUpperCase() || 'GBP',
+      }),
+    );
+
     return professional;
   },
 
@@ -634,6 +650,12 @@ export const stripeService = {
 
       case 'payment_intent.succeeded':
         await this.handlePaymentSuccess(
+          event.data.object as Stripe.PaymentIntent,
+        );
+        break;
+
+      case 'payment_intent.payment_failed':
+        await this.handlePaymentFailed(
           event.data.object as Stripe.PaymentIntent,
         );
         break;
@@ -690,6 +712,7 @@ export const stripeService = {
         courseId: true,
         amountPaid: true,
         currency: true,
+        paymentStatus: true,
         course: {
           select: {
             title: true,
@@ -703,6 +726,7 @@ export const stripeService = {
       return;
     }
 
+    const wasPaid = booking.paymentStatus === 'SUCCEEDED';
     const paymentIntentId = normalizePaymentIntentId(session.payment_intent);
 
     await prisma.courseBooking.update({
@@ -714,6 +738,12 @@ export const stripeService = {
         paidAt: new Date(),
       },
     });
+
+    if (!wasPaid) {
+      safeNotify('course-booking-paid', () =>
+        notifyCourseBookingPaymentSuccess(bookingId),
+      );
+    }
 
     await logActivity({
       action: 'COURSE_PURCHASED',
@@ -743,6 +773,7 @@ export const stripeService = {
     });
 
     if (booking) {
+      const wasPaid = booking.paymentStatus === 'SUCCEEDED';
       await prisma.courseBooking.update({
         where: { id: booking.id },
         data: {
@@ -751,6 +782,11 @@ export const stripeService = {
           paidAt: new Date(),
         },
       });
+      if (!wasPaid) {
+        safeNotify('course-booking-paid', () =>
+          notifyCourseBookingPaymentSuccess(booking.id),
+        );
+      }
     }
   },
 
@@ -856,6 +892,34 @@ export const stripeService = {
           stripePaymentIntentId: paymentIntent.id,
         },
       });
+
+      safeNotify('payment-failed', () =>
+        notifyPaymentOutcome({
+          professionalId: booking.professionalId,
+          success: false,
+          description: `Payment for your course booking (${booking.course?.title || 'training'}) could not be completed.`,
+          amount: Number(booking.amountPaid),
+          currency: booking.currency || 'GBP',
+        }),
+      );
+      return;
+    }
+
+    const professionalId = paymentIntent.metadata?.professionalId;
+    if (professionalId) {
+      safeNotify('payment-failed', () =>
+        notifyPaymentOutcome({
+          professionalId,
+          success: false,
+          description:
+            'A payment on your Maritime Link account could not be completed.',
+          amount:
+            paymentIntent.amount != null
+              ? paymentIntent.amount / 100
+              : undefined,
+          currency: paymentIntent.currency?.toUpperCase(),
+        }),
+      );
     }
   },
 
