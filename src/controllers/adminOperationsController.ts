@@ -14,6 +14,10 @@ import {
   normalizeStoredCasePriority,
   isPremiumProfessionalTier,
 } from '../utils/supportCasePriority.js';
+import {
+  notifySupportCaseEvent,
+  safeNotify,
+} from '../services/eventNotificationService.js';
 
 type ActivityActor = {
   id: string;
@@ -884,6 +888,16 @@ export const updateCaseStatus = catchAsync(
         },
       },
     });
+
+    if (status !== undefined) {
+      safeNotify('support-case-updated', () =>
+        notifySupportCaseEvent({
+          caseDbId: supportCase.id,
+          event: 'updated',
+          previousStatus: supportCase.status,
+        }),
+      );
+    }
 
     res.status(200).json({
       status: 'success',

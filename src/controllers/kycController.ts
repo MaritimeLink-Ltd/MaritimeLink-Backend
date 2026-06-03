@@ -11,6 +11,11 @@ import {
 } from '../services/geminiService.js';
 import { submitKYCSchema } from '../validations/kycValidation.js';
 import {
+  notifyKycSubmitted,
+  safeNotify,
+} from '../services/eventNotificationService.js';
+import { isKycPackComplete } from '../utils/kycSubmissionComplete.js';
+import {
   compareCompanyDetails,
   fetchGeminiCompanyDetails,
 } from '../services/companyService.js';
@@ -189,11 +194,16 @@ export const uploadKYCSelfie = catchAsync(
       env.SUPABASE_RECRUITER_KYC_SELFIES_BUCKET,
     );
 
-    // Update the KYC record with the selfie URL
-    await prisma.recruiterKyc.update({
+    const updatedKyc = await prisma.recruiterKyc.update({
       where: { recruiterId },
       data: { selfieUrl: publicUrl },
     });
+
+    if (isKycPackComplete(updatedKyc)) {
+      safeNotify('kyc-submitted', () =>
+        notifyKycSubmitted({ audience: 'RECRUITER', userId: recruiterId }),
+      );
+    }
 
     res.status(200).json({
       status: 'success',

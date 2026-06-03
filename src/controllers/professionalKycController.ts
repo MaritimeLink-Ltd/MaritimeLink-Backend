@@ -10,6 +10,11 @@ import {
   validateDocumentType,
 } from '../services/geminiService.js';
 import { submitKYCSchema } from '../validations/kycValidation.js';
+import {
+  notifyKycSubmitted,
+  safeNotify,
+} from '../services/eventNotificationService.js';
+import { isKycPackComplete } from '../utils/kycSubmissionComplete.js';
 
 /**
  * Helper to upload KYC doc and return signed URL
@@ -241,11 +246,19 @@ export const uploadKYCSelfie = catchAsync(
       professionalId,
     );
 
-    // Update the KYC record with the selfie URL
-    await prisma.professionalKyc.update({
+    const updatedKyc = await prisma.professionalKyc.update({
       where: { professionalId },
       data: { selfieUrl: publicUrl },
     });
+
+    if (isKycPackComplete(updatedKyc)) {
+      safeNotify('kyc-submitted', () =>
+        notifyKycSubmitted({
+          audience: 'PROFESSIONAL',
+          userId: professionalId,
+        }),
+      );
+    }
 
     res.status(200).json({
       status: 'success',

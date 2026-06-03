@@ -3,6 +3,11 @@ import { prisma } from '../config/prisma.js';
 import { AppError } from '../utils/AppError.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { logActivity } from '../services/activityLogger.js';
+import {
+  notifyApplicationStatusChanged,
+  notifyJobApplicationSubmitted,
+  safeNotify,
+} from '../services/eventNotificationService.js';
 import { CustomRequest } from '../types/index.js';
 import {
   ApplicationStatus,
@@ -165,6 +170,10 @@ export const applyToJob = catchAsync(
       status: 'SUCCESS',
       metadata: { jobId: job.id, jobTitle: job.title },
     });
+
+    safeNotify('job-application-submitted', () =>
+      notifyJobApplicationSubmitted(application.id),
+    );
 
     res.status(201).json({
       status: 'success',
@@ -507,6 +516,16 @@ export const updateApplicationStatus = catchAsync(
         alert,
       });
     }
+
+    safeNotify('application-status', () =>
+      notifyApplicationStatusChanged({
+        professionalId: application.professionalId,
+        jobTitle: application.job.title,
+        status: normalizedStatus,
+        rejectionReason,
+        io,
+      }),
+    );
 
     // Log for Recruiter activity
     if (userId) {

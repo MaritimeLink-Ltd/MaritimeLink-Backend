@@ -8,7 +8,11 @@ import {
   resolveProfessionalRiskLevel,
   resolveRecruiterRiskLevel,
 } from '../utils/kycRiskLevel.js';
-import { notifyKycStatusChange } from '../services/kycNotificationService.js';
+import {
+  notifyKycResubmissionRequested,
+  notifyKycStatusChange,
+  safeNotify,
+} from '../services/eventNotificationService.js';
 
 /**
  * @desc    Get all KYC submissions (Professionals + Recruiters)
@@ -293,8 +297,15 @@ export const getKycDetails = catchAsync(
 export const updateKycVerification = catchAsync(
   async (req: CustomRequest, res: Response) => {
     const { id } = req.params;
-    const { userType, status, reviewStep, riskLevel, mismatchDetails } =
-      req.body;
+    const {
+      userType,
+      status,
+      reviewStep,
+      riskLevel,
+      mismatchDetails,
+      resubmissionNotes,
+      rejectionReason,
+    } = req.body;
 
     const data: any = { status }; // eslint-disable-line @typescript-eslint/no-explicit-any
     if (reviewStep) data.reviewStep = reviewStep;
@@ -305,8 +316,14 @@ export const updateKycVerification = catchAsync(
     }
 
     let updated: any = null; // eslint-disable-line @typescript-eslint/no-explicit-any
+    let previousStatus: string | null = null;
 
     if (userType === 'PROFESSIONAL') {
+      const existing = await prisma.professionalKyc.findUnique({
+        where: { id },
+        select: { status: true, professionalId: true },
+      });
+      previousStatus = existing?.status ?? null;
       updated = await prisma.professionalKyc.update({
         where: { id },
         data,
@@ -320,6 +337,11 @@ export const updateKycVerification = catchAsync(
         });
       }
     } else {
+      const existing = await prisma.recruiterKyc.findUnique({
+        where: { id },
+        select: { status: true, recruiterId: true },
+      });
+      previousStatus = existing?.status ?? null;
       updated = await prisma.recruiterKyc.update({
         where: { id },
         data,
@@ -333,17 +355,40 @@ export const updateKycVerification = catchAsync(
       }
     }
 
-    if (status === 'APPROVED' || status === 'REJECTED') {
-      const subjectId =
-        userType === 'PROFESSIONAL'
-          ? updated.professionalId
-          : updated.recruiterId;
-      void notifyKycStatusChange({
-        audience: userType === 'PROFESSIONAL' ? 'PROFESSIONAL' : 'RECRUITER',
-        userId: subjectId,
-        status,
-        io: req.app.get('io'),
-      });
+    const subjectId =
+      userType === 'PROFESSIONAL'
+        ? updated.professionalId
+        : updated.recruiterId;
+    const audience = userType === 'PROFESSIONAL' ? 'PROFESSIONAL' : 'RECRUITER';
+
+    if (
+      status === 'PENDING' &&
+      previousStatus &&
+      previousStatus !== 'PENDING'
+    ) {
+      safeNotify('kyc-resubmission', () =>
+        notifyKycResubmissionRequested({
+          audience,
+          userId: subjectId,
+          notes:
+            typeof resubmissionNotes === 'string'
+              ? resubmissionNotes
+              : typeof rejectionReason === 'string'
+                ? rejectionReason
+                : undefined,
+        }),
+      );
+    } else if (status === 'APPROVED' || status === 'REJECTED') {
+      safeNotify('kyc-status', () =>
+        notifyKycStatusChange({
+          audience,
+          userId: subjectId,
+          status,
+          rejectionReason:
+            typeof rejectionReason === 'string' ? rejectionReason : undefined,
+          io: req.app.get('io'),
+        }),
+      );
     }
 
     res.status(200).json({

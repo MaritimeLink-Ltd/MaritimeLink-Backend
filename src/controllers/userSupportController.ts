@@ -9,6 +9,10 @@ import {
   deriveUserSupportCasePriority,
   normalizeStoredCasePriority,
 } from '../utils/supportCasePriority.js';
+import {
+  notifySupportCaseEvent,
+  safeNotify,
+} from '../services/eventNotificationService.js';
 
 export const createCase = catchAsync(
   async (req: CustomRequest, res: Response) => {
@@ -70,6 +74,10 @@ export const createCase = catchAsync(
       status: 'SUCCESS',
       metadata: { caseId: newCase.caseId },
     });
+
+    safeNotify('support-case-created', () =>
+      notifySupportCaseEvent({ caseDbId: newCase.id, event: 'created' }),
+    );
 
     res.status(201).json({
       status: 'success',

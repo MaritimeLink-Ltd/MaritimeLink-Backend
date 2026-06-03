@@ -13,6 +13,10 @@ import {
   formatDuration,
 } from '../utils/experienceUtils.js';
 import { scoreProfessionalForJob } from '../utils/jobMatching.js';
+import {
+  notifyJobInvitation,
+  safeNotify,
+} from '../services/eventNotificationService.js';
 
 const normalizeText = (value: unknown) =>
   String(value || '')
@@ -595,6 +599,15 @@ export const inviteProfessional = catchAsync(
         metadata: { jobId, invitationId: invitation.id },
       },
     });
+
+    safeNotify('job-invitation', () =>
+      notifyJobInvitation({
+        professionalId,
+        jobId,
+        jobTitle: job.title,
+        senderName,
+      }),
+    );
 
     res.status(201).json({
       status: 'success',

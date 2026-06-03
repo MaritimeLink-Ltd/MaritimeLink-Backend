@@ -8,7 +8,12 @@ import {
   createRecruiterAccountNote,
   kycNotesInclude,
 } from '../services/adminAccountNotesService.js';
-import { notifyKycStatusChange } from '../services/kycNotificationService.js';
+import {
+  notifyAccountStage1Decision,
+  notifyKycResubmissionRequested,
+  notifyKycStatusChange,
+  safeNotify,
+} from '../services/eventNotificationService.js';
 
 const resolveRecruiterRiskLevel = (recruiter: {
   organizationRiskLevel?: KycRiskLevel | null;
@@ -161,7 +166,7 @@ export const addRecruiterNote = catchAsync(
 export const updateRecruiterStatus = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const { id } = req.params;
-    const { status } = req.body; // APPROVED or REJECTED
+    const { status, rejectionReason } = req.body; // APPROVED or REJECTED
 
     if (!['APPROVED', 'REJECTED'].includes(status)) {
       return next(new AppError('Invalid status', 400));
@@ -171,6 +176,15 @@ export const updateRecruiterStatus = catchAsync(
       where: { id },
       data: { status },
     });
+
+    safeNotify('account-stage1', () =>
+      notifyAccountStage1Decision({
+        recruiterId: id,
+        status,
+        rejectionReason:
+          typeof rejectionReason === 'string' ? rejectionReason : undefined,
+      }),
+    );
 
     res.status(200).json({
       status: 'success',
@@ -216,25 +230,51 @@ export const getPendingKYCs = catchAsync(
 export const updateKYCStatus = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const { id } = req.params; // recruiterKyc id or recruiterId? Let's use recruiterId for convenience
-    const { status, rejectionReason } = req.body; // APPROVED or REJECTED
+    const { status, rejectionReason, resubmissionNotes } = req.body;
 
-    if (!['APPROVED', 'REJECTED'].includes(status)) {
+    if (!['APPROVED', 'REJECTED', 'PENDING'].includes(status)) {
       return next(new AppError('Invalid status', 400));
     }
+
+    const existingKyc = await prisma.recruiterKyc.findUnique({
+      where: { recruiterId: id },
+      select: { status: true },
+    });
 
     const kyc = await prisma.recruiterKyc.update({
       where: { recruiterId: id },
       data: { status },
     });
 
-    void notifyKycStatusChange({
-      audience: 'RECRUITER',
-      userId: id,
-      status,
-      rejectionReason:
-        typeof rejectionReason === 'string' ? rejectionReason : undefined,
-      io: req.app.get('io'),
-    });
+    if (
+      status === 'PENDING' &&
+      existingKyc?.status &&
+      existingKyc.status !== 'PENDING'
+    ) {
+      safeNotify('kyc-resubmission', () =>
+        notifyKycResubmissionRequested({
+          audience: 'RECRUITER',
+          userId: id,
+          notes:
+            typeof resubmissionNotes === 'string'
+              ? resubmissionNotes
+              : typeof rejectionReason === 'string'
+                ? rejectionReason
+                : undefined,
+        }),
+      );
+    } else if (status === 'APPROVED' || status === 'REJECTED') {
+      safeNotify('kyc-status', () =>
+        notifyKycStatusChange({
+          audience: 'RECRUITER',
+          userId: id,
+          status,
+          rejectionReason:
+            typeof rejectionReason === 'string' ? rejectionReason : undefined,
+          io: req.app.get('io'),
+        }),
+      );
+    }
 
     res.status(200).json({
       status: 'success',

@@ -8,7 +8,11 @@ import {
   VerificationStatus,
 } from '../generated/client/index.js';
 import { resolveProfessionalRiskLevel } from '../utils/kycRiskLevel.js';
-import { notifyKycStatusChange } from '../services/kycNotificationService.js';
+import {
+  notifyKycResubmissionRequested,
+  notifyKycStatusChange,
+  safeNotify,
+} from '../services/eventNotificationService.js';
 
 /** Matches admin dashboard expiring-compliance card (past expired + forward window). */
 const ADMIN_COMPLIANCE_EXPIRED_LOOKBACK_DAYS = 365;
@@ -243,18 +247,22 @@ export const getPendingKYCs = catchAsync(
 export const updateKYCStatus = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const { id } = req.params; // professionalId
-    const { status, rejectionReason } = req.body; // APPROVED or REJECTED
+    const { status, rejectionReason, resubmissionNotes } = req.body;
 
-    if (!['APPROVED', 'REJECTED'].includes(status)) {
+    if (!['APPROVED', 'REJECTED', 'PENDING'].includes(status)) {
       return next(new AppError('Invalid status', 400));
     }
+
+    const existingKyc = await prisma.professionalKyc.findUnique({
+      where: { professionalId: id },
+      select: { status: true },
+    });
 
     const kyc = await prisma.professionalKyc.update({
       where: { professionalId: id },
       data: { status },
     });
 
-    // If KYC is approved, update professional status to VERIFIED
     if (status === 'APPROVED') {
       await prisma.professional.update({
         where: { id },
@@ -262,14 +270,35 @@ export const updateKYCStatus = catchAsync(
       });
     }
 
-    void notifyKycStatusChange({
-      audience: 'PROFESSIONAL',
-      userId: id,
-      status,
-      rejectionReason:
-        typeof rejectionReason === 'string' ? rejectionReason : undefined,
-      io: req.app.get('io'),
-    });
+    if (
+      status === 'PENDING' &&
+      existingKyc?.status &&
+      existingKyc.status !== 'PENDING'
+    ) {
+      safeNotify('kyc-resubmission', () =>
+        notifyKycResubmissionRequested({
+          audience: 'PROFESSIONAL',
+          userId: id,
+          notes:
+            typeof resubmissionNotes === 'string'
+              ? resubmissionNotes
+              : typeof rejectionReason === 'string'
+                ? rejectionReason
+                : undefined,
+        }),
+      );
+    } else if (status === 'APPROVED' || status === 'REJECTED') {
+      safeNotify('kyc-status', () =>
+        notifyKycStatusChange({
+          audience: 'PROFESSIONAL',
+          userId: id,
+          status,
+          rejectionReason:
+            typeof rejectionReason === 'string' ? rejectionReason : undefined,
+          io: req.app.get('io'),
+        }),
+      );
+    }
 
     res.status(200).json({
       status: 'success',

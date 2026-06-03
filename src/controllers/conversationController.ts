@@ -10,6 +10,10 @@ import {
   sendMessageSchema,
 } from '../validations/chatValidation.js';
 import { formatAdminChatDisplayName } from '../utils/adminDisplayName.js';
+import {
+  notifyMessageReceived,
+  safeNotify,
+} from '../services/eventNotificationService.js';
 
 /** Hide empty admin threads until an administrator has sent at least one message. */
 const supportChatVisibleToUserFilter = {
@@ -445,6 +449,21 @@ export const sendMessage = catchAsync(
         });
       }
     }
+
+    const senderType =
+      userType === 'PROFESSIONAL'
+        ? 'PROFESSIONAL'
+        : userType === 'ADMIN'
+          ? 'ADMIN'
+          : 'RECRUITER';
+
+    safeNotify('message-received', () =>
+      notifyMessageReceived({
+        conversationId,
+        senderId: userId,
+        senderType,
+      }),
+    );
 
     res.status(201).json({
       status: 'success',
