@@ -12,6 +12,8 @@ import { CustomRequest } from '../types/index.js';
 import {
   ApplicationStatus,
   ActorType,
+  DocumentCategory,
+  JobStatus,
   Prisma,
   RecruiterStatus,
 } from '../generated/client/index.js';
@@ -47,6 +49,31 @@ const normalizeApplicationStatus = (status: unknown) => {
   if (typeof status !== 'string') return null;
 
   return APPLICATION_STATUS_ALIASES[status.trim().toUpperCase()] ?? null;
+};
+
+const isJobAcceptingApplications = (job: {
+  status: JobStatus;
+  closingDate?: Date | null;
+}) => {
+  if (job.status !== JobStatus.ACTIVE) return false;
+  if (job.closingDate && new Date(job.closingDate).getTime() < Date.now()) {
+    return false;
+  }
+  return true;
+};
+
+const normalizeDocumentIds = (documentIds: unknown): string[] => {
+  if (!Array.isArray(documentIds)) return [];
+
+  return [
+    ...new Set(
+      documentIds
+        .filter(
+          (id): id is string => typeof id === 'string' && Boolean(id.trim()),
+        )
+        .map((id) => id.trim()),
+    ),
+  ];
 };
 
 export const applyToJob = catchAsync(
@@ -92,9 +119,36 @@ export const applyToJob = catchAsync(
     const finalCvUrl =
       typeof cvUrl === 'string' && cvUrl.trim() ? cvUrl.trim() : null;
 
-    // 3. Check if Job exists
+    // 3. Check if Job exists and is open for applications
     const job = await prisma.job.findUnique({ where: { id: jobId } });
     if (!job) return next(new AppError('Job not found', 404));
+    if (!isJobAcceptingApplications(job)) {
+      return next(
+        new AppError('This job is no longer accepting applications.', 400),
+      );
+    }
+
+    const normalizedDocumentIds = normalizeDocumentIds(documentIds);
+    if (normalizedDocumentIds.length > 0) {
+      const ownedDocumentCount = await prisma.professionalDocument.count({
+        where: {
+          id: { in: normalizedDocumentIds },
+          professionalId: userId,
+          category: {
+            notIn: [DocumentCategory.CV_RESUME, DocumentCategory.COVER_LETTER],
+          },
+        },
+      });
+
+      if (ownedDocumentCount !== normalizedDocumentIds.length) {
+        return next(
+          new AppError(
+            'One or more selected wallet documents are invalid or inaccessible.',
+            400,
+          ),
+        );
+      }
+    }
 
     // 4. Check if already applied
     const existingApplication = await prisma.jobApplication.findUnique({
@@ -110,18 +164,23 @@ export const applyToJob = catchAsync(
       return next(new AppError('You have already applied to this job', 400));
     }
 
-    if (professional.tier !== 'PRO') {
+    const tier = String(professional.tier || 'FREE').toUpperCase();
+    if (tier !== 'PRO') {
       const activeApplicationsCount = await prisma.jobApplication.count({
         where: {
           professionalId: userId,
           status: { in: ACTIVE_APPLICATION_STATUSES },
+          job: {
+            status: JobStatus.ACTIVE,
+            OR: [{ closingDate: null }, { closingDate: { gt: new Date() } }],
+          },
         },
       });
 
       if (activeApplicationsCount >= FREE_APPLICATION_LIMIT) {
         return next(
           new AppError(
-            `Free accounts can only have ${FREE_APPLICATION_LIMIT} active job applications. Upgrade to PRO for unlimited applications.`,
+            `Free accounts can only have ${FREE_APPLICATION_LIMIT} active job applications on open jobs. Upgrade to PRO for unlimited applications.`,
             403,
           ),
         );
@@ -138,13 +197,11 @@ export const applyToJob = catchAsync(
         cvUrl: finalCvUrl,
         resumeSnapshot: professional.resume as Prisma.InputJsonValue, // Captures full profile at time of application
         status: ApplicationStatus.APPLIED,
-        ...(documentIds &&
-          Array.isArray(documentIds) &&
-          documentIds.length > 0 && {
-            attachedDocuments: {
-              connect: documentIds.map((id: string) => ({ id })),
-            },
-          }),
+        ...(normalizedDocumentIds.length > 0 && {
+          attachedDocuments: {
+            connect: normalizedDocumentIds.map((id) => ({ id })),
+          },
+        }),
       },
     });
 
