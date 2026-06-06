@@ -1,11 +1,10 @@
 import { jest } from '@jest/globals';
+import { createEmailServiceMock } from '../testing/mockEmailService.js';
 
 // Mock Email Service BEFORE other imports
-jest.unstable_mockModule('../services/emailService.js', () => ({
-  sendOTPEmail: () => Promise.resolve(),
-  sendPasswordResetEmail: () => Promise.resolve(),
-  sendPhoneOTPEmail: () => Promise.resolve(),
-}));
+jest.unstable_mockModule('../services/emailService.js', () =>
+  createEmailServiceMock(),
+);
 
 const { stripeService } = await import('../services/stripeService.js');
 const { prisma } = await import('../config/prisma.js');
