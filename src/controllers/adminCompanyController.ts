@@ -3,31 +3,14 @@ import { Prisma, RecruiterRole } from '../generated/client/index.js';
 import { prisma } from '../config/prisma.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { CustomRequest } from '../types/index.js';
-
-type CompanyOverviewRow = {
-  id: string;
-  name: string;
-  type: RecruiterRole;
-  domain: string | null;
-  logoUrl: string | null;
-  address: string | null;
-  city: string | null;
-  state: string | null;
-  zip: string | null;
-  country: string | null;
-  website: string | null;
-  email: string | null;
-  linkedIn: string | null;
-  isClaimed: boolean;
-  isVerified: boolean;
-  tier: string;
-  claimDate: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
-  lastActive: Date;
-  source: 'company' | 'recruiter';
-  _count: { members: number };
-};
+import { normalizeDomain } from '../services/companyService.js';
+import {
+  buildCompanyGroups,
+  buildDomainGroupId,
+  extractRecruiterDomain,
+  filterGroupedCompanies,
+  parseDomainGroupId,
+} from '../utils/adminCompanyGrouping.js';
 
 const GEMINI_VERIFICATION_SOURCE = 'GEMINI_GOOGLE_SEARCH';
 
@@ -36,6 +19,25 @@ const COMPANY_MEMBER_ACTIONS = [
   'COMPANY_MEMBER_ADDED',
 ] as const;
 
+const recruiterOrgSelect = {
+  id: true,
+  organizationName: true,
+  role: true,
+  website: true,
+  email: true,
+  orgEmail: true,
+  companyCountry: true,
+  organizationVerificationSource: true,
+  tier: true,
+  createdAt: true,
+  updatedAt: true,
+  lastActive: true,
+  companyId: true,
+  firstName: true,
+  lastName: true,
+  status: true,
+} satisfies Prisma.RecruiterSelect;
+
 const isGeminiVerifiedSource = (source: string | null | undefined) =>
   source === GEMINI_VERIFICATION_SOURCE;
 
@@ -43,72 +45,232 @@ const resolveGeminiVerified = (
   sources: Array<string | null | undefined>,
 ): boolean => sources.some(isGeminiVerifiedSource);
 
-const standaloneRecruiterWhere = (
+const recruiterWhereForOverview = (
   type?: RecruiterRole,
-  country?: string,
-  search?: string,
-): Prisma.RecruiterWhereInput => {
-  const where: Prisma.RecruiterWhereInput = {
-    companyId: null,
-    organizationName: { not: null },
-    NOT: { organizationName: '' },
-  };
+): Prisma.RecruiterWhereInput => ({
+  organizationName: { not: null },
+  NOT: { organizationName: '' },
+  ...(type ? { role: type } : {}),
+});
 
-  if (type === 'RECRUITMENT_AGENT' || type === 'TRAINING_AGENT') {
-    where.role = type;
-  }
-
-  if (country) {
-    where.companyCountry = country;
-  }
-
-  if (search) {
-    where.OR = [
-      { organizationName: { contains: search, mode: 'insensitive' } },
-      { website: { contains: search, mode: 'insensitive' } },
-      { companyCountry: { contains: search, mode: 'insensitive' } },
-      { email: { contains: search, mode: 'insensitive' } },
-    ];
-  }
-
-  return where;
-};
-
-const mapRecruiterToCompanyRow = (recruiter: {
+const mapStaffMember = (recruiter: {
   id: string;
+  firstName: string | null;
+  lastName: string | null;
+  email: string;
   organizationName: string | null;
   role: RecruiterRole;
+  status: string;
   website: string | null;
   companyCountry: string | null;
   organizationVerificationSource: string | null;
-  tier: string;
   createdAt: Date;
-  updatedAt: Date;
   lastActive: Date;
-}): CompanyOverviewRow => ({
+  companyId: string | null;
+}) => ({
   id: recruiter.id,
-  name: recruiter.organizationName || 'Unnamed organization',
-  type: recruiter.role,
-  domain: null,
-  logoUrl: null,
-  address: null,
-  city: null,
-  state: null,
-  zip: null,
-  country: recruiter.companyCountry,
+  firstName: recruiter.firstName,
+  lastName: recruiter.lastName,
+  email: recruiter.email,
+  organizationName: recruiter.organizationName,
+  role: recruiter.role,
+  status: recruiter.status,
   website: recruiter.website,
-  email: null,
-  linkedIn: null,
-  isClaimed: false,
+  country: recruiter.companyCountry,
   isVerified: isGeminiVerifiedSource(recruiter.organizationVerificationSource),
-  tier: recruiter.tier,
-  claimDate: null,
   createdAt: recruiter.createdAt,
-  updatedAt: recruiter.updatedAt,
   lastActive: recruiter.lastActive,
-  source: 'recruiter',
-  _count: { members: 1 },
+  isLinked: Boolean(recruiter.companyId),
 });
+
+const loadOverviewGroups = async (typeFilter?: RecruiterRole) => {
+  const [companies, recruiters] = await Promise.all([
+    prisma.company.findMany({
+      where: typeFilter ? { type: typeFilter } : undefined,
+      orderBy: { createdAt: 'desc' },
+      include: {
+        recruiters: {
+          select: { organizationVerificationSource: true },
+        },
+      },
+    }),
+    prisma.recruiter.findMany({
+      where: recruiterWhereForOverview(typeFilter),
+      orderBy: { createdAt: 'desc' },
+      select: recruiterOrgSelect,
+    }),
+  ]);
+
+  return buildCompanyGroups(companies, recruiters);
+};
+
+const resolveStaffForCompanyId = async (companyId: string) => {
+  const company = await prisma.company.findUnique({ where: { id: companyId } });
+  if (!company) return null;
+
+  const domain =
+    normalizeDomain(company.domain) || normalizeDomain(company.website);
+
+  const staffWhere: Prisma.RecruiterWhereInput = domain
+    ? {
+        role: company.type,
+        OR: [
+          { companyId: company.id },
+          {
+            companyId: null,
+            OR: [
+              { website: { contains: domain, mode: 'insensitive' } },
+              { email: { endsWith: `@${domain}`, mode: 'insensitive' } },
+              { orgEmail: { endsWith: `@${domain}`, mode: 'insensitive' } },
+            ],
+          },
+        ],
+      }
+    : { companyId: company.id };
+
+  const staff = await prisma.recruiter.findMany({
+    where: staffWhere,
+    select: recruiterOrgSelect,
+    orderBy: { createdAt: 'asc' },
+  });
+
+  return { company, staff };
+};
+
+const resolveStaffForDomainGroup = async (
+  domain: string,
+  type: RecruiterRole,
+) => {
+  const staff = await prisma.recruiter.findMany({
+    where: {
+      role: type,
+      organizationName: { not: null },
+      NOT: { organizationName: '' },
+      OR: [
+        { website: { contains: domain, mode: 'insensitive' } },
+        { email: { endsWith: `@${domain}`, mode: 'insensitive' } },
+        { orgEmail: { endsWith: `@${domain}`, mode: 'insensitive' } },
+      ],
+    },
+    select: recruiterOrgSelect,
+    orderBy: { createdAt: 'asc' },
+  });
+
+  const company = await prisma.company.findFirst({
+    where: {
+      type,
+      OR: [{ domain }, { website: { contains: domain, mode: 'insensitive' } }],
+    },
+  });
+
+  return { company, staff, domain, type };
+};
+
+const resolveStaffForRecruiterId = async (recruiterId: string) => {
+  const recruiter = await prisma.recruiter.findUnique({
+    where: { id: recruiterId },
+    select: recruiterOrgSelect,
+  });
+  if (!recruiter) return null;
+
+  if (recruiter.companyId) {
+    return resolveStaffForCompanyId(recruiter.companyId);
+  }
+
+  const domain = extractRecruiterDomain(recruiter);
+  if (domain) {
+    return resolveStaffForDomainGroup(domain, recruiter.role);
+  }
+
+  return {
+    company: null,
+    staff: [recruiter],
+    domain: null as string | null,
+    type: recruiter.role,
+  };
+};
+
+const buildVirtualCompany = (args: {
+  id: string;
+  company: {
+    id: string;
+    name: string;
+    type: RecruiterRole;
+    domain: string | null;
+    logoUrl: string | null;
+    address: string | null;
+    city: string | null;
+    state: string | null;
+    zip: string | null;
+    country: string | null;
+    website: string | null;
+    email: string | null;
+    linkedIn: string | null;
+    isClaimed: boolean;
+    tier: string;
+    claimDate: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
+    lastActive: Date;
+  } | null;
+  staff: Array<{
+    organizationName: string | null;
+    organizationVerificationSource: string | null;
+    createdAt: Date;
+    lastActive: Date;
+    tier: string;
+  }>;
+  domain: string | null;
+  type: RecruiterRole;
+}) => {
+  const { company, staff, domain, type, id } = args;
+  const verificationSources = staff.map(
+    (s) => s.organizationVerificationSource,
+  );
+
+  if (company) {
+    return {
+      ...company,
+      isVerified: resolveGeminiVerified(verificationSources),
+    };
+  }
+
+  const name =
+    staff.find((s) => s.organizationName)?.organizationName ||
+    'Unnamed organization';
+
+  return {
+    id,
+    name,
+    type,
+    domain,
+    logoUrl: null,
+    address: null,
+    city: null,
+    state: null,
+    zip: null,
+    country: null,
+    website: domain ? `https://${domain}` : null,
+    email: null,
+    linkedIn: null,
+    isClaimed: false,
+    isVerified: resolveGeminiVerified(verificationSources),
+    tier: staff[0]?.tier || 'FREE',
+    claimDate: null,
+    createdAt: staff.reduce(
+      (min, s) => (s.createdAt < min ? s.createdAt : min),
+      staff[0]?.createdAt || new Date(),
+    ),
+    updatedAt: staff.reduce(
+      (max, s) => (s.lastActive > max ? s.lastActive : max),
+      staff[0]?.lastActive || new Date(),
+    ),
+    lastActive: staff.reduce(
+      (max, s) => (s.lastActive > max ? s.lastActive : max),
+      staff[0]?.lastActive || new Date(),
+    ),
+  };
+};
 
 /**
  * @desc    Get companies overview (Stats + Paginated List)
@@ -132,114 +294,45 @@ export const getCompaniesOverview = catchAsync(
       typeof country === 'string' && country.trim()
         ? country.trim()
         : undefined;
+    const statusFilter =
+      status === 'CLAIMED' || status === 'UNCLAIMED'
+        ? (status as 'CLAIMED' | 'UNCLAIMED')
+        : undefined;
 
-    const companyWhere: Prisma.CompanyWhereInput = {};
+    const allGroups = await loadOverviewGroups(typeFilter);
+    const filtered = filterGroupedCompanies(allGroups, {
+      type: typeFilter,
+      status: statusFilter,
+      country: countryFilter,
+      search: searchText,
+    });
 
-    if (typeFilter) companyWhere.type = typeFilter;
+    const total = filtered.length;
+    const paged = filtered.slice(skip, skip + limit);
 
-    if (status === 'CLAIMED') companyWhere.isClaimed = true;
-    if (status === 'UNCLAIMED') companyWhere.isClaimed = false;
-
-    if (countryFilter) companyWhere.country = countryFilter;
-
-    if (searchText) {
-      companyWhere.OR = [
-        { name: { contains: searchText, mode: 'insensitive' } },
-        { domain: { contains: searchText, mode: 'insensitive' } },
-        { website: { contains: searchText, mode: 'insensitive' } },
-        { country: { contains: searchText, mode: 'insensitive' } },
-      ];
-    }
-
-    const includeStandaloneRecruiters = status !== 'CLAIMED';
-
-    const [companies, standaloneRecruiters] = await Promise.all([
-      prisma.company.findMany({
-        where: companyWhere,
-        orderBy: { createdAt: 'desc' },
-        include: {
-          recruiters: {
-            select: { organizationVerificationSource: true },
-          },
-          _count: {
-            select: { members: true },
-          },
-        },
-      }),
-      includeStandaloneRecruiters
-        ? prisma.recruiter.findMany({
-            where: standaloneRecruiterWhere(
-              typeFilter,
-              countryFilter,
-              searchText,
-            ),
-            orderBy: { createdAt: 'desc' },
-            select: {
-              id: true,
-              organizationName: true,
-              role: true,
-              website: true,
-              companyCountry: true,
-              organizationVerificationSource: true,
-              tier: true,
-              createdAt: true,
-              updatedAt: true,
-              lastActive: true,
-            },
-          })
-        : Promise.resolve([]),
-    ]);
-
-    const merged: CompanyOverviewRow[] = [
-      ...companies.map(({ recruiters, ...company }) => ({
-        ...company,
-        isVerified: resolveGeminiVerified(
-          recruiters.map((r) => r.organizationVerificationSource),
-        ),
-        source: 'company' as const,
-      })),
-      ...standaloneRecruiters.map(mapRecruiterToCompanyRow),
-    ].sort(
-      (a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-    );
-
-    const total = merged.length;
-    const paged = merged.slice(skip, skip + limit);
-
-    const recruiterStandaloneBase: Prisma.RecruiterWhereInput = {
-      companyId: null,
-      organizationName: { not: null },
-      NOT: { organizationName: '' },
-    };
+    const statsSource = filterGroupedCompanies(allGroups, {
+      type: typeFilter,
+    });
+    const claimedCount = statsSource.filter((row) => row.isClaimed).length;
+    const unclaimedCount = statsSource.length - claimedCount;
 
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
+    const joinedToday = statsSource.filter(
+      (row) => row.createdAt >= todayStart,
+    ).length;
 
-    const [
-      companyTotal,
-      recruiterStandaloneTotal,
-      claimedCompanies,
-      joinedTodayCompanies,
-      joinedTodayRecruiters,
-    ] = await Promise.all([
-      prisma.company.count(),
-      prisma.recruiter.count({ where: recruiterStandaloneBase }),
-      prisma.company.count({ where: { isClaimed: true } }),
-      prisma.company.count({
-        where: { createdAt: { gte: todayStart } },
-      }),
-      prisma.recruiter.count({
-        where: {
-          ...recruiterStandaloneBase,
-          createdAt: { gte: todayStart },
-        },
-      }),
-    ]);
-
-    const totalCount = companyTotal + recruiterStandaloneTotal;
-    const unclaimedCount =
-      companyTotal - claimedCompanies + recruiterStandaloneTotal;
+    const companies = paged.map((row) => {
+      const dto = {
+        ...row,
+        _count: { members: row.staffCount },
+      };
+      delete (dto as { groupKey?: string }).groupKey;
+      delete (dto as { staffIds?: string[] }).staffIds;
+      delete (dto as { canMerge?: boolean }).canMerge;
+      delete (dto as { staffCount?: number }).staffCount;
+      return dto;
+    });
 
     res.status(200).json({
       status: 'success',
@@ -252,13 +345,13 @@ export const getCompaniesOverview = catchAsync(
         pages: Math.max(1, Math.ceil(total / limit)),
       },
       data: {
-        companies: paged,
+        companies,
         stats: {
           total: {
-            count: totalCount,
-            today: joinedTodayCompanies + joinedTodayRecruiters,
+            count: statsSource.length,
+            today: joinedToday,
           },
-          claimed: claimedCompanies,
+          claimed: claimedCount,
           unclaimed: unclaimedCount,
         },
       },
@@ -267,7 +360,7 @@ export const getCompaniesOverview = catchAsync(
 );
 
 /**
- * @desc    Get individual company details (info + activity)
+ * @desc    Get individual company details (info + staff + activity)
  * @route   GET /api/admin/companies/:id
  * @access  Private (Admin)
  */
@@ -275,28 +368,54 @@ export const getCompanyById = catchAsync(
   async (req: CustomRequest, res: Response) => {
     const { id } = req.params;
 
-    const company = await prisma.company.findUnique({
-      where: { id },
-      include: {
-        recruiters: {
-          select: { organizationVerificationSource: true },
-        },
-      },
-    });
+    let resolved:
+      | Awaited<ReturnType<typeof resolveStaffForCompanyId>>
+      | Awaited<ReturnType<typeof resolveStaffForDomainGroup>>
+      | Awaited<ReturnType<typeof resolveStaffForRecruiterId>>
+      | null = null;
+    let responseId = id;
 
-    if (!company) {
+    const domainGroup = parseDomainGroupId(id);
+    if (domainGroup) {
+      resolved = await resolveStaffForDomainGroup(
+        domainGroup.domain,
+        domainGroup.type,
+      );
+      responseId = resolved.company?.id || id;
+    } else {
+      const byCompany = await resolveStaffForCompanyId(id);
+      if (byCompany) {
+        resolved = byCompany;
+      } else {
+        resolved = await resolveStaffForRecruiterId(id);
+      }
+    }
+
+    if (!resolved || resolved.staff.length === 0) {
       res.status(404).json({ status: 'error', message: 'Company not found' });
       return;
     }
 
-    const { recruiters, ...companyFields } = company;
-    const isVerified = resolveGeminiVerified(
-      recruiters.map((r) => r.organizationVerificationSource),
-    );
+    const domain =
+      ('domain' in resolved && resolved.domain) ||
+      normalizeDomain(resolved.company?.domain) ||
+      normalizeDomain(resolved.company?.website) ||
+      extractRecruiterDomain(resolved.staff[0]);
+    const type =
+      resolved.company?.type || resolved.staff[0]?.role || 'RECRUITMENT_AGENT';
 
+    const companyView = buildVirtualCompany({
+      id: responseId,
+      company: resolved.company,
+      staff: resolved.staff,
+      domain,
+      type,
+    });
+
+    const activityTargetId = resolved.company?.id || responseId;
     const recentActivity = await prisma.activityLog.findMany({
       where: {
-        targetId: id,
+        targetId: activityTargetId,
         targetType: 'COMPANY',
         NOT: {
           action: { in: [...COMPANY_MEMBER_ACTIONS] },
@@ -306,11 +425,169 @@ export const getCompanyById = catchAsync(
       orderBy: { createdAt: 'desc' },
     });
 
+    const canMerge =
+      !resolved.company &&
+      resolved.staff.length > 0 &&
+      (domain ? true : resolved.staff.length > 1);
+
     res.status(200).json({
       status: 'success',
       data: {
-        company: { ...companyFields, isVerified },
+        company: companyView,
+        staff: resolved.staff.map(mapStaffMember),
+        canMerge,
+        mergeGroupId: domain ? buildDomainGroupId(domain, type) : null,
         recentActivity,
+      },
+    });
+  },
+);
+
+/**
+ * @desc    Manually merge recruiters under one company profile
+ * @route   POST /api/admin/companies/merge
+ * @access  Private (Admin)
+ */
+export const mergeCompanies = catchAsync(
+  async (req: CustomRequest, res: Response) => {
+    const { recruiterIds, targetCompanyId, name } = req.body as {
+      recruiterIds?: string[];
+      targetCompanyId?: string;
+      name?: string;
+    };
+
+    if (!Array.isArray(recruiterIds) || recruiterIds.length < 1) {
+      res.status(400).json({
+        status: 'error',
+        message: 'At least one recruiter id is required',
+      });
+      return;
+    }
+
+    const uniqueIds = [...new Set(recruiterIds.map(String))];
+    const recruiters = await prisma.recruiter.findMany({
+      where: { id: { in: uniqueIds } },
+      select: recruiterOrgSelect,
+    });
+
+    if (recruiters.length !== uniqueIds.length) {
+      res.status(400).json({
+        status: 'error',
+        message: 'One or more recruiter ids were not found',
+      });
+      return;
+    }
+
+    const role = recruiters[0].role;
+    if (!recruiters.every((r) => r.role === role)) {
+      res.status(400).json({
+        status: 'error',
+        message: 'All recruiters must share the same organization type',
+      });
+      return;
+    }
+
+    const domain =
+      recruiters.map((r) => extractRecruiterDomain(r)).find(Boolean) || null;
+
+    let company = targetCompanyId
+      ? await prisma.company.findUnique({ where: { id: targetCompanyId } })
+      : domain
+        ? await prisma.company.findFirst({
+            where: {
+              type: role,
+              OR: [
+                { domain },
+                { website: { contains: domain, mode: 'insensitive' } },
+              ],
+            },
+          })
+        : null;
+
+    if (targetCompanyId && !company) {
+      res.status(404).json({
+        status: 'error',
+        message: 'Target company not found',
+      });
+      return;
+    }
+
+    const companyName =
+      name?.trim() ||
+      company?.name ||
+      recruiters.find((r) => r.organizationName)?.organizationName ||
+      (domain
+        ? domain.split('.')[0].charAt(0).toUpperCase() +
+          domain.split('.')[0].slice(1)
+        : 'Merged organization');
+
+    const result = await prisma.$transaction(async (tx) => {
+      if (!company) {
+        company = await tx.company.create({
+          data: {
+            name: companyName,
+            type: role,
+            domain,
+            website: domain ? `https://${domain}` : recruiters[0].website,
+            country: recruiters.find((r) => r.companyCountry)?.companyCountry,
+          },
+        });
+      } else if (name?.trim() && name.trim() !== company.name) {
+        company = await tx.company.update({
+          where: { id: company.id },
+          data: { name: name.trim() },
+        });
+      }
+
+      for (const recruiter of recruiters) {
+        await tx.recruiter.update({
+          where: { id: recruiter.id },
+          data: { companyId: company!.id },
+        });
+
+        await tx.companyMember.upsert({
+          where: { recruiterId: recruiter.id },
+          create: {
+            companyId: company!.id,
+            recruiterId: recruiter.id,
+            status: 'ACTIVE',
+          },
+          update: {
+            companyId: company!.id,
+            status: 'ACTIVE',
+          },
+        });
+      }
+
+      await tx.activityLog.create({
+        data: {
+          action: 'COMPANY_MEMBER_ADDED',
+          actorId: req.user?.id || 'SYSTEM',
+          actorType: 'ADMIN',
+          targetId: company!.id,
+          targetType: 'COMPANY',
+          status: 'SUCCESS',
+          metadata: {
+            mergedRecruiterIds: uniqueIds,
+            manualMerge: true,
+          },
+        },
+      });
+
+      return company!;
+    });
+
+    const staff = await prisma.recruiter.findMany({
+      where: { companyId: result.id },
+      select: recruiterOrgSelect,
+      orderBy: { createdAt: 'asc' },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        company: result,
+        staff: staff.map(mapStaffMember),
       },
     });
   },
@@ -348,6 +625,73 @@ export const updateCompany = catchAsync(
     const { id } = req.params;
     const { isClaimed, tier } = req.body;
 
+    let companyId = id;
+    const domainGroup = parseDomainGroupId(id);
+    if (domainGroup) {
+      const existing = await prisma.company.findFirst({
+        where: {
+          type: domainGroup.type,
+          OR: [
+            { domain: domainGroup.domain },
+            {
+              website: {
+                contains: domainGroup.domain,
+                mode: 'insensitive',
+              },
+            },
+          ],
+        },
+      });
+      if (existing) {
+        companyId = existing.id;
+      } else {
+        const staff = await resolveStaffForDomainGroup(
+          domainGroup.domain,
+          domainGroup.type,
+        );
+        if (!staff.staff.length) {
+          res
+            .status(404)
+            .json({ status: 'error', message: 'Company not found' });
+          return;
+        }
+        const created = await prisma.company.create({
+          data: {
+            name:
+              staff.staff.find((s) => s.organizationName)?.organizationName ||
+              domainGroup.domain,
+            type: domainGroup.type,
+            domain: domainGroup.domain,
+            website: `https://${domainGroup.domain}`,
+            country: staff.staff.find((s) => s.companyCountry)?.companyCountry,
+            isClaimed: typeof isClaimed === 'boolean' ? isClaimed : false,
+            tier: tier || 'FREE',
+            claimDate: isClaimed ? new Date() : null,
+          },
+        });
+        for (const recruiter of staff.staff) {
+          await prisma.recruiter.update({
+            where: { id: recruiter.id },
+            data: { companyId: created.id },
+          });
+          await prisma.companyMember.upsert({
+            where: { recruiterId: recruiter.id },
+            create: {
+              companyId: created.id,
+              recruiterId: recruiter.id,
+              status: 'ACTIVE',
+            },
+            update: { companyId: created.id, status: 'ACTIVE' },
+          });
+        }
+        res.status(200).json({
+          status: 'success',
+          data: { company: created },
+        });
+        return;
+      }
+    }
+
     const data: Prisma.CompanyUpdateInput = {};
     if (typeof isClaimed === 'boolean') {
       data.isClaimed = isClaimed;
@@ -361,17 +705,16 @@ export const updateCompany = catchAsync(
     };
 
     const updated = await prisma.company.update({
-      where: { id },
+      where: { id: companyId },
       data,
     });
 
-    // Log the admin action
     await prisma.activityLog.create({
       data: {
         action: 'COMPANY_UPDATED',
         actorId: req.user?.id || 'SYSTEM',
         actorType: 'ADMIN',
-        targetId: id,
+        targetId: companyId,
         targetType: 'COMPANY',
         status: 'SUCCESS',
         metadata: auditMeta,
@@ -394,25 +737,22 @@ export const removeTeamMember = catchAsync(
   async (req: CustomRequest, res: Response) => {
     const { id, memberId } = req.params;
 
-    // Remove the record from CompanyMember
-    await prisma.companyMember.delete({
-      where: { recruiterId: memberId }, // Since it is @unique
+    await prisma.companyMember.deleteMany({
+      where: { recruiterId: memberId },
     });
 
-    // Also clear companyId from the recruiter record
     await prisma.recruiter.update({
       where: { id: memberId },
       data: { companyId: null },
     });
 
-    // Log the action
     await prisma.activityLog.create({
       data: {
         action: 'COMPANY_MEMBER_REMOVED',
         actorId: req.user?.id || 'SYSTEM',
         actorType: 'ADMIN',
-        targetId: id,
         targetType: 'COMPANY',
+        targetId: id,
         status: 'SUCCESS',
         metadata: { removedMemberId: memberId },
       },

@@ -1830,6 +1830,8 @@ router.get(
   adminCompanyController.getMergeRequests,
 );
 
+router.post('/companies/merge', adminCompanyController.mergeCompanies);
+
 /**
  * @swagger
  * /api/admin/companies/{id}:

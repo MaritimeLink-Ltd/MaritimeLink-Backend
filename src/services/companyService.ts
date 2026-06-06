@@ -77,7 +77,7 @@ const normalizeText = (value?: string | null) =>
     .replace(/\s+/g, ' ')
     .trim() || '';
 
-const normalizeDomain = (value?: string | null) =>
+export const normalizeDomain = (value?: string | null) =>
   value
     ?.trim()
     .toLowerCase()
