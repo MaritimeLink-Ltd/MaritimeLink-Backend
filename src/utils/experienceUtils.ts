@@ -1,93 +1,194 @@
 import { ProfessionalSeaServiceLog } from '../generated/client/index.js';
 
+type SeaServiceLike = Pick<
+  ProfessionalSeaServiceLog,
+  'joiningDate' | 'tillDate' | 'vesselType' | 'role' | 'vesselName'
+>;
+
+export type SeaServiceDuration = {
+  years: number;
+  months: number;
+  totalMonths: number;
+};
+
+export type VesselTypeBreakdown = SeaServiceDuration & {
+  vesselType: string;
+  label: string;
+};
+
+export type SeaServiceExperience = {
+  total: SeaServiceDuration & { label: string };
+  byVesselType: VesselTypeBreakdown[];
+  experienceLines: string[];
+  uniqueVesselTypes: string[];
+};
+
+const MS_PER_MONTH = 1000 * 60 * 60 * 24 * 30.44;
+
+const normalizeVesselTypeKey = (value?: string | null) =>
+  String(value || '')
+    .trim()
+    .toLowerCase();
+
+const displayVesselType = (value?: string | null) => String(value || '').trim();
+
+export const diffMonthsBetween = (
+  joiningDate?: Date | string | null,
+  tillDate?: Date | string | null,
+): number => {
+  if (!joiningDate || !tillDate) return 0;
+
+  const start = new Date(joiningDate);
+  const end = new Date(tillDate);
+  if (
+    Number.isNaN(start.getTime()) ||
+    Number.isNaN(end.getTime()) ||
+    end < start
+  ) {
+    return 0;
+  }
+
+  const diffTime = end.getTime() - start.getTime();
+  return Math.max(0, Math.round(diffTime / MS_PER_MONTH));
+};
+
+export const monthsToYearsAndMonths = (
+  totalMonths: number,
+): SeaServiceDuration => {
+  const safeTotal = Math.max(0, totalMonths);
+  return {
+    years: Math.floor(safeTotal / 12),
+    months: safeTotal % 12,
+    totalMonths: safeTotal,
+  };
+};
+
 /**
  * Calculates total sea time in years and months.
  */
-export const calculateTotalSeaTime = (logs: ProfessionalSeaServiceLog[]) => {
-  let totalMonths = 0;
+export const calculateTotalSeaTime = (logs: SeaServiceLike[]) => {
+  const totalMonths = logs.reduce(
+    (sum, log) => sum + diffMonthsBetween(log.joiningDate, log.tillDate),
+    0,
+  );
 
-  logs.forEach((log) => {
-    if (log.joiningDate && log.tillDate) {
-      const start = new Date(log.joiningDate);
-      const end = new Date(log.tillDate);
-
-      const diffTime = Math.abs(end.getTime() - start.getTime());
-      const diffMonths = Math.round(diffTime / (1000 * 60 * 60 * 24 * 30.44));
-      totalMonths += diffMonths;
-    }
-  });
-
-  const years = Math.floor(totalMonths / 12);
-  const months = totalMonths % 12;
-
-  return { years, months, totalMonths };
+  return monthsToYearsAndMonths(totalMonths);
 };
 
 /**
  * Returns a human-readable string for duration.
  */
 export const formatDuration = (years: number, months: number) => {
-  const yStr = years > 0 ? `${years} year${years > 1 ? 's' : ''}` : '';
-  const mStr = months > 0 ? `${months} month${months > 1 ? 's' : ''}` : '';
+  const parts: string[] = [];
 
-  if (yStr && mStr) return `${yStr} ${mStr}`;
-  return yStr || mStr || '0 months';
+  if (years > 0) {
+    parts.push(`${years} year${years === 1 ? '' : 's'}`);
+  }
+  if (months > 0) {
+    parts.push(`${months} month${months === 1 ? '' : 's'}`);
+  }
+
+  return parts.join(', ') || '0 months';
 };
 
 /**
- * Gets unique vessel types from logs.
+ * Gets unique vessel types from logs (display labels, de-duplicated case-insensitively).
  */
-export const getVesselTypes = (logs: ProfessionalSeaServiceLog[]) => {
-  const types = new Set<string>();
+export const getVesselTypes = (logs: SeaServiceLike[]) => {
+  const seen = new Set<string>();
+  const types: string[] = [];
+
   logs.forEach((log) => {
-    if (log.vesselType) types.add(log.vesselType);
+    const label = displayVesselType(log.vesselType);
+    const key = normalizeVesselTypeKey(label);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    types.push(label);
   });
-  return Array.from(types);
+
+  return types;
+};
+
+export const getVesselTypeBreakdown = (
+  logs: SeaServiceLike[],
+): VesselTypeBreakdown[] => {
+  const vesselMonths = new Map<string, { label: string; months: number }>();
+
+  logs.forEach((log) => {
+    const label = displayVesselType(log.vesselType);
+    const key = normalizeVesselTypeKey(label);
+    if (!key) return;
+
+    const months = diffMonthsBetween(log.joiningDate, log.tillDate);
+    if (months <= 0) return;
+
+    const existing = vesselMonths.get(key);
+    if (existing) {
+      existing.months += months;
+      return;
+    }
+
+    vesselMonths.set(key, { label, months });
+  });
+
+  return [...vesselMonths.values()]
+    .map(({ label, months }) => {
+      const duration = monthsToYearsAndMonths(months);
+      return {
+        vesselType: label,
+        ...duration,
+        label: formatDuration(duration.years, duration.months),
+      };
+    })
+    .sort((a, b) => b.totalMonths - a.totalMonths);
+};
+
+export const buildSeaServiceExperience = (
+  logs: SeaServiceLike[],
+): SeaServiceExperience => {
+  const total = calculateTotalSeaTime(logs);
+  const byVesselType = getVesselTypeBreakdown(logs);
+  const experienceLines: string[] = [];
+
+  if (total.totalMonths > 0) {
+    experienceLines.push(
+      `Total Sea Time: ${formatDuration(total.years, total.months)}`,
+    );
+  }
+
+  byVesselType.forEach((entry) => {
+    experienceLines.push(`${entry.vesselType}: ${entry.label}`);
+  });
+
+  if (logs.length > 0) {
+    const sorted = [...logs].sort(
+      (a, b) =>
+        new Date(a.joiningDate || 0).getTime() -
+        new Date(b.joiningDate || 0).getTime(),
+    );
+    const firstRole = sorted[0]?.role;
+    const lastRole = sorted[sorted.length - 1]?.role;
+
+    if (firstRole && lastRole && firstRole !== lastRole) {
+      experienceLines.push(`Rank Progression: ${firstRole} to ${lastRole}`);
+    } else if (lastRole) {
+      experienceLines.push(`Current Rank: ${lastRole}`);
+    }
+  }
+
+  return {
+    total: {
+      ...total,
+      label: formatDuration(total.years, total.months),
+    },
+    byVesselType,
+    experienceLines,
+    uniqueVesselTypes: getVesselTypes(logs),
+  };
 };
 
 /**
  * Generates an experience summary list as seen in UI.
  */
-export const getExperienceSummary = (logs: ProfessionalSeaServiceLog[]) => {
-  const summary: string[] = [];
-  const { years, months } = calculateTotalSeaTime(logs);
-
-  if (years > 0 || months > 0) {
-    summary.push(`${formatDuration(years, months)} total sea service`);
-  }
-
-  // Vessel type breakdown
-  const vesselTime: Record<string, number> = {};
-  logs.forEach((log) => {
-    if (log.vesselType && log.joiningDate && log.tillDate) {
-      const diff =
-        new Date(log.tillDate).getTime() - new Date(log.joiningDate).getTime();
-      vesselTime[log.vesselType] = (vesselTime[log.vesselType] || 0) + diff;
-    }
-  });
-
-  Object.entries(vesselTime).forEach(([type, ms]) => {
-    const totalM = Math.ceil(ms / (1000 * 60 * 60 * 24 * 30.44));
-    const y = Math.floor(totalM / 12);
-    const m = totalM % 12;
-    summary.push(`${formatDuration(y, m)} on ${type}s`);
-  });
-
-  // Rank progression (Simplified: first and last role)
-  if (logs.length > 0) {
-    const sorted = [...logs].sort(
-      (a, b) =>
-        new Date(a.joiningDate!).getTime() - new Date(b.joiningDate!).getTime(),
-    );
-    const firstRole = sorted[0].role;
-    const lastRole = sorted[sorted.length - 1].role;
-
-    if (firstRole && lastRole && firstRole !== lastRole) {
-      summary.push(`Rank Progression: ${firstRole} to ${lastRole}`);
-    } else if (lastRole) {
-      summary.push(`Current Rank: ${lastRole}`);
-    }
-  }
-
-  return summary;
-};
+export const getExperienceSummary = (logs: SeaServiceLike[]) =>
+  buildSeaServiceExperience(logs).experienceLines;

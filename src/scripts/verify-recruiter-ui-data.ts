@@ -87,10 +87,21 @@ async function verifyRecruiterUIData() {
       );
     }
 
-    if (summary.some((s) => s.toLowerCase().includes('2 years 11 months'))) {
+    if (summary.some((s) => s.startsWith('Total Sea Time:'))) {
       console.log(
         '💎 SUCCESS: Summary duration formatting matches UI requirements.',
       );
+    } else {
+      throw new Error('Experience summary missing Total Sea Time line.');
+    }
+
+    const duplicateTypeLines = summary.filter((line) =>
+      line.startsWith('LNG Tanker:'),
+    );
+    if (duplicateTypeLines.length === 1) {
+      console.log('💎 SUCCESS: Duplicate vessel types are grouped once.');
+    } else {
+      throw new Error('Expected a single grouped LNG Tanker line.');
     }
 
     // 3. Cleanup

@@ -11,6 +11,7 @@ import { CustomRequest } from '../types/index.js';
 import {
   calculateTotalSeaTime,
   formatDuration,
+  buildSeaServiceExperience,
 } from '../utils/experienceUtils.js';
 import { scoreProfessionalForJob } from '../utils/jobMatching.js';
 import {
@@ -510,10 +511,18 @@ export const getCandidateProfile = catchAsync(
       return next(new AppError('Professional not found', 404));
     }
 
+    const seaService = professional.resume?.seaService || [];
+    const seaServiceExperience = buildSeaServiceExperience(seaService);
+
     res.status(200).json({
       status: 'success',
       data: {
         professional,
+        derived: {
+          seaServiceExperience,
+          totalSeaTime: calculateTotalSeaTime(seaService),
+          experienceSummary: seaServiceExperience.experienceLines,
+        },
       },
     });
   },
