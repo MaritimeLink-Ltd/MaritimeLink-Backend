@@ -10,6 +10,10 @@ import {
   mergeRecruiterAccountSettings,
   normalizeNotificationPreferences,
 } from '../services/recruiterAccountSettingsService.js';
+import {
+  mapKycForLogin,
+  recruiterKycLoginSelect,
+} from '../utils/kycLoginPayload.js';
 
 const mapBilling = (tier: string) => {
   const normalizedTier = String(tier || 'FREE').toUpperCase();
@@ -70,14 +74,18 @@ export const getRecruiterSettings = catchAsync(
         companyZip: true,
         companyCountry: true,
         tier: true,
+        status: true,
         accountSettings: true,
         organizationVerificationData: true,
+        kyc: { select: recruiterKycLoginSelect },
       },
     });
 
     if (!recruiter) {
       return next(new AppError('Recruiter account not found', 404));
     }
+
+    const { kyc, kycSubmitted } = mapKycForLogin(recruiter.kyc);
 
     res.status(200).json({
       status: 'success',
@@ -106,6 +114,15 @@ export const getRecruiterSettings = catchAsync(
           recruiter.organizationVerificationData,
         ),
         billing: mapBilling(recruiter.tier),
+        kyc,
+        kycSubmitted,
+        recruiter: {
+          id: recruiter.id,
+          email: recruiter.email,
+          status: recruiter.status,
+          kyc,
+          kycSubmitted,
+        },
       },
     });
   },

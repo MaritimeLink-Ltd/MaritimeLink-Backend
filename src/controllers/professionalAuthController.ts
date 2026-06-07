@@ -275,12 +275,25 @@ export const getMyAccount = catchAsync(
         availableForWork: true,
         membershipUpdatedAt: true,
         createdAt: true,
+        kyc: { select: professionalKycLoginSelect },
       },
     });
 
+    const { kyc, kycSubmitted } = mapKycForLogin(professional?.kyc ?? null);
+
     res.status(200).json({
       status: 'success',
-      data: { professional },
+      data: {
+        professional: professional
+          ? {
+              ...professional,
+              kyc,
+              kycSubmitted,
+            }
+          : null,
+        kyc,
+        kycSubmitted,
+      },
     });
   },
 );

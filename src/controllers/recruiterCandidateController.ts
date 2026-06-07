@@ -12,6 +12,7 @@ import {
   calculateTotalSeaTime,
   formatDuration,
   buildSeaServiceExperience,
+  getVesselTypes,
 } from '../utils/experienceUtils.js';
 import { scoreProfessionalForJob } from '../utils/jobMatching.js';
 import {
@@ -319,13 +320,7 @@ export const searchCandidates = catchAsync(
         ]
           .map((value) => normalizeText(value))
           .filter(Boolean);
-        const vesselTypes = Array.from(
-          new Set(
-            seaService
-              .map((entry) => String(entry.vesselType || '').trim())
-              .filter(Boolean),
-          ),
-        );
+        const vesselTypes = getVesselTypes(seaService);
         const location =
           prof.resume?.country || prof.kyc?.issueCountry || 'Global';
         const experienceText = formatDuration(years, months);
