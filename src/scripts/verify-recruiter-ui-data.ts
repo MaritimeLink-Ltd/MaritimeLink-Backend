@@ -87,16 +87,16 @@ async function verifyRecruiterUIData() {
       );
     }
 
-    if (summary.some((s) => s.startsWith('Total Sea Time:'))) {
+    if (summary.some((s) => s.endsWith('total sea service'))) {
       console.log(
         '💎 SUCCESS: Summary duration formatting matches UI requirements.',
       );
     } else {
-      throw new Error('Experience summary missing Total Sea Time line.');
+      throw new Error('Experience summary missing total sea service line.');
     }
 
     const duplicateTypeLines = summary.filter((line) =>
-      line.startsWith('LNG Tanker:'),
+      line.includes('on LNG Tankers'),
     );
     if (duplicateTypeLines.length === 1) {
       console.log('💎 SUCCESS: Duplicate vessel types are grouped once.');

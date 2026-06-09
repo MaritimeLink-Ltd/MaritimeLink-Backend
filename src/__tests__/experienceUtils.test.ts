@@ -49,13 +49,15 @@ describe('experienceUtils', () => {
 
   it('builds Figma-style experience lines', () => {
     const experience = buildSeaServiceExperience(sampleLogs);
-    expect(experience.experienceLines[0]).toMatch(/^Total Sea Time:/);
+    expect(experience.experienceLines[0]).toMatch(/total sea service$/);
     expect(
-      experience.experienceLines.some((line) => line.startsWith('LNG Tanker:')),
+      experience.experienceLines.some((line) =>
+        line.includes('on LNG Tankers'),
+      ),
     ).toBe(true);
     expect(
       experience.experienceLines.some((line) =>
-        line.startsWith('Offshore Support Vessel:'),
+        line.includes('on Offshore Support Vessels'),
       ),
     ).toBe(true);
     expect(experience.uniqueVesselTypes).toHaveLength(2);
