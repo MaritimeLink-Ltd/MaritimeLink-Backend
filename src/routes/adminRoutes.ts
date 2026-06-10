@@ -334,6 +334,41 @@ router.get(
 
 /**
  * @swagger
+ * /api/admin/professionals/{id}/status:
+ *   patch:
+ *     summary: Update professional Stage 1 account status
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - status
+ *             properties:
+ *               status:
+ *                 type: string
+ *                 enum: [PENDING, VERIFIED, FLAGGED, BLOCKED]
+ *     responses:
+ *       200:
+ *         description: Professional account status updated
+ */
+router.patch(
+  '/professionals/:id/status',
+  adminProfessionalController.updateProfessionalStatus,
+);
+
+/**
+ * @swagger
  * /api/admin/kyc-submissions:
  *   get:
  *     summary: Get all KYC submissions across the platform (Compliance)

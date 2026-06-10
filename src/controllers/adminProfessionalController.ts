@@ -5,6 +5,7 @@ import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
 import {
   DocumentCategory,
+  ProfessionalStatus,
   VerificationStatus,
 } from '../generated/client/index.js';
 import { resolveProfessionalRiskLevel } from '../utils/kycRiskLevel.js';
@@ -242,6 +243,38 @@ export const getPendingKYCs = catchAsync(
 );
 
 /**
+ * Update professional Stage 1 account status (admin account approval).
+ */
+export const updateProfessionalStatus = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    const allowed: ProfessionalStatus[] = [
+      'PENDING',
+      'VERIFIED',
+      'FLAGGED',
+      'BLOCKED',
+    ];
+
+    if (!allowed.includes(status)) {
+      return next(new AppError('Invalid professional account status', 400));
+    }
+
+    const professional = await prisma.professional.update({
+      where: { id },
+      data: { status },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: `Professional account status updated to ${status}`,
+      data: { professional },
+    });
+  },
+);
+
+/**
  * Update Professional KYC status (Approve/Reject)
  */
 export const updateKYCStatus = catchAsync(
@@ -257,6 +290,15 @@ export const updateKYCStatus = catchAsync(
       where: { professionalId: id },
       select: { status: true },
     });
+
+    if (!existingKyc) {
+      return next(
+        new AppError(
+          'No KYC submission found for this professional. Approve the account first or wait for KYC documents.',
+          404,
+        ),
+      );
+    }
 
     const kyc = await prisma.professionalKyc.update({
       where: { professionalId: id },
