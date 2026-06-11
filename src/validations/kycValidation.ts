@@ -17,10 +17,22 @@ export const submitKYCSchema = z.object({
     message: 'Invalid expiry date',
   }),
   issueCountry: z.string().min(1, 'Issue country is required'),
-  documentUrl: z.string().url('Invalid document URL').optional(),
-  documentFrontUrl: z.string().url('Invalid front document URL').optional(),
-  documentBackUrl: z.string().url('Invalid back document URL').optional(),
-  selfieUrl: z.string().url('Invalid selfie URL').optional(),
+  documentUrl: z
+    .string()
+    .url('Invalid document URL')
+    .or(z.literal(''))
+    .optional(),
+  documentFrontUrl: z
+    .string()
+    .url('Invalid front document URL')
+    .or(z.literal(''))
+    .optional(),
+  documentBackUrl: z
+    .string()
+    .url('Invalid back document URL')
+    .or(z.literal(''))
+    .optional(),
+  selfieUrl: z.string().url('Invalid selfie URL').or(z.literal('')).optional(),
   organizationVerified: z.boolean().optional(),
   organizationRiskLevel: z.enum(['LOW', 'HIGH']).optional(),
   organizationVerificationSource: z.string().optional(),
