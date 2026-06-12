@@ -11,6 +11,10 @@ import {
   stripeService,
   isBookingPaymentSucceeded,
 } from '../services/stripeService.js';
+import {
+  notifyCourseBookingCancelled,
+  safeNotify,
+} from '../services/eventNotificationService.js';
 
 const bookingDocumentSelect = {
   id: true,
@@ -622,6 +626,14 @@ export const rejectAttendee = catchAsync(
         alert: rejectionAlert,
       });
     }
+
+    safeNotify('course-booking-cancelled', () =>
+      notifyCourseBookingCancelled({
+        bookingId: booking.id,
+        cancelledBy: 'PROVIDER',
+        refunded: refundProcessed,
+      }),
+    );
 
     const refund = {
       processed: refundProcessed,

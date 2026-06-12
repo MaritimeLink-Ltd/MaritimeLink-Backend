@@ -16,6 +16,10 @@ import {
 import { CustomRequest } from '../types/index.js';
 import { logActivity } from '../services/activityLogger.js';
 import {
+  notifySecureDocumentLinkShared,
+  safeNotify,
+} from '../services/eventNotificationService.js';
+import {
   ActorType,
   DocumentCategory,
   OCRStatus,
@@ -808,6 +812,14 @@ export const createDocumentPackShareLink = catchAsync(
         linkExpiresInSeconds: DOCUMENT_PACK_SHARE_TOKEN_TTL_SECONDS,
       },
     });
+
+    safeNotify('secure-document-link-shared', () =>
+      notifySecureDocumentLinkShared({
+        professionalId,
+        secureLink,
+        expiresAt,
+      }),
+    );
 
     res.status(200).json({
       status: 'success',

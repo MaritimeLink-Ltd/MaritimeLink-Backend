@@ -931,3 +931,19 @@ export const updatePassword = catchAsync(
     });
   },
 );
+
+/**
+ * Delete Account (Authenticated)
+ */
+export const deleteMyAccount = catchAsync(
+  async (req: CustomRequest, res: Response) => {
+    await prisma.recruiter.delete({
+      where: { id: req.user?.id },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Account deleted successfully.',
+    });
+  },
+);

@@ -98,6 +98,11 @@ router.patch(
   protectRecruiter,
   recruiterAuthController.updatePassword,
 );
+router.delete(
+  '/account',
+  protectRecruiter,
+  recruiterAuthController.deleteMyAccount,
+);
 router.get(
   '/settings',
   protectRecruiter,

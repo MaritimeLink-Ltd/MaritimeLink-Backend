@@ -7,6 +7,10 @@ import { logActivity } from '../services/activityLogger.js';
 import { ActionStatus, ActorType } from '../generated/client/index.js';
 import { getClientIp } from '../utils/requestMetadata.js';
 import {
+  notifyCoursePublished,
+  safeNotify,
+} from '../services/eventNotificationService.js';
+import {
   createCourseSchema,
   createCourseDraftSchema,
   publishCourseSchema,
@@ -355,6 +359,12 @@ export const publishCourse = catchAsync(
         location: updatedCourse.location,
       },
     });
+
+    if (updatedCourse.recruiterId) {
+      safeNotify('course-published', () =>
+        notifyCoursePublished(updatedCourse.id),
+      );
+    }
 
     res.status(200).json({
       status: 'success',

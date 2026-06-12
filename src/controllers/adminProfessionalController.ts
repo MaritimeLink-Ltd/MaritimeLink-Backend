@@ -10,6 +10,9 @@ import {
 } from '../generated/client/index.js';
 import { resolveProfessionalRiskLevel } from '../utils/kycRiskLevel.js';
 import {
+  notifyAccountReinstated,
+  notifyAccountStage1Decision,
+  notifyAccountSuspended,
   notifyKycResubmissionRequested,
   notifyKycStatusChange,
   safeNotify,
@@ -248,7 +251,7 @@ export const getPendingKYCs = catchAsync(
 export const updateProfessionalStatus = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const { id } = req.params;
-    const { status } = req.body;
+    const { status, rejectionReason } = req.body;
 
     const allowed: ProfessionalStatus[] = [
       'PENDING',
@@ -261,10 +264,43 @@ export const updateProfessionalStatus = catchAsync(
       return next(new AppError('Invalid professional account status', 400));
     }
 
+    const existing = await prisma.professional.findUnique({
+      where: { id },
+      select: { status: true },
+    });
+
     const professional = await prisma.professional.update({
       where: { id },
       data: { status },
     });
+
+    if (existing?.status === 'VERIFIED' && status === 'BLOCKED') {
+      safeNotify('account-suspended', () =>
+        notifyAccountSuspended({
+          professionalId: id,
+          reason:
+            typeof rejectionReason === 'string' ? rejectionReason : undefined,
+        }),
+      );
+    } else if (existing?.status === 'BLOCKED' && status === 'VERIFIED') {
+      safeNotify('account-reinstated', () =>
+        notifyAccountReinstated({ professionalId: id }),
+      );
+    } else if (
+      status === 'VERIFIED' ||
+      status === 'FLAGGED' ||
+      status === 'BLOCKED'
+    ) {
+      safeNotify('account-stage1', () =>
+        notifyAccountStage1Decision({
+          audience: 'PROFESSIONAL',
+          userId: id,
+          status: status === 'VERIFIED' ? 'APPROVED' : 'REJECTED',
+          rejectionReason:
+            typeof rejectionReason === 'string' ? rejectionReason : undefined,
+        }),
+      );
+    }
 
     res.status(200).json({
       status: 'success',

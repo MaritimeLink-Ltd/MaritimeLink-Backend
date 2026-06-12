@@ -213,6 +213,56 @@ export const sendAccountStatusEmail = async (params: {
   );
 };
 
+export const sendAccountSuspendedEmail = async (params: {
+  to: string;
+  recipientName: string;
+  accountLabel: string;
+  reason?: string;
+}) => {
+  const label = params.accountLabel.toLowerCase();
+
+  await deliver(
+    params.to,
+    'Your account has been suspended',
+    buildEmailHtml({
+      headline: 'Account suspended',
+      preheader: 'Your account access has been paused',
+      greeting: `Hi ${params.recipientName},`,
+      variant: 'danger',
+      bodyHtml: `${emailParagraph(`Your ${escapeHtml(label)} account has been <strong>suspended</strong> and you no longer have access to your dashboard.`)}${
+        params.reason?.trim()
+          ? emailCallout(
+              `<strong>Reason:</strong> ${escapeHtml(params.reason.trim())}`,
+              'danger',
+            )
+          : ''
+      }${emailParagraph('Contact support if you believe this is a mistake or need more information.')}`,
+    }),
+  );
+};
+
+export const sendAccountReinstatedEmail = async (params: {
+  to: string;
+  recipientName: string;
+  accountLabel: string;
+  dashboardUrl: string;
+}) => {
+  const label = params.accountLabel.toLowerCase();
+
+  await deliver(
+    params.to,
+    'Your account access has been restored',
+    buildEmailHtml({
+      headline: 'Account reinstated',
+      preheader: 'Welcome back to Maritime Link',
+      greeting: `Hi ${params.recipientName},`,
+      variant: 'success',
+      bodyHtml: `${emailParagraph(`Your ${escapeHtml(label)} account has been <strong>reinstated</strong>. You can sign in and access your dashboard again.`)}${emailCallout('✓ Your account is active again.', 'success')}`,
+      cta: { label: 'Go to dashboard', url: params.dashboardUrl },
+    }),
+  );
+};
+
 export const sendJobApplicationEmails = async (params: {
   professional: {
     to: string;
@@ -277,6 +327,28 @@ export const sendJobInvitationEmail = async (params: {
       variant: 'info',
       bodyHtml: `${emailParagraph(`<strong>${escapeHtml(params.senderName)}</strong> thinks you are a strong match and invited you to apply for <strong>${escapeHtml(params.jobTitle)}</strong>.`)}${emailCallout('This invitation is personal to you — apply when you are ready from the job page.', 'info')}`,
       cta: { label: 'View job & apply', url: params.jobUrl },
+    }),
+  );
+};
+
+export const sendJobPublishedEmail = async (params: {
+  to: string;
+  recipientName: string;
+  jobTitle: string;
+  dashboardUrl: string;
+}) => {
+  const job = escapeHtml(params.jobTitle);
+
+  await deliver(
+    params.to,
+    `Your job is live: ${params.jobTitle}`,
+    buildEmailHtml({
+      headline: 'Job published',
+      preheader: `${params.jobTitle} is now live`,
+      greeting: `Hi ${params.recipientName},`,
+      variant: 'success',
+      bodyHtml: `${emailParagraph(`Your job listing <strong>${job}</strong> is now live and visible to professionals on Maritime Link.`)}${emailCallout('Track applications and invitations from your recruiter dashboard.', 'success')}`,
+      cta: { label: 'View job', url: params.dashboardUrl },
     }),
   );
 };
@@ -395,6 +467,67 @@ export const sendCourseBookingEmails = async (params: {
   }
 };
 
+export const sendCourseBookingCancelledEmail = async (params: {
+  to: string;
+  recipientName: string;
+  courseTitle: string;
+  audience: 'PROFESSIONAL' | 'PROVIDER';
+  refunded?: boolean;
+  dashboardUrl: string;
+}) => {
+  const course = escapeHtml(params.courseTitle);
+  const forProfessional = params.audience === 'PROFESSIONAL';
+
+  const bodyHtml = forProfessional
+    ? `${emailParagraph(`Your booking for <strong>${course}</strong> has been <strong>cancelled</strong> by the training provider.`)}${
+        params.refunded
+          ? emailCallout(
+              'A full refund has been issued and may take 5–10 business days to appear on your card.',
+              'success',
+            )
+          : ''
+      }`
+    : `${emailParagraph(`A professional has <strong>cancelled</strong> their booking for <strong>${course}</strong>.`)}${emailCallout('The seat has been released back to your available capacity.', 'brand')}`;
+
+  await deliver(
+    params.to,
+    `Booking cancelled: ${params.courseTitle}`,
+    buildEmailHtml({
+      headline: 'Booking cancelled',
+      preheader: `Cancelled: ${params.courseTitle}`,
+      greeting: `Hi ${params.recipientName},`,
+      variant: forProfessional ? 'danger' : 'brand',
+      bodyHtml,
+      cta: {
+        label: forProfessional ? 'View training' : 'View bookings',
+        url: params.dashboardUrl,
+      },
+    }),
+  );
+};
+
+export const sendCoursePublishedEmail = async (params: {
+  to: string;
+  recipientName: string;
+  courseTitle: string;
+  dashboardUrl: string;
+}) => {
+  const course = escapeHtml(params.courseTitle);
+
+  await deliver(
+    params.to,
+    `Your course is live: ${params.courseTitle}`,
+    buildEmailHtml({
+      headline: 'Course published',
+      preheader: `${params.courseTitle} is now live`,
+      greeting: `Hi ${params.recipientName},`,
+      variant: 'success',
+      bodyHtml: `${emailParagraph(`Your course <strong>${course}</strong> is now live and open for bookings on Maritime Link.`)}${emailCallout('Manage sessions, capacity, and bookings from your provider dashboard.', 'success')}`,
+      cta: { label: 'View course', url: params.dashboardUrl },
+    }),
+  );
+};
+
 export const sendSupportCaseEmail = async (params: {
   to: string;
   recipientName: string;
@@ -491,6 +624,27 @@ export const sendDocumentExpiryEmail = async (params: {
       bodyHtml: expired
         ? `${emailParagraph(`<strong>${doc}</strong> expired on <strong>${date}</strong>.`)}${emailCallout('Your compliance status may be affected until you upload a renewed document to your wallet.', 'danger')}`
         : `${emailParagraph(`<strong>${doc}</strong> expires on <strong>${date}</strong>.`)}${emailCallout('Renew and upload an updated certificate before the expiry date to stay compliant.', 'warning')}`,
+      cta: { label: 'Open document wallet', url: params.dashboardUrl },
+    }),
+  );
+};
+
+export const sendSecureDocumentLinkEmail = async (params: {
+  to: string;
+  recipientName: string;
+  secureLink: string;
+  expiresAt: string;
+  dashboardUrl: string;
+}) => {
+  await deliver(
+    params.to,
+    'Secure document link created',
+    buildEmailHtml({
+      headline: 'Secure document link shared',
+      preheader: 'A secure share link for your documents was created',
+      greeting: `Hi ${params.recipientName},`,
+      variant: 'info',
+      bodyHtml: `${emailParagraph('A secure, time-limited link to your document pack was generated from your account.')}${emailCallout(`<strong>Link:</strong> <a href="${escapeHtml(params.secureLink)}" target="_blank">${escapeHtml(params.secureLink)}</a><br/><strong>Expires:</strong> ${escapeHtml(params.expiresAt)}`, 'info')}${emailParagraph("If you didn't request this, please review your account security.")}`,
       cta: { label: 'Open document wallet', url: params.dashboardUrl },
     }),
   );

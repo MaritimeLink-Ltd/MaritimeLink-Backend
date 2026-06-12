@@ -179,7 +179,8 @@ export const updateRecruiterStatus = catchAsync(
 
     safeNotify('account-stage1', () =>
       notifyAccountStage1Decision({
-        recruiterId: id,
+        audience: 'RECRUITER',
+        userId: id,
         status,
         rejectionReason:
           typeof rejectionReason === 'string' ? rejectionReason : undefined,

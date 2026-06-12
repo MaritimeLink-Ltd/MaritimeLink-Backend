@@ -492,6 +492,11 @@ router.patch(
   protectRecruiter,
   recruiterController.updatePassword,
 );
+router.delete(
+  '/account',
+  protectRecruiter,
+  recruiterController.deleteMyAccount,
+);
 
 router.get(
   '/settings',

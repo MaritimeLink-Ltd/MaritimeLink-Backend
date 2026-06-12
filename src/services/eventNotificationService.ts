@@ -2,16 +2,22 @@ import type { Server as SocketServer } from 'socket.io';
 import { prisma } from '../config/prisma.js';
 import { ActorType, ApplicationStatus } from '../generated/client/index.js';
 import {
+  sendAccountReinstatedEmail,
   sendAccountStatusEmail,
+  sendAccountSuspendedEmail,
   sendApplicationStatusEmail,
+  sendCourseBookingCancelledEmail,
   sendCourseBookingEmails,
+  sendCoursePublishedEmail,
   sendJobApplicationEmails,
   sendJobInvitationEmail,
+  sendJobPublishedEmail,
   sendKycResubmissionEmail,
   sendKycStatusEmail,
   sendKycSubmittedEmail,
   sendMessageReceivedEmail,
   sendPaymentStatusEmail,
+  sendSecureDocumentLinkEmail,
   sendSupportCaseEmail,
 } from './emailService.js';
 import { appUrl } from './emailLayout.js';
@@ -274,12 +280,38 @@ export async function notifyKycResubmissionRequested(params: {
 }
 
 export async function notifyAccountStage1Decision(params: {
-  recruiterId: string;
+  audience: KycAudience;
+  userId: string;
   status: 'APPROVED' | 'REJECTED';
   rejectionReason?: string;
 }): Promise<void> {
+  const { audience, userId, status, rejectionReason } = params;
+
+  if (audience === 'PROFESSIONAL') {
+    const professional = await prisma.professional.findUnique({
+      where: { id: userId },
+      select: {
+        email: true,
+        fullname: true,
+        firstName: true,
+        lastName: true,
+      },
+    });
+    if (!professional?.email) return;
+
+    await sendAccountStatusEmail({
+      to: professional.email,
+      recipientName: displayName(professional),
+      accountLabel: accountLabel('PROFESSIONAL'),
+      approved: status === 'APPROVED',
+      rejectionReason,
+      dashboardUrl: dashboardUrl('PROFESSIONAL'),
+    });
+    return;
+  }
+
   const recruiter = await prisma.recruiter.findUnique({
-    where: { id: params.recruiterId },
+    where: { id: userId },
     select: {
       email: true,
       role: true,
@@ -294,8 +326,8 @@ export async function notifyAccountStage1Decision(params: {
     to: recruiter.email,
     recipientName: displayName(recruiter),
     accountLabel: accountLabel('RECRUITER', recruiter.role),
-    approved: params.status === 'APPROVED',
-    rejectionReason: params.rejectionReason,
+    approved: status === 'APPROVED',
+    rejectionReason,
     dashboardUrl: dashboardUrl('RECRUITER', recruiter.role),
   });
 }
@@ -575,5 +607,171 @@ export async function notifyPaymentOutcome(params: {
     amount: params.amount,
     currency: params.currency,
     dashboardUrl: appUrl('/personal/profile/manage-subscription'),
+  });
+}
+
+export async function notifyAccountSuspended(params: {
+  professionalId: string;
+  reason?: string;
+}): Promise<void> {
+  const professional = await prisma.professional.findUnique({
+    where: { id: params.professionalId },
+    select: { email: true, fullname: true, firstName: true, lastName: true },
+  });
+  if (!professional?.email) return;
+
+  await sendAccountSuspendedEmail({
+    to: professional.email,
+    recipientName: displayName(professional),
+    accountLabel: accountLabel('PROFESSIONAL'),
+    reason: params.reason,
+  });
+}
+
+export async function notifyAccountReinstated(params: {
+  professionalId: string;
+}): Promise<void> {
+  const professional = await prisma.professional.findUnique({
+    where: { id: params.professionalId },
+    select: { email: true, fullname: true, firstName: true, lastName: true },
+  });
+  if (!professional?.email) return;
+
+  await sendAccountReinstatedEmail({
+    to: professional.email,
+    recipientName: displayName(professional),
+    accountLabel: accountLabel('PROFESSIONAL'),
+    dashboardUrl: dashboardUrl('PROFESSIONAL'),
+  });
+}
+
+export async function notifySecureDocumentLinkShared(params: {
+  professionalId: string;
+  secureLink: string;
+  expiresAt: string;
+}): Promise<void> {
+  const professional = await prisma.professional.findUnique({
+    where: { id: params.professionalId },
+    select: { email: true, fullname: true, firstName: true, lastName: true },
+  });
+  if (!professional?.email) return;
+
+  await sendSecureDocumentLinkEmail({
+    to: professional.email,
+    recipientName: displayName(professional),
+    secureLink: params.secureLink,
+    expiresAt: new Date(params.expiresAt).toLocaleString('en-US', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }),
+    dashboardUrl: appUrl('/personal/documents'),
+  });
+}
+
+export async function notifyCourseBookingCancelled(params: {
+  bookingId: string;
+  cancelledBy: 'PROFESSIONAL' | 'PROVIDER';
+  refunded?: boolean;
+}): Promise<void> {
+  const booking = await prisma.courseBooking.findUnique({
+    where: { id: params.bookingId },
+    include: {
+      professional: {
+        select: {
+          email: true,
+          fullname: true,
+          firstName: true,
+          lastName: true,
+        },
+      },
+      course: {
+        select: {
+          title: true,
+          recruiter: {
+            select: {
+              email: true,
+              role: true,
+              organizationName: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
+      },
+    },
+  });
+  if (!booking?.course) return;
+
+  if (params.cancelledBy === 'PROFESSIONAL') {
+    const trainer = booking.course.recruiter;
+    if (!trainer?.email) return;
+    await sendCourseBookingCancelledEmail({
+      to: trainer.email,
+      recipientName: displayName(trainer),
+      courseTitle: booking.course.title,
+      audience: 'PROVIDER',
+      dashboardUrl: appUrl('/trainingprovider-dashboard/bookings'),
+    });
+    return;
+  }
+
+  if (!booking.professional?.email) return;
+  await sendCourseBookingCancelledEmail({
+    to: booking.professional.email,
+    recipientName: displayName(booking.professional),
+    courseTitle: booking.course.title,
+    audience: 'PROFESSIONAL',
+    refunded: params.refunded,
+    dashboardUrl: appUrl('/personal/training'),
+  });
+}
+
+export async function notifyJobPublished(jobId: string): Promise<void> {
+  const job = await prisma.job.findUnique({
+    where: { id: jobId },
+    include: {
+      recruiter: {
+        select: {
+          email: true,
+          role: true,
+          firstName: true,
+          lastName: true,
+          organizationName: true,
+        },
+      },
+    },
+  });
+  if (!job?.recruiter?.email) return;
+
+  await sendJobPublishedEmail({
+    to: job.recruiter.email,
+    recipientName: displayName(job.recruiter),
+    jobTitle: job.title,
+    dashboardUrl: dashboardUrl('RECRUITER', job.recruiter.role),
+  });
+}
+
+export async function notifyCoursePublished(courseId: string): Promise<void> {
+  const course = await prisma.course.findUnique({
+    where: { id: courseId },
+    include: {
+      recruiter: {
+        select: {
+          email: true,
+          role: true,
+          firstName: true,
+          lastName: true,
+          organizationName: true,
+        },
+      },
+    },
+  });
+  if (!course?.recruiter?.email) return;
+
+  await sendCoursePublishedEmail({
+    to: course.recruiter.email,
+    recipientName: displayName(course.recruiter),
+    courseTitle: course.title,
+    dashboardUrl: appUrl('/trainingprovider-dashboard/courses'),
   });
 }

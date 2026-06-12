@@ -13,6 +13,10 @@ import { logActivity } from '../services/activityLogger.js';
 import { ActorType, ActionStatus } from '../generated/client/index.js';
 import { getClientIp } from '../utils/requestMetadata.js';
 import {
+  notifyJobPublished,
+  safeNotify,
+} from '../services/eventNotificationService.js';
+import {
   createJobSchema,
   updateJobSchema,
   updateJobStatusSchema,
@@ -108,6 +112,10 @@ export const createJob = catchAsync(
         location: job.location,
       },
     });
+
+    if (job.status === JobStatus.ACTIVE && job.recruiterId) {
+      safeNotify('job-published', () => notifyJobPublished(job.id));
+    }
 
     res.status(201).json({
       status: 'success',
@@ -415,6 +423,14 @@ export const updateJobStatus = catchAsync(
       where: { id },
       data: { status },
     });
+
+    if (
+      job.status === JobStatus.DRAFT &&
+      updatedJob.status === JobStatus.ACTIVE &&
+      updatedJob.recruiterId
+    ) {
+      safeNotify('job-published', () => notifyJobPublished(updatedJob.id));
+    }
 
     res.status(200).json({
       status: 'success',

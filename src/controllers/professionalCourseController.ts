@@ -5,6 +5,10 @@ import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
 import { cancelBookingSchema } from '../validations/jobValidation.js';
 import { stripeService } from '../services/stripeService.js';
+import {
+  notifyCourseBookingCancelled,
+  safeNotify,
+} from '../services/eventNotificationService.js';
 
 const sessionBookingConsumesSeat = (bookingStatus?: string | null) =>
   ['PENDING', 'CONFIRMED', 'COMPLETED'].includes(String(bookingStatus || ''));
@@ -300,6 +304,10 @@ export const cancelBooking = catchAsync(
         ),
       );
     }
+
+    safeNotify('course-booking-cancelled', () =>
+      notifyCourseBookingCancelled({ bookingId, cancelledBy: 'PROFESSIONAL' }),
+    );
 
     // Decrement enrolled count
     if (booking.course) {
