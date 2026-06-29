@@ -4,6 +4,16 @@ const dateSchema = z.preprocess((arg) => {
   if (typeof arg === 'string' || arg instanceof Date) return new Date(arg);
 }, z.date());
 
+// Same as dateSchema, but for fields that are allowed to be blank: normalizes
+// null/''/undefined to undefined *before* validation so z.date() never sees
+// them, instead of relying on .optional() on the outer preprocess wrapper
+// (which only short-circuits on a literally-undefined raw input).
+const optionalDateSchema = z.preprocess((arg) => {
+  if (arg === null || arg === undefined || arg === '') return undefined;
+  if (typeof arg === 'string' || arg instanceof Date) return new Date(arg);
+  return arg;
+}, z.date().optional());
+
 export const personalInfoStepSchema = z.object({
   firstName: z.string().min(2).max(50),
   middleName: z.string().max(50).optional(),
@@ -35,8 +45,8 @@ export const licenseStepSchema = z.object({
   name: z.string().min(2),
   number: z.string().optional(),
   country: z.string().optional(),
-  issueDate: dateSchema.optional(),
-  expiryDate: dateSchema.optional(),
+  issueDate: optionalDateSchema,
+  expiryDate: optionalDateSchema,
   isEndorsement: z.boolean().optional(),
   isCertificate: z.boolean().optional(),
 });
@@ -52,7 +62,7 @@ export const seaServiceStepSchema = z.object({
   meType: z.string().optional(),
   kwtType: z.string().optional(),
   joiningDate: dateSchema,
-  tillDate: dateSchema.optional(),
+  tillDate: optionalDateSchema,
 });
 
 export const educationStepSchema = z.object({
@@ -62,15 +72,15 @@ export const educationStepSchema = z.object({
   country: z.string().optional(),
   grade: z.string().optional(),
   startDate: dateSchema,
-  endDate: dateSchema.optional(),
+  endDate: optionalDateSchema,
 });
 
 export const stcwCertificateStepSchema = z.object({
   qualification: z.string().min(2),
   certificateNumber: z.string().optional(),
   issuingCountry: z.string().optional(),
-  issueDate: dateSchema.optional(),
-  expiryDate: dateSchema.optional(),
+  issueDate: optionalDateSchema,
+  expiryDate: optionalDateSchema,
 });
 
 export const medicalTravelStepSchema = z.object({
@@ -79,8 +89,8 @@ export const medicalTravelStepSchema = z.object({
   issuingCountry: z.string().optional(),
   city: z.string().optional(),
   institutionCountry: z.string().optional(),
-  issueDate: dateSchema.optional(),
-  expiryDate: dateSchema.optional(),
+  issueDate: optionalDateSchema,
+  expiryDate: optionalDateSchema,
   type: z.enum(['MEDICAL', 'TRAVEL']),
 });
 
@@ -126,7 +136,7 @@ export const resumeSchema = z.object({
   phoneCode: z.string().optional(),
   phoneNumber: z.string().optional(),
   emailAddress: z.string().email().optional(),
-  dateOfBirth: dateSchema.optional(),
+  dateOfBirth: optionalDateSchema,
 
   // Summary
   summary: z.string().optional(),
@@ -158,8 +168,8 @@ export const resumeSchema = z.object({
         name: z.string(),
         number: z.string().optional(),
         country: z.string().optional(),
-        issueDate: dateSchema.optional(),
-        expiryDate: dateSchema.optional(),
+        issueDate: optionalDateSchema,
+        expiryDate: optionalDateSchema,
         isEndorsement: z.boolean().optional(),
         isCertificate: z.boolean().optional(),
       }),
@@ -179,8 +189,8 @@ export const resumeSchema = z.object({
         dwt: z.string().optional(),
         meType: z.string().optional(),
         kwtType: z.string().optional(),
-        joiningDate: dateSchema.optional(),
-        tillDate: dateSchema.optional(),
+        joiningDate: optionalDateSchema,
+        tillDate: optionalDateSchema,
       }),
     )
     .optional(),
@@ -194,8 +204,8 @@ export const resumeSchema = z.object({
         city: z.string().optional(),
         country: z.string().optional(),
         grade: z.string().optional(),
-        startDate: dateSchema.optional(),
-        endDate: dateSchema.optional(),
+        startDate: optionalDateSchema,
+        endDate: optionalDateSchema,
       }),
     )
     .optional(),
@@ -207,8 +217,8 @@ export const resumeSchema = z.object({
         qualification: z.string(),
         certificateNumber: z.string().optional(),
         issuingCountry: z.string().optional(),
-        issueDate: dateSchema.optional(),
-        expiryDate: dateSchema.optional(),
+        issueDate: optionalDateSchema,
+        expiryDate: optionalDateSchema,
       }),
     )
     .optional(),
@@ -223,8 +233,8 @@ export const resumeSchema = z.object({
         issuingCountry: z.string().optional(),
         city: z.string().optional(),
         institutionCountry: z.string().optional(),
-        issueDate: dateSchema.optional(),
-        expiryDate: dateSchema.optional(),
+        issueDate: optionalDateSchema,
+        expiryDate: optionalDateSchema,
       }),
     )
     .optional(),
@@ -238,8 +248,8 @@ export const resumeSchema = z.object({
         issuingCountry: z.string().optional(),
         city: z.string().optional(),
         institutionCountry: z.string().optional(),
-        issueDate: dateSchema.optional(),
-        expiryDate: dateSchema.optional(),
+        issueDate: optionalDateSchema,
+        expiryDate: optionalDateSchema,
       }),
     )
     .optional(),

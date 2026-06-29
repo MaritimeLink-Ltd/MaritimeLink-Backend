@@ -34,6 +34,7 @@ interface OCRResult {
   issuingCountry?: string;
   issueDate?: string;
   expiryDate?: string;
+  dateOfBirth?: string;
   rawText?: string;
 }
 
@@ -51,14 +52,15 @@ export const analyzeDocument = async (
     }
 
     const prompt = `
-      Analyze this maritime document image. 
+      Analyze this document image (it may be a maritime certificate or a personal identity document like a passport, driving license, national ID, or residence permit).
       Extract the following fields in strict JSON format:
       1. name (Name of the person)
-      2. number (Certificate or License number)
+      2. number (Certificate, License, Passport, or ID number)
       3. issuingCountry (Country of issue)
       4. issueDate (YYYY-MM-DD format)
       5. expiryDate (YYYY-MM-DD format)
-      
+      6. dateOfBirth (Date of birth of the person, YYYY-MM-DD format, if visible on the document)
+
       If a field is not visible, return null. Return ONLY the JSON object.
     `;
 

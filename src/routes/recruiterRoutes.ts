@@ -525,7 +525,7 @@ router.get(
 );
 router.patch(
   '/settings/profile-photo',
-  protectRecruiter,
+  protectRecruiterKyc,
   upload.single('photo'),
   recruiterSettingsController.updateRecruiterProfilePhoto,
 );

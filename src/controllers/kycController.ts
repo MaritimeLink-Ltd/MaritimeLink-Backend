@@ -68,11 +68,26 @@ export const uploadKYCDocumentFront = catchAsync(
       console.error('Recruiter KYC OCR analysis failed:', error);
     }
 
+    // Validate if the document is actually a valid KYC document
+    let isTypeValidated = true;
+    try {
+      if (file.buffer) {
+        isTypeValidated = await validateDocumentType(
+          file.buffer,
+          file.mimetype,
+          'Identity Document',
+        );
+      }
+    } catch (error) {
+      console.error('Recruiter KYC document type validation failed:', error);
+    }
+
     res.status(200).json({
       status: 'success',
       data: {
         url: publicUrl,
         ocrData,
+        isTypeValidated,
       },
     });
   },
@@ -90,10 +105,36 @@ export const uploadKYCDocumentBack = catchAsync(
 
     const { publicUrl } = await processKYCUpload(file, 'back', req.user?.id);
 
+    // Gemini OCR Analysis
+    let ocrData = null;
+    try {
+      if (file.buffer) {
+        ocrData = await analyzeDocument(file.buffer, file.mimetype);
+      }
+    } catch (error) {
+      console.error('Recruiter KYC OCR Back analysis failed:', error);
+    }
+
+    // Validate if the document is actually a valid KYC document
+    let isTypeValidated = true;
+    try {
+      if (file.buffer) {
+        isTypeValidated = await validateDocumentType(
+          file.buffer,
+          file.mimetype,
+          'Identity Document',
+        );
+      }
+    } catch (error) {
+      console.error('Recruiter KYC document type validation failed:', error);
+    }
+
     res.status(200).json({
       status: 'success',
       data: {
         url: publicUrl,
+        ocrData,
+        isTypeValidated,
       },
     });
   },
