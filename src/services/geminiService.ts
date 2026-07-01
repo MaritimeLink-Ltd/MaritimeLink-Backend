@@ -3,7 +3,7 @@ import { env } from '../config/env.js';
 
 // Initialize Gemini
 const genAI = new GoogleGenerativeAI(env.GEMINI_API_KEY || '');
-const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+const model = genAI.getGenerativeModel({ model: 'gemini-3-flash-preview' });
 
 /**
  * Helper to retry Gemini calls on 429 Rate Limit errors

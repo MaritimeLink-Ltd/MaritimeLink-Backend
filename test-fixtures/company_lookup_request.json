@@ -1,0 +1,16 @@
+{
+  "contents": [
+    {
+      "parts": [
+        {
+          "text": "\nYou are verifying company registration details for a maritime recruiting/training platform.\nUse Google Search grounding to find the best public information for this company.\n\nImportant rules:\n- The entered LinkedIn URL and entered address are untrusted hints, not verified facts.\n- Do not copy or repeat any entered value unless it is clearly confirmed by public web search results.\n- If a field cannot be verified from grounded public sources, return null for that field.\n- Prefer official company websites, company-controlled LinkedIn pages, and government/company registry sources over directories or guesswork.\n\nInput:\n- Company name: Devsinc\n- Website/domain: devsinc.com\n- Entered LinkedIn hint: unknown\n- Entered address hint: unknown, unknown, unknown, unknown, unknown\n\nReturn ONLY valid JSON. Do not wrap in markdown. Use null when unknown.\nSchema:\n{\n  \"name\": string | null,\n  \"registration_number\": string | null,\n  \"country_code\": string | null,\n  \"company_phone\": string[] | null,\n  \"company_email\": string[] | null,\n  \"company_website\": string | null,\n  \"company_legal_form\": string | null,\n  \"status\": string | null,\n  \"brands\": string | null,\n  \"address_street\": string | null,\n  \"address_location\": string | null,\n  \"address_city\": string | null,\n  \"country_region\": string | null,\n  \"zip_code\": string | null,\n  \"country_name\": string | null,\n  \"size\": string | null,\n  \"vat_number\": string | null,\n  \"founding_date\": string | null,\n  \"industry\": [{\"value\": string}] | null,\n  \"linkedin\": string | null,\n  \"logo\": string | null\n}\n"
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "googleSearch": {}
+    }
+  ]
+}

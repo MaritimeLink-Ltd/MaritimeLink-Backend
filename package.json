@@ -5,7 +5,7 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "tsx watch --include .env src/server.ts",
     "build": "npm run prisma:generate && rm -rf dist && tsc && npx prisma db push && mkdir -p dist/generated && cp -r src/generated/client dist/generated/",
     "start": "node dist/server.js",
     "lint": "eslint src",
@@ -22,6 +22,7 @@
   "license": "ISC",
   "devDependencies": {
     "@eslint/js": "^9.39.2",
+    "@google/genai": "^2.10.0",
     "@types/jest": "^30.0.0",
     "@types/socket.io": "^3.0.1",
     "@types/supertest": "^6.0.3",
