@@ -21,6 +21,10 @@ import {
   calculateTotalSeaTime,
   getExperienceSummary,
 } from '../utils/experienceUtils.js';
+import {
+  RECRUITER_FREE_JOB_APPLICATION_LIMIT,
+  getRecruiterFeatureAccess,
+} from '../utils/recruiterCapabilities.js';
 
 const APPLICATION_STATUS_ALIASES: Record<string, ApplicationStatus> = {
   APPLIED: ApplicationStatus.APPLIED,
@@ -184,6 +188,33 @@ export const applyToJob = catchAsync(
             403,
           ),
         );
+      }
+    }
+
+    if (job.recruiterId) {
+      const recruiter = await prisma.recruiter.findUnique({
+        where: { id: job.recruiterId },
+        select: { tier: true },
+      });
+      const access = getRecruiterFeatureAccess({
+        recruiterTier: recruiter?.tier,
+        job,
+      });
+
+      if (!access.unlimitedApplications) {
+        const jobApplicationCount = await prisma.jobApplication.count({
+          where: { jobId },
+        });
+
+        if (jobApplicationCount >= RECRUITER_FREE_JOB_APPLICATION_LIMIT) {
+          return next(
+            new AppError(
+              'This job listing has reached its application limit. Please check back later.',
+              403,
+              'RECRUITER_JOB_APPLICATION_LIMIT',
+            ),
+          );
+        }
       }
     }
 
@@ -621,6 +652,35 @@ export const updateApplicationStatus = catchAsync(
 export const getJobApplicants = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const { id: jobId } = req.params;
+    const userId = req.user?.id;
+    const userRole = req.user?.role;
+    const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'].includes(
+      userRole || '',
+    );
+
+    const job = await prisma.job.findUnique({ where: { id: jobId } });
+    if (!job) {
+      return next(new AppError('Job not found', 404));
+    }
+
+    if (!isAdmin && job.recruiterId !== userId) {
+      return next(
+        new AppError('Not authorized to view applicants for this job', 403),
+      );
+    }
+
+    let canViewResume = true;
+    if (!isAdmin && job.recruiterId) {
+      const recruiter = await prisma.recruiter.findUnique({
+        where: { id: job.recruiterId },
+        select: { tier: true },
+      });
+      const access = getRecruiterFeatureAccess({
+        recruiterTier: recruiter?.tier,
+        job,
+      });
+      canViewResume = access.viewResume;
+    }
 
     // Filters
     const { status } = req.query;
@@ -701,6 +761,11 @@ export const getJobApplicants = catchAsync(
         ...app,
         professional: {
           ...app.professional,
+          // Compliance uses only doc id/expiry (already selected above, never
+          // full file data) so it stays accurate regardless of tier — actual
+          // resume/CV content is what "View Resume" gates.
+          cvUrl: canViewResume ? app.professional.cvUrl : null,
+          resume: canViewResume ? app.professional.resume : null,
           totalYearsExperience: years,
           isVerified,
           location: app.professional.resume?.country || 'Global',

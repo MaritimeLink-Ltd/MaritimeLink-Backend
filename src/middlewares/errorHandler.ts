@@ -23,6 +23,7 @@ export const errorHandler = (
     res.status(err.statusCode).json({
       status: 'error',
       message: err.message,
+      ...(err.code && { code: err.code }),
     });
     return;
   }

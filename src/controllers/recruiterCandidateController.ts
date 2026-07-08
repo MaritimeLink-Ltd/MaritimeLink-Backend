@@ -19,6 +19,10 @@ import {
   notifyJobInvitation,
   safeNotify,
 } from '../services/eventNotificationService.js';
+import {
+  getRecruiterFeatureAccess,
+  isJobPremiumActive,
+} from '../utils/recruiterCapabilities.js';
 
 const normalizeText = (value: unknown) =>
   String(value || '')
@@ -150,6 +154,34 @@ export const getMatchingCandidates = catchAsync(
       );
     }
 
+    // Match results are always non-applicants (excluded below), so Document
+    // Wallet access stays Premium-only here regardless of this job's Flex
+    // status — Flex only unlocks wallets for candidates who *have* applied.
+    let showMatchDocumentWallet = true;
+    if (!isAdmin && job.recruiterId) {
+      const recruiter = await prisma.recruiter.findUnique({
+        where: { id: job.recruiterId },
+        select: { tier: true },
+      });
+      const access = getRecruiterFeatureAccess({
+        recruiterTier: recruiter?.tier,
+        job,
+      });
+
+      if (!access.smartMatching) {
+        return next(
+          new AppError(
+            'Smart Candidate Matching requires a Flex or Premium Recruiter plan.',
+            403,
+            'RECRUITER_UPGRADE_REQUIRED',
+          ),
+        );
+      }
+
+      showMatchDocumentWallet =
+        String(recruiter?.tier || 'FREE').toUpperCase() === 'PREMIUM';
+    }
+
     if (job.status !== JobStatus.ACTIVE) {
       return res.status(200).json({
         status: 'success',
@@ -232,7 +264,7 @@ export const getMatchingCandidates = catchAsync(
           matchPercentage: Math.min(match.score, 100),
           matchCriteria: match.criteria,
           cvUrl: prof.cvUrl,
-          documents: prof.documents,
+          documents: showMatchDocumentWallet ? prof.documents : [],
         };
       })
       .filter((candidate): candidate is NonNullable<typeof candidate> =>
@@ -473,6 +505,7 @@ export const searchCandidates = catchAsync(
 export const getCandidateProfile = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const { id } = req.params;
+    const recruiterId = req.user?.id;
 
     const professional = await prisma.professional.findUnique({
       where: { id },
@@ -509,10 +542,65 @@ export const getCandidateProfile = catchAsync(
     const seaService = professional.resume?.seaService || [];
     const seaServiceExperience = buildSeaServiceExperience(seaService);
 
+    let access = getRecruiterFeatureAccess({
+      recruiterTier: 'FREE',
+      job: null,
+    });
+    if (recruiterId) {
+      const recruiter = await prisma.recruiter.findUnique({
+        where: { id: recruiterId },
+        select: { tier: true },
+      });
+
+      const applications = await prisma.jobApplication.findMany({
+        where: { professionalId: id, job: { recruiterId } },
+        select: {
+          job: {
+            select: { isPremiumListing: true, premiumListingExpiresAt: true },
+          },
+        },
+      });
+      const bestJob =
+        applications.find((a) => isJobPremiumActive(a.job))?.job ||
+        applications[0]?.job ||
+        null;
+
+      // "View Resume" isn't scoped to "candidates who applied" for Flex (only
+      // Document Wallet is) — so it unlocks off ANY currently-active Flex
+      // listing, not just one this specific candidate applied to.
+      let hasAnyActiveFlexListing = false;
+      if (String(recruiter?.tier || 'FREE').toUpperCase() !== 'PREMIUM') {
+        const activeFlexJob = await prisma.job.findFirst({
+          where: {
+            recruiterId,
+            isPremiumListing: true,
+            premiumListingExpiresAt: { gt: new Date() },
+          },
+          select: { id: true },
+        });
+        hasAnyActiveFlexListing = Boolean(activeFlexJob);
+      }
+
+      access = getRecruiterFeatureAccess({
+        recruiterTier: recruiter?.tier,
+        job: bestJob,
+        hasAnyActiveFlexListing,
+      });
+    }
+
+    const responseProfessional = {
+      ...professional,
+      cvUrl: access.viewResume ? professional.cvUrl : null,
+      lastCoverLetter: access.viewResume ? professional.lastCoverLetter : null,
+      resume: access.viewResume ? professional.resume : null,
+      documents: access.viewDocumentWallet ? professional.documents : [],
+    };
+
     res.status(200).json({
       status: 'success',
       data: {
-        professional,
+        professional: responseProfessional,
+        access,
         derived: {
           seaServiceExperience,
           totalSeaTime: calculateTotalSeaTime(seaService),
@@ -546,6 +634,27 @@ export const inviteProfessional = catchAsync(
       req.user?.role !== 'SUPER_ADMIN'
     ) {
       return next(new AppError('Not authorized to invite for this job', 403));
+    }
+
+    if (job.recruiterId) {
+      const recruiter = await prisma.recruiter.findUnique({
+        where: { id: job.recruiterId },
+        select: { tier: true },
+      });
+      const access = getRecruiterFeatureAccess({
+        recruiterTier: recruiter?.tier,
+        job,
+      });
+
+      if (!access.inviteCandidates) {
+        return next(
+          new AppError(
+            'Inviting candidates requires a Flex or Premium Recruiter plan.',
+            403,
+            'RECRUITER_UPGRADE_REQUIRED',
+          ),
+        );
+      }
     }
 
     // 2. Check if already invited or applied

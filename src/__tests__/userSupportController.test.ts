@@ -4,12 +4,18 @@ const mockPrisma = {
   professional: {
     findUnique: jest.fn(),
   },
+  recruiter: {
+    findUnique: jest.fn(),
+  },
   supportCase: {
     count: jest.fn(),
     create: jest.fn(),
   },
 } as {
   professional: {
+    findUnique: jest.MockedFunction<(...args: unknown[]) => Promise<unknown>>;
+  };
+  recruiter: {
     findUnique: jest.MockedFunction<(...args: unknown[]) => Promise<unknown>>;
   };
   supportCase: {
@@ -118,7 +124,8 @@ describe('userSupportController.createCase', () => {
     );
   });
 
-  it('assigns LOW priority to recruiters and trainers', async () => {
+  it('assigns LOW priority to a Free-tier recruiter/trainer', async () => {
+    mockPrisma.recruiter.findUnique.mockResolvedValue({ tier: 'FREE' });
     const next = jest.fn();
     const req = {
       user: {
@@ -140,6 +147,71 @@ describe('userSupportController.createCase', () => {
 
     expect(state.statusCode).toBe(201);
     expect(mockPrisma.professional.findUnique).not.toHaveBeenCalled();
+    expect(mockPrisma.recruiter.findUnique).toHaveBeenCalled();
+    expect(mockPrisma.supportCase.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          priority: 'LOW',
+          userType: 'RECRUITER',
+        }),
+      }),
+    );
+  });
+
+  it('assigns HIGH priority to a Premium-tier recruiter/trainer', async () => {
+    mockPrisma.recruiter.findUnique.mockResolvedValue({ tier: 'PREMIUM' });
+    const next = jest.fn();
+    const req = {
+      user: {
+        id: 'rec-2',
+        email: 'premium-recruiter@example.com',
+        role: 'RECRUITMENT_AGENT',
+      },
+      body: {
+        subject: 'Job posting issue',
+        description: 'Need help with a listing',
+        category: 'Jobs',
+      },
+    } as never;
+    const { res, state } = createResponse();
+
+    createCase(req, res as never, next as never);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(state.statusCode).toBe(201);
+    expect(mockPrisma.recruiter.findUnique).toHaveBeenCalled();
+    expect(mockPrisma.supportCase.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          priority: 'HIGH',
+          userType: 'RECRUITER',
+        }),
+      }),
+    );
+  });
+
+  it('keeps platform admins at LOW priority without a recruiter lookup', async () => {
+    const next = jest.fn();
+    const req = {
+      user: {
+        id: 'admin-1',
+        email: 'admin@example.com',
+        role: 'SUPER_ADMIN',
+      },
+      body: {
+        subject: 'Internal check',
+        description: 'Testing admin-created case priority',
+        category: 'Internal',
+      },
+    } as never;
+    const { res, state } = createResponse();
+
+    createCase(req, res as never, next as never);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(state.statusCode).toBe(201);
+    expect(mockPrisma.professional.findUnique).not.toHaveBeenCalled();
+    expect(mockPrisma.recruiter.findUnique).not.toHaveBeenCalled();
     expect(mockPrisma.supportCase.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({

@@ -968,6 +968,12 @@ router.get(
  */
 router.get('/trainers/:id', adminTrainerController.getTrainerById);
 router.post('/trainers/:id/notes', adminTrainerController.addTrainerNote);
+// Trainers are Recruiter rows (role: TRAINING_AGENT), so this reuses the same
+// generic, role-agnostic status handler already used for /recruiters/:id/status.
+router.patch(
+  '/trainers/:id/status',
+  adminRecruiterController.updateRecruiterStatus,
+);
 
 /**
  * @swagger

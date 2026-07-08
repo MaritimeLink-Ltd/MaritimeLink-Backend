@@ -14,6 +14,7 @@ import {
   notifyMessageReceived,
   safeNotify,
 } from '../services/eventNotificationService.js';
+import { getRecruiterFeatureAccess } from '../utils/recruiterCapabilities.js';
 
 /** Hide empty admin threads until an administrator has sent at least one message. */
 const supportChatVisibleToUserFilter = {
@@ -130,6 +131,31 @@ export const createConversation = catchAsync(
       });
       if (professional) {
         professionalId = targetId;
+
+        const recruiter = await prisma.recruiter.findUnique({
+          where: { id: userId },
+          select: { tier: true },
+        });
+        const access = getRecruiterFeatureAccess({
+          recruiterTier: recruiter?.tier,
+        });
+
+        if (!access.directMessagingBeforeApplication) {
+          const hasApplied = await prisma.jobApplication.findFirst({
+            where: { professionalId: targetId, job: { recruiterId: userId } },
+            select: { id: true },
+          });
+
+          if (!hasApplied) {
+            return next(
+              new AppError(
+                'You can only message candidates after they have applied to one of your jobs. Upgrade to Premium Recruiter for direct messaging.',
+                403,
+                'RECRUITER_UPGRADE_REQUIRED',
+              ),
+            );
+          }
+        }
       } else {
         const admin = await prisma.admin.findUnique({
           where: { id: targetId },

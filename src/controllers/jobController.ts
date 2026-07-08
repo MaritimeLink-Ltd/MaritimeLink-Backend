@@ -21,6 +21,7 @@ import {
   updateJobSchema,
   updateJobStatusSchema,
 } from '../validations/jobValidation.js';
+import { RECRUITER_FREE_ACTIVE_JOB_LIMIT } from '../utils/recruiterCapabilities.js';
 
 const normalizeFieldValue = (value: unknown) => {
   if (value instanceof Date) return value.toISOString();
@@ -72,6 +73,40 @@ const resolveEffectiveJobStatus = <
 };
 
 /**
+ * Non-Premium recruiters may only have one ACTIVE job listing at a time
+ * (Free and Flex tiers both cap at 1 — Flex only unlocks per-listing features,
+ * not additional concurrent listings). `excludeJobId` lets updateJobStatus
+ * re-check without counting the job being activated against itself.
+ */
+const assertRecruiterCanActivateJob = async (
+  recruiterId: string,
+  excludeJobId?: string,
+) => {
+  const recruiter = await prisma.recruiter.findUnique({
+    where: { id: recruiterId },
+    select: { tier: true },
+  });
+
+  if (recruiter?.tier === 'PREMIUM') return;
+
+  const activeJobCount = await prisma.job.count({
+    where: {
+      recruiterId,
+      status: JobStatus.ACTIVE,
+      ...(excludeJobId ? { id: { not: excludeJobId } } : {}),
+    },
+  });
+
+  if (activeJobCount >= RECRUITER_FREE_ACTIVE_JOB_LIMIT) {
+    throw new AppError(
+      'Free accounts can only have 1 active job listing. Upgrade to Flex or Premium to publish more.',
+      403,
+      'RECRUITER_JOB_LIMIT',
+    );
+  }
+};
+
+/**
  * Create a new job post
  */
 export const createJob = catchAsync(
@@ -85,6 +120,10 @@ export const createJob = catchAsync(
     }
 
     const isAdmin = isPlatformAdminRole(userRole);
+
+    if (!isAdmin && validatedData.status === JobStatus.ACTIVE) {
+      await assertRecruiterCanActivateJob(userId);
+    }
 
     const { closingDate, ...jobData } = validatedData;
     const job = await prisma.job.create({
@@ -234,18 +273,20 @@ export const getJobs = catchAsync(async (req: CustomRequest, res: Response) => {
     take: limit,
     include: {
       recruiter: {
-        select: { organizationName: true, email: true },
+        select: { organizationName: true, email: true, tier: true },
       },
       admin: {
         select: { email: true },
       },
     },
-    orderBy: { createdAt: 'desc' },
+    // Premium Recruiter listings surface first (priority listing perk), then newest first.
+    orderBy: [{ recruiter: { tier: 'desc' } }, { createdAt: 'desc' }],
   });
 
-  const jobsWithEffectiveStatus = jobs.map((job) =>
-    resolveEffectiveJobStatus(job),
-  );
+  const jobsWithEffectiveStatus = jobs.map((job) => ({
+    ...resolveEffectiveJobStatus(job),
+    isPremiumRecruiter: job.recruiter?.tier === 'PREMIUM',
+  }));
   const filteredJobs = isInternalViewer
     ? jobsWithEffectiveStatus
     : jobsWithEffectiveStatus.filter(
@@ -290,6 +331,7 @@ export const getJobById = catchAsync(
             email: true,
             website: true,
             address: true,
+            tier: true,
           },
         },
         admin: {
@@ -302,7 +344,10 @@ export const getJobById = catchAsync(
       return next(new AppError('Job not found', 404));
     }
 
-    const effectiveJob = resolveEffectiveJobStatus(job);
+    const effectiveJob = {
+      ...resolveEffectiveJobStatus(job),
+      isPremiumRecruiter: job.recruiter?.tier === 'PREMIUM',
+    };
     if (!isInternalViewer && effectiveJob.status !== JobStatus.ACTIVE) {
       return next(new AppError('Job not found', 404));
     }
@@ -417,6 +462,15 @@ export const updateJobStatus = catchAsync(
 
     if (!userId || !canManageJob(job, userId, userRole)) {
       return next(new AppError('Unauthorized', 403));
+    }
+
+    if (
+      !isPlatformAdminRole(userRole) &&
+      status === JobStatus.ACTIVE &&
+      job.status !== JobStatus.ACTIVE &&
+      job.recruiterId
+    ) {
+      await assertRecruiterCanActivateJob(job.recruiterId, job.id);
     }
 
     const updatedJob = await prisma.job.update({

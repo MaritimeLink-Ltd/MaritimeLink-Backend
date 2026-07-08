@@ -43,6 +43,9 @@ const envSchema = z.object({
   /** Optional Stripe Price IDs for professional membership (recurring). */
   STRIPE_MEMBERSHIP_PRO_PRICE_ID: z.string().optional(),
   STRIPE_MEMBERSHIP_PREMIUM_PRICE_ID: z.string().optional(),
+  /** Stripe Price IDs for recruiter subscription tiers. */
+  STRIPE_RECRUITER_FLEX_PRICE_ID: z.string().min(1),
+  STRIPE_RECRUITER_PREMIUM_PRICE_ID: z.string().min(1),
   GEMINI_API_KEY: z.string().optional(),
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),

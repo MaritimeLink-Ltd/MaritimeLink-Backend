@@ -17,33 +17,34 @@ import {
 
 const mapBilling = (tier: string) => {
   const normalizedTier = String(tier || 'FREE').toUpperCase();
-  const planName =
-    normalizedTier === 'PRO'
-      ? 'Professional'
-      : normalizedTier === 'ENTERPRISE'
-        ? 'Enterprise'
-        : 'Free';
+  const isPremium = normalizedTier === 'PREMIUM';
 
-  const amount =
-    normalizedTier === 'PRO' ? 299 : normalizedTier === 'ENTERPRISE' ? 599 : 0;
-
-  const features = [
-    'Unlimited Job Postings',
-    'Advanced Candidate Search',
-    'Priority Support',
-  ];
-
-  if (normalizedTier === 'ENTERPRISE') {
-    features.push('Dedicated Account Manager');
-  }
+  const features = isPremium
+    ? [
+        'Unlimited Job Postings',
+        'Unlimited Candidate Search & Applications',
+        'Smart Candidate Matching',
+        'Invite Candidates',
+        'Direct Messaging Before Application',
+        'CSV Export',
+        'Premium Recruiter Badge',
+        'Priority Company & Job Listing',
+        'Priority Customer Support',
+      ]
+    : [
+        '1 Active Job Listing',
+        'Up to 5 Applications per Job',
+        'Candidate Search & Filters',
+        'Message Applicants',
+      ];
 
   return {
-    currentPlan: planName,
-    amount,
-    currency: 'USD',
+    currentPlan: isPremium ? 'Premium Recruiter' : 'Free Recruiter',
+    amount: isPremium ? 199.9 : 0,
+    currency: 'GBP',
     billingCycle: 'monthly',
     features,
-    canUpgrade: normalizedTier !== 'ENTERPRISE',
+    canUpgrade: !isPremium,
   };
 };
 

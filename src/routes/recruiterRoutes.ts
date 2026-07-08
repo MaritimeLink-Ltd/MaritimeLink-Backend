@@ -2,6 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import * as recruiterController from '../controllers/recruiterAuthController.js';
 import * as recruiterSettingsController from '../controllers/recruiterSettingsController.js';
+import * as recruiterMembershipController from '../controllers/recruiterMembershipController.js';
 import * as kycController from '../controllers/kycController.js';
 import * as candidateController from '../controllers/recruiterCandidateController.js';
 const router = express.Router();
@@ -533,6 +534,37 @@ router.delete(
   '/settings/profile-photo',
   protectRecruiter,
   recruiterSettingsController.removeRecruiterProfilePhoto,
+);
+
+router.get(
+  '/membership',
+  protectRecruiter,
+  recruiterMembershipController.getRecruiterMembership,
+);
+router.post(
+  '/membership/checkout',
+  protectRecruiter,
+  recruiterMembershipController.createRecruiterMembershipCheckout,
+);
+router.post(
+  '/membership/confirm',
+  protectRecruiter,
+  recruiterMembershipController.confirmRecruiterMembershipCheckout,
+);
+router.patch(
+  '/membership',
+  protectRecruiter,
+  recruiterMembershipController.updateRecruiterMembership,
+);
+router.post(
+  '/jobs/:id/flex-checkout',
+  protectRecruiter,
+  recruiterMembershipController.createFlexListingCheckout,
+);
+router.post(
+  '/jobs/:id/flex-confirm',
+  protectRecruiter,
+  recruiterMembershipController.confirmFlexListingCheckout,
 );
 
 /**

@@ -45,6 +45,16 @@ export interface MembershipPlanOption {
 }
 
 const EXCLUDED_MEMBERSHIP_PRODUCT_NAMES = new Set(['course']);
+/** Keywords that mark a Stripe product as belonging to a different catalog (e.g. Recruiter plans), so it never leaks into the Professional membership list. */
+const EXCLUDED_MEMBERSHIP_PRODUCT_KEYWORDS = ['recruiter'];
+
+function isExcludedMembershipProductName(productName: string): boolean {
+  const nameLower = productName.toLowerCase();
+  if (EXCLUDED_MEMBERSHIP_PRODUCT_NAMES.has(nameLower)) return true;
+  return EXCLUDED_MEMBERSHIP_PRODUCT_KEYWORDS.some((keyword) =>
+    nameLower.includes(keyword),
+  );
+}
 
 function deriveMembershipPlanCode(productName: string): MembershipPlanCode {
   const name = productName.toLowerCase();
@@ -394,8 +404,7 @@ export const stripeService = {
 
     for (const product of products.data) {
       const productName = (product.name || '').trim();
-      const nameLower = productName.toLowerCase();
-      if (!productName || EXCLUDED_MEMBERSHIP_PRODUCT_NAMES.has(nameLower)) {
+      if (!productName || isExcludedMembershipProductName(productName)) {
         continue;
       }
 
@@ -468,8 +477,7 @@ export const stripeService = {
     const productId =
       typeof price.product === 'string' ? price.product : price.product.id;
     const product = await stripe.products.retrieve(productId);
-    const nameLower = (product.name || '').toLowerCase();
-    if (EXCLUDED_MEMBERSHIP_PRODUCT_NAMES.has(nameLower)) {
+    if (isExcludedMembershipProductName(product.name || '')) {
       throw new AppError(
         'This product cannot be used as a membership plan',
         400,
@@ -623,6 +631,231 @@ export const stripeService = {
   },
 
   /**
+   * Stripe Checkout (subscription) for Premium Recruiter membership upgrade.
+   */
+  async createRecruiterMembershipCheckoutSession(params: {
+    recruiterId: string;
+    email: string;
+  }) {
+    const checkoutSession = await stripe.checkout.sessions.create({
+      mode: 'subscription',
+      payment_method_types: ['card'],
+      line_items: [
+        { price: env.STRIPE_RECRUITER_PREMIUM_PRICE_ID, quantity: 1 },
+      ],
+      success_url: `${env.FRONTEND_URL}/recruiter/manage-subscription?membership=success&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${env.FRONTEND_URL}/recruiter/manage-subscription?membership=canceled`,
+      customer_email: params.email,
+      client_reference_id: params.recruiterId,
+      metadata: {
+        type: 'recruiter_membership',
+        recruiterId: params.recruiterId,
+      },
+      subscription_data: {
+        metadata: {
+          type: 'recruiter_membership',
+          recruiterId: params.recruiterId,
+        },
+      },
+    });
+
+    if (!checkoutSession.url) {
+      throw new AppError('Stripe did not return a checkout URL', 502);
+    }
+
+    return {
+      checkoutUrl: checkoutSession.url,
+      sessionId: checkoutSession.id,
+    };
+  },
+
+  /**
+   * Stripe Checkout (one-time payment) for a Flex Recruiter job listing upgrade.
+   */
+  async createRecruiterFlexListingCheckoutSession(params: {
+    recruiterId: string;
+    jobId: string;
+    email: string;
+  }) {
+    const job = await prisma.job.findUnique({
+      where: { id: params.jobId },
+      select: {
+        id: true,
+        recruiterId: true,
+        isPremiumListing: true,
+        premiumListingExpiresAt: true,
+      },
+    });
+
+    if (!job || job.recruiterId !== params.recruiterId) {
+      throw new AppError('Job not found', 404);
+    }
+
+    const now = new Date();
+    if (
+      job.isPremiumListing &&
+      job.premiumListingExpiresAt &&
+      job.premiumListingExpiresAt > now
+    ) {
+      throw new AppError(
+        'This job listing already has an active Flex upgrade',
+        400,
+      );
+    }
+
+    const checkoutSession = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      payment_method_types: ['card'],
+      line_items: [{ price: env.STRIPE_RECRUITER_FLEX_PRICE_ID, quantity: 1 }],
+      success_url: `${env.FRONTEND_URL}/recruiter/manage-subscription?flex=success&jobId=${params.jobId}&session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${env.FRONTEND_URL}/recruiter/manage-subscription?flex=canceled`,
+      customer_email: params.email,
+      client_reference_id: params.recruiterId,
+      metadata: {
+        type: 'recruiter_flex_listing',
+        recruiterId: params.recruiterId,
+        jobId: params.jobId,
+      },
+    });
+
+    if (!checkoutSession.url) {
+      throw new AppError('Stripe did not return a checkout URL', 502);
+    }
+
+    return {
+      checkoutUrl: checkoutSession.url,
+      sessionId: checkoutSession.id,
+    };
+  },
+
+  /**
+   * Activate PREMIUM tier for a recruiter after successful membership checkout.
+   */
+  async activateRecruiterMembershipFromSession(
+    session: Stripe.Checkout.Session,
+  ) {
+    if (session.metadata?.type !== 'recruiter_membership') {
+      return null;
+    }
+
+    const recruiterId =
+      session.metadata?.recruiterId || session.client_reference_id;
+    if (!recruiterId) {
+      console.error('Recruiter membership checkout missing recruiterId');
+      return null;
+    }
+
+    const isComplete =
+      session.payment_status === 'paid' ||
+      session.payment_status === 'no_payment_required' ||
+      session.status === 'complete';
+    if (!isComplete) {
+      return null;
+    }
+
+    const recruiter = await prisma.recruiter.update({
+      where: { id: recruiterId },
+      data: {
+        tier: 'PREMIUM',
+        membershipUpdatedAt: new Date(),
+      },
+      select: {
+        tier: true,
+        membershipUpdatedAt: true,
+      },
+    });
+
+    await logActivity({
+      action: 'RECRUITER_MEMBERSHIP_UPGRADED',
+      actorId: recruiterId,
+      actorType: ActorType.RECRUITER,
+      targetId: recruiterId,
+      targetType: 'Recruiter',
+      status: ActionStatus.SUCCESS,
+      metadata: {
+        stripeSessionId: session.id,
+        stripeSubscriptionId:
+          typeof session.subscription === 'string'
+            ? session.subscription
+            : session.subscription?.id,
+      },
+    });
+
+    return recruiter;
+  },
+
+  /**
+   * Mark a job listing as premium (Flex upgrade) after successful one-time payment.
+   */
+  async activateFlexListingFromSession(session: Stripe.Checkout.Session) {
+    if (session.metadata?.type !== 'recruiter_flex_listing') {
+      return null;
+    }
+
+    const jobId = session.metadata?.jobId;
+    const recruiterId = session.metadata?.recruiterId;
+    if (!jobId || !recruiterId) {
+      console.error('Flex listing checkout missing jobId/recruiterId');
+      return null;
+    }
+
+    const isComplete =
+      session.payment_status === 'paid' || session.status === 'complete';
+    if (!isComplete) {
+      return null;
+    }
+
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 30);
+
+    const job = await prisma.job.update({
+      where: { id: jobId },
+      data: {
+        isPremiumListing: true,
+        premiumListingExpiresAt: expiresAt,
+      },
+      select: {
+        id: true,
+        isPremiumListing: true,
+        premiumListingExpiresAt: true,
+      },
+    });
+
+    await logActivity({
+      action: 'RECRUITER_FLEX_LISTING_PURCHASED',
+      actorId: recruiterId,
+      actorType: ActorType.RECRUITER,
+      targetId: jobId,
+      targetType: 'Job',
+      status: ActionStatus.SUCCESS,
+      metadata: {
+        stripeSessionId: session.id,
+        premiumListingExpiresAt: expiresAt.toISOString(),
+      },
+    });
+
+    return job;
+  },
+
+  async handleRecruiterSubscriptionDeleted(subscription: Stripe.Subscription) {
+    const recruiterId = subscription.metadata?.recruiterId;
+    if (
+      !recruiterId ||
+      subscription.metadata?.type !== 'recruiter_membership'
+    ) {
+      return;
+    }
+
+    await prisma.recruiter.update({
+      where: { id: recruiterId },
+      data: {
+        tier: 'FREE',
+        membershipUpdatedAt: new Date(),
+      },
+    });
+  },
+
+  /**
    * Handle Stripe webhook events
    */
   async handleWebhook(signature: string, rawBody: Buffer) {
@@ -664,6 +897,9 @@ export const stripeService = {
         await this.handleSubscriptionDeleted(
           event.data.object as Stripe.Subscription,
         );
+        await this.handleRecruiterSubscriptionDeleted(
+          event.data.object as Stripe.Subscription,
+        );
         break;
 
       default:
@@ -694,6 +930,16 @@ export const stripeService = {
   async handleCheckoutComplete(session: Stripe.Checkout.Session) {
     if (session.metadata?.type === 'membership') {
       await this.activateMembershipFromSession(session);
+      return;
+    }
+
+    if (session.metadata?.type === 'recruiter_membership') {
+      await this.activateRecruiterMembershipFromSession(session);
+      return;
+    }
+
+    if (session.metadata?.type === 'recruiter_flex_listing') {
+      await this.activateFlexListingFromSession(session);
       return;
     }
 

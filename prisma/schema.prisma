@@ -97,7 +97,8 @@ model Recruiter {
   phoneCode                          String?
   companyLogo                        String?
   lastActive                         DateTime        @default(now())
-  tier                               UserTier        @default(FREE)
+  tier                               RecruiterTier   @default(FREE)
+  membershipUpdatedAt                DateTime?
   companyId                          String?
   stripeAccountId                    String?
   stripeOnboardingComplete           Boolean         @default(false)
@@ -383,6 +384,8 @@ model Job {
   companyId    String?
   riskLevel    KycRiskLevel     @default(LOW)
   closingDate  DateTime?
+  isPremiumListing        Boolean          @default(false)
+  premiumListingExpiresAt DateTime?
   applications JobApplication[]
   invitations  JobInvitation[]
   admin        Admin?           @relation(fields: [adminId], references: [id], onDelete: Cascade)
@@ -786,6 +789,11 @@ enum ProfessionalStatus {
 enum UserTier {
   FREE
   PRO
+}
+
+enum RecruiterTier {
+  FREE
+  PREMIUM
 }
 
 enum KycRiskLevel {

@@ -73,6 +73,9 @@ describe('Recruiter candidate search', () => {
         role: 'RECRUITMENT_AGENT',
         isVerified: true,
         status: 'APPROVED',
+        // Premium so the candidate-profile test below can assert full resume
+        // access without depending on an existing job application.
+        tier: 'PREMIUM',
       },
     });
 
@@ -235,5 +238,39 @@ describe('Recruiter candidate search', () => {
     expect(res.body.data.professional.resume.subcategory).toBe(
       'Chief Engineer',
     );
+  });
+
+  it('redacts resume and document wallet for a Free recruiter viewing a non-applicant', async () => {
+    const hashedPassword = await bcrypt.hash(password, 12);
+    const freeRecruiter = await prisma.recruiter.create({
+      data: {
+        email: `free-recruiter-${suffix}@example.com`,
+        password: hashedPassword,
+        role: 'RECRUITMENT_AGENT',
+        isVerified: true,
+        status: 'APPROVED',
+        tier: 'FREE',
+      },
+    });
+
+    try {
+      const loginRes = await request(app)
+        .post('/api/recruiter/login')
+        .send({ email: freeRecruiter.email, password });
+      expect(loginRes.status).toBe(200);
+
+      const candidateId = candidateIds[0];
+      const res = await request(app)
+        .get(`/api/recruiter/professionals/${candidateId}`)
+        .set('Authorization', `Bearer ${loginRes.body.token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.access.viewResume).toBe(false);
+      expect(res.body.data.access.viewDocumentWallet).toBe(false);
+      expect(res.body.data.professional.resume).toBeNull();
+      expect(res.body.data.professional.documents).toEqual([]);
+    } finally {
+      await prisma.recruiter.delete({ where: { id: freeRecruiter.id } });
+    }
   });
 });

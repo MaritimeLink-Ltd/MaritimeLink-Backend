@@ -303,9 +303,11 @@ export const getRevenueOverview = catchAsync(
       }),
     ]);
 
-    // Real active subscriptions check (users with tier PRO)
+    // Real active subscriptions check (users on a paid tier)
     const proPros = await prisma.professional.count({ where: { tier: 'PRO' } });
-    const proRecs = await prisma.recruiter.count({ where: { tier: 'PRO' } });
+    const proRecs = await prisma.recruiter.count({
+      where: { tier: 'PREMIUM' },
+    });
 
     const grossRevenue = Number(revenueAgg._sum.amountPaid || 0);
     const platformRevenue = Number(revenueAgg._sum.platformFee || 0);

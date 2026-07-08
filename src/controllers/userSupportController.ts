@@ -48,6 +48,20 @@ export const createCase = catchAsync(
         false,
         professional?.tier,
       );
+    } else {
+      const role = (user as { role?: string }).role;
+      const isPlatformAdmin = role
+        ? ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'].includes(role)
+        : false;
+      // Recruiters (not platform admins) get priority support at Premium tier,
+      // matching the Professional side.
+      if (!isPlatformAdmin) {
+        const recruiter = await prisma.recruiter.findUnique({
+          where: { id: user.id },
+          select: { tier: true },
+        });
+        derivedPriority = deriveUserSupportCasePriority(false, recruiter?.tier);
+      }
     }
 
     const count = await prisma.supportCase.count();
