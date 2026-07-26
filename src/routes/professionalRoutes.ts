@@ -3,6 +3,8 @@ import multer from 'multer';
 import * as authController from '../controllers/professionalAuthController.js';
 import * as kycController from '../controllers/professionalKycController.js';
 import * as documentController from '../controllers/professionalDocumentController.js';
+import * as profileShareController from '../controllers/professionalProfileShareController.js';
+import * as publicProfileController from '../controllers/publicProfileController.js';
 import * as courseController from '../controllers/professionalCourseController.js';
 import { protect } from '../middlewares/authMiddleware.js';
 
@@ -635,6 +637,102 @@ router.get(
 router.get(
   '/documents/shared/:token',
   documentController.getSharedDocumentPack,
+);
+
+/**
+ * @swagger
+ * /api/professional/profile/share-link:
+ *   post:
+ *     summary: Create a secure, expiring "Share Profile" link
+ *     description: >
+ *       Generates a public link to the professional's career summary. The professional
+ *       selects exactly which resume/document-wallet items the recipient may view; the
+ *       selection is signed into the link and cannot be widened by the recipient.
+ *     tags: [Professional Profile Sharing]
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               includeResume: { type: boolean, default: true }
+ *               documentIds:
+ *                 type: array
+ *                 items: { type: string, format: uuid }
+ *               expiresInHours: { type: integer, default: 24, minimum: 1, maximum: 168 }
+ *     responses:
+ *       200: { description: Share link created }
+ *       400: { description: Nothing selected to share, or too many documents }
+ */
+router.post(
+  '/profile/share-link',
+  protect,
+  profileShareController.createProfileShareLink,
+);
+
+/**
+ * @swagger
+ * /api/professional/profile/shared/{token}/file/{documentId}:
+ *   get:
+ *     summary: Stream a document included in a shared profile link (public, preview only)
+ *     tags: [Professional Profile Sharing]
+ *     responses:
+ *       200: { description: File streamed inline }
+ *       403: { description: Document was not included in this link }
+ */
+router.get(
+  '/profile/shared/:token/file/:documentId',
+  profileShareController.streamSharedProfileDocument,
+);
+
+/**
+ * @swagger
+ * /api/professional/profile/shared/{token}:
+ *   get:
+ *     summary: Open a shared profile by token (public, no auth)
+ *     tags: [Professional Profile Sharing]
+ *     responses:
+ *       200: { description: Shared profile payload }
+ *       401: { description: Link is invalid or expired }
+ */
+router.get('/profile/shared/:token', profileShareController.getSharedProfile);
+
+/**
+ * @swagger
+ * /api/professional/public-profile:
+ *   get:
+ *     summary: Get public-profile visibility and the canonical public URL slug
+ *     tags: [Professional Profile Sharing]
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: Current visibility setting }
+ *   patch:
+ *     summary: Turn the public, search-indexable profile on or off
+ *     description: Opt-in. Profiles are not publicly visible or indexable until enabled.
+ *     tags: [Professional Profile Sharing]
+ *     security: [{ bearerAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [publicProfileEnabled]
+ *             properties:
+ *               publicProfileEnabled: { type: boolean }
+ *     responses:
+ *       200: { description: Visibility updated }
+ */
+router.get(
+  '/public-profile',
+  protect,
+  publicProfileController.getMyPublicProfileSettings,
+);
+router.patch(
+  '/public-profile',
+  protect,
+  publicProfileController.updateMyPublicProfileSettings,
 );
 
 /**

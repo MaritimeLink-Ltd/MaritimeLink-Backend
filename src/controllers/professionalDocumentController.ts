@@ -91,7 +91,7 @@ const normalizeText = (value?: string | null) =>
     .trim()
     .toLowerCase();
 
-const getDocumentDisplayCategory = (document: {
+export const getDocumentDisplayCategory = (document: {
   category: DocumentCategory;
   name?: string | null;
   ocrData?: Prisma.JsonValue | null;

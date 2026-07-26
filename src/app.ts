@@ -21,6 +21,7 @@ import trainerDashboardRoutes from './routes/trainerDashboardRoutes.js';
 import adminDashboardRoutes from './routes/adminDashboardRoutes.js';
 import trainerRoutes from './routes/trainerRoutes.js';
 import webhookRoutes from './routes/webhookRoutes.js';
+import publicProfileRoutes from './routes/publicProfileRoutes.js';
 
 const app = express();
 app.set('trust proxy', true);
@@ -61,6 +62,9 @@ app.disable('x-powered-by');
 
 // Swagger Documentation
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
+// Public, unauthenticated profile pages (search-engine indexable, opt-in only)
+app.use('/api/public', publicProfileRoutes);
 
 // Recruiter routes
 app.use('/api/recruiter', recruiterRoutes);

@@ -34,6 +34,7 @@ model Professional {
   status               ProfessionalStatus     @default(PENDING)
   tier                 UserTier               @default(FREE)
   availableForWork     Boolean                @default(false)
+  publicProfileEnabled Boolean                @default(false)
   membershipUpdatedAt  DateTime?
   alerts               Alert[]
   conversations        Conversation[]
