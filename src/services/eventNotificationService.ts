@@ -3,6 +3,8 @@ import { prisma } from '../config/prisma.js';
 import { ActorType, ApplicationStatus } from '../generated/client/index.js';
 import {
   sendAccountReinstatedEmail,
+  sendAccountReportAcknowledgementEmail,
+  sendAccountReportResolvedEmail,
   sendAccountStatusEmail,
   sendAccountSuspendedEmail,
   sendApplicationStatusEmail,
@@ -643,6 +645,74 @@ export async function notifyAccountReinstated(params: {
     accountLabel: accountLabel('PROFESSIONAL'),
     dashboardUrl: dashboardUrl('PROFESSIONAL'),
   });
+}
+
+/**
+ * Moderation notices that work for any account kind (professional, recruiter,
+ * training provider). `notifyAccountSuspended` / `notifyAccountReinstated` above
+ * remain the professional-only path used by the Stage 1 review flow.
+ */
+export async function notifyModerationDecision(params: {
+  userId: string;
+  userType: ActorType;
+  decision: 'SUSPENDED' | 'BLOCKED' | 'REINSTATED';
+  reason?: string;
+  suspendedUntil?: Date | null;
+}): Promise<void> {
+  const recipient = await resolveUserEmail(params.userId, params.userType);
+  if (!recipient?.email) return;
+
+  const audience: KycAudience =
+    params.userType === ActorType.PROFESSIONAL ? 'PROFESSIONAL' : 'RECRUITER';
+  const label = accountLabel(audience, recipient.recruiterRole);
+
+  if (params.decision === 'REINSTATED') {
+    await sendAccountReinstatedEmail({
+      to: recipient.email,
+      recipientName: recipient.name,
+      accountLabel: label,
+      dashboardUrl:
+        audience === 'PROFESSIONAL'
+          ? dashboardUrl('PROFESSIONAL')
+          : dashboardUrl('RECRUITER_ACCOUNT', recipient.recruiterRole),
+    });
+    return;
+  }
+
+  await sendAccountSuspendedEmail({
+    to: recipient.email,
+    recipientName: recipient.name,
+    accountLabel: label,
+    reason: params.reason,
+    permanent: params.decision === 'BLOCKED',
+    suspendedUntil: params.suspendedUntil
+      ? params.suspendedUntil.toISOString().slice(0, 10)
+      : undefined,
+  });
+}
+
+/** Confirms to a reporter that their report was logged for moderation review. */
+export async function notifyReportAcknowledged(params: {
+  to: string;
+  recipientName: string;
+  reference: string;
+  reportedName: string;
+  reason: string;
+}): Promise<void> {
+  if (!params.to) return;
+  await sendAccountReportAcknowledgementEmail(params);
+}
+
+/** Tells a reporter their report has been closed, and how. */
+export async function notifyReportResolved(params: {
+  to: string;
+  recipientName: string;
+  reference: string;
+  reportedName: string;
+  outcome: string;
+}): Promise<void> {
+  if (!params.to) return;
+  await sendAccountReportResolvedEmail(params);
 }
 
 export async function notifySecureDocumentLinkShared(params: {

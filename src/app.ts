@@ -22,6 +22,7 @@ import adminDashboardRoutes from './routes/adminDashboardRoutes.js';
 import trainerRoutes from './routes/trainerRoutes.js';
 import webhookRoutes from './routes/webhookRoutes.js';
 import publicProfileRoutes from './routes/publicProfileRoutes.js';
+import reportRoutes from './routes/reportRoutes.js';
 
 const app = express();
 app.set('trust proxy', true);
@@ -88,6 +89,9 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/jobs', jobRoutes);
 app.use('/api/courses', courseRoutes);
 app.use('/api/conversations', conversationRoutes);
+
+// Member-to-member account reports (professional, recruiter, training provider)
+app.use('/api/reports', reportRoutes);
 
 // Booking routes
 app.use('/api/professional', professionalBookingRoutes);

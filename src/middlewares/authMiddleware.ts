@@ -5,6 +5,10 @@ import { AppError } from '../utils/AppError.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { prisma } from '../config/prisma.js';
 import { CustomRequest } from '../types/index.js';
+import {
+  describeRestriction,
+  liftExpiredProfessionalSuspension,
+} from '../services/accountModerationService.js';
 
 interface JWTPayload {
   id: string;
@@ -38,6 +42,16 @@ export const protect = catchAsync(
       return next(
         new AppError('The user belonging to this token no longer exists.', 401),
       );
+    }
+
+    const effectiveStatus =
+      await liftExpiredProfessionalSuspension(currentUser);
+    const restriction = describeRestriction({
+      ...currentUser,
+      status: effectiveStatus,
+    });
+    if (restriction) {
+      return next(new AppError(restriction, 403));
     }
 
     req.user = {

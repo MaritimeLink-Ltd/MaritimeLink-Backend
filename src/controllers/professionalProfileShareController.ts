@@ -7,7 +7,12 @@ import { env } from '../config/env.js';
 import { CustomRequest } from '../types/index.js';
 import { logActivity } from '../services/activityLogger.js';
 import { getDocumentDisplayCategory } from './professionalDocumentController.js';
-import { ActorType, DocumentCategory } from '../generated/client/index.js';
+import { isIdentityVerified } from '../utils/verificationBadge.js';
+import {
+  ActorType,
+  DocumentCategory,
+  ProfessionalStatus,
+} from '../generated/client/index.js';
 
 /**
  * Public "Share Profile" links.
@@ -30,6 +35,12 @@ const PROFILE_SHARE_TOKEN_TYPE = 'PROFILE_SHARE';
 const EXCLUDED_DOCUMENT_CATEGORIES = [
   DocumentCategory.CV_RESUME,
   DocumentCategory.COVER_LETTER,
+];
+
+/** Suspended/blocked accounts must not be reachable through a share link. */
+const RESTRICTED_ACCOUNT_STATUSES: ProfessionalStatus[] = [
+  ProfessionalStatus.SUSPENDED,
+  ProfessionalStatus.BLOCKED,
 ];
 
 type ProfileShareJwt = JwtPayload & {
@@ -69,6 +80,20 @@ export const createProfileShareLink = catchAsync(
     const professionalId = req.user?.id;
     if (!professionalId) {
       return next(new AppError('User not authenticated', 401));
+    }
+
+    // Secure share links are a premium capability, matching the document pack flow.
+    const professional = await prisma.professional.findUnique({
+      where: { id: professionalId },
+      select: { tier: true },
+    });
+    if (String(professional?.tier || 'FREE').toUpperCase() !== 'PRO') {
+      return next(
+        new AppError(
+          'Premium membership is required for secure share links.',
+          403,
+        ),
+      );
     }
 
     const includeResume = req.body?.includeResume !== false;
@@ -193,8 +218,13 @@ export const getSharedProfile = catchAsync(
     const includeResume = payload.includeResume !== false;
     const docIds = allowedDocumentIds(payload);
 
-    const professional = await prisma.professional.findUnique({
-      where: { id: professionalId },
+    const professional = await prisma.professional.findFirst({
+      where: {
+        id: professionalId,
+        // Moderation must revoke links that were already handed out, otherwise a
+        // suspended account stays viewable until the token expires.
+        status: { notIn: RESTRICTED_ACCOUNT_STATUSES },
+      },
       select: {
         firstName: true,
         middleName: true,
@@ -205,6 +235,7 @@ export const getSharedProfile = catchAsync(
         profilePhotoUrl: true,
         availableForWork: true,
         isVerified: true,
+        status: true,
         kyc: { select: { status: true } },
       },
     });
@@ -267,8 +298,7 @@ export const getSharedProfile = catchAsync(
           profilePhotoUrl: professional.profilePhotoUrl,
           country: resume?.country || null,
           availableForWork: professional.availableForWork,
-          compliant:
-            professional.isVerified || professional.kyc?.status === 'APPROVED',
+          verified: isIdentityVerified(professional),
           summary: includeResume ? resume?.summary || null : null,
         },
         seaService: (resume?.seaService || []).map((entry) => ({
@@ -332,6 +362,8 @@ export const streamSharedProfileDocument = catchAsync(
         id: documentId,
         professionalId: payload.sub!,
         category: { notIn: EXCLUDED_DOCUMENT_CATEGORIES },
+        // Same moderation gate as the profile payload above.
+        professional: { status: { notIn: RESTRICTED_ACCOUNT_STATUSES } },
       },
     });
 

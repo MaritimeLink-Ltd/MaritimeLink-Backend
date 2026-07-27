@@ -5,6 +5,11 @@ import { AppError } from '../utils/AppError.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { prisma } from '../config/prisma.js';
 import { CustomRequest } from '../types/index.js';
+import {
+  describeRestriction,
+  liftExpiredProfessionalSuspension,
+  liftExpiredRecruiterSuspension,
+} from '../services/accountModerationService.js';
 
 interface JWTPayload {
   id: string;
@@ -37,6 +42,15 @@ export const protectChat = catchAsync(
     });
 
     if (professional) {
+      const effectiveStatus =
+        await liftExpiredProfessionalSuspension(professional);
+      const restriction = describeRestriction({
+        ...professional,
+        status: effectiveStatus,
+      });
+      if (restriction) {
+        return next(new AppError(restriction, 403));
+      }
       req.user = {
         id: professional.id,
         email: professional.email,
@@ -51,7 +65,15 @@ export const protectChat = catchAsync(
     });
 
     if (recruiter) {
-      if (recruiter.status !== 'APPROVED') {
+      const effectiveStatus = await liftExpiredRecruiterSuspension(recruiter);
+      const restriction = describeRestriction({
+        ...recruiter,
+        status: effectiveStatus,
+      });
+      if (restriction) {
+        return next(new AppError(restriction, 403));
+      }
+      if (effectiveStatus !== 'APPROVED') {
         return next(
           new AppError('Your account is not approved by admin yet.', 403),
         );

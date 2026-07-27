@@ -32,12 +32,20 @@ const DOCUMENT_CATEGORY_ALIASES: Record<string, DocumentCategory> = {
   STCW: DocumentCategory.LICENSES_ENDORSEMENTS,
 };
 
-const DOCUMENT_PACK_SHARE_TOKEN_TTL_SECONDS = 60 * 60 * 24 * 7;
+const DEFAULT_SHARE_TTL_HOURS = 24;
+const MIN_SHARE_TTL_HOURS = 1;
+const MAX_SHARE_TTL_HOURS = 168; // 7 days
+
+/** Keeps the signed token (and therefore the share URL) at a sane length. */
+const MAX_SHARED_DOCUMENTS = 40;
 
 type DocumentPackShareJwt = JwtPayload & {
   sub?: string;
   type?: string;
   previewOnly?: boolean;
+  allowDownload?: boolean;
+  /** Absent means the link predates selective sharing and covers every document. */
+  docIds?: string[];
 };
 
 const verifyDocumentPackShareToken = (token: string): DocumentPackShareJwt => {
@@ -784,22 +792,80 @@ export const createDocumentPackShareLink = catchAsync(
       );
     }
 
+    // Selection is optional: an empty list keeps the previous "share everything"
+    // behaviour so existing callers and older clients keep working.
+    const rawDocumentIds = Array.isArray(req.body?.documentIds)
+      ? req.body.documentIds
+      : [];
+    const requestedIds: string[] = [
+      ...new Set<string>(
+        rawDocumentIds.filter(
+          (id: unknown): id is string =>
+            typeof id === 'string' && id.trim().length > 0,
+        ),
+      ),
+    ];
+
+    if (requestedIds.length > MAX_SHARED_DOCUMENTS) {
+      return next(
+        new AppError(
+          `You can share up to ${MAX_SHARED_DOCUMENTS} documents in a single link.`,
+          400,
+        ),
+      );
+    }
+
+    // Only sign ids the caller actually owns and that are shareable.
+    const ownedDocuments = requestedIds.length
+      ? await prisma.professionalDocument.findMany({
+          where: {
+            id: { in: requestedIds },
+            professionalId,
+            category: {
+              notIn: [
+                DocumentCategory.CV_RESUME,
+                DocumentCategory.COVER_LETTER,
+              ],
+            },
+          },
+          select: { id: true },
+        })
+      : [];
+    const docIds = ownedDocuments.map((document) => document.id);
+
+    if (requestedIds.length > 0 && docIds.length === 0) {
+      return next(new AppError('Select at least one document to share.', 400));
+    }
+
+    const rawHours = Number(req.body?.expiresInHours);
+    const expiresInHours =
+      Number.isFinite(rawHours) && rawHours > 0
+        ? Math.min(
+            Math.max(Math.round(rawHours), MIN_SHARE_TTL_HOURS),
+            MAX_SHARE_TTL_HOURS,
+          )
+        : DEFAULT_SHARE_TTL_HOURS;
+    const ttlSeconds = expiresInHours * 60 * 60;
+
+    // Preview-only unless the professional explicitly allows downloads.
+    const allowDownload = req.body?.allowDownload === true;
+
     const token = jwt.sign(
       {
         sub: professionalId,
         type: 'DOCUMENT_PACK_SHARE',
         previewOnly: true,
+        allowDownload,
+        ...(docIds.length ? { docIds } : {}),
       },
       env.JWT_SECRET,
-      { expiresIn: DOCUMENT_PACK_SHARE_TOKEN_TTL_SECONDS },
+      { expiresIn: ttlSeconds },
     );
 
     const frontendBase = env.FRONTEND_URL.replace(/\/+$/, '');
     const secureLink = `${frontendBase}/personal/documents/shared/${encodeURIComponent(token)}`;
 
-    const expiresAt = new Date(
-      Date.now() + DOCUMENT_PACK_SHARE_TOKEN_TTL_SECONDS * 1000,
-    ).toISOString();
+    const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
 
     await logActivity({
       action: 'DOCUMENT_PACK_SHARED',
@@ -809,7 +875,9 @@ export const createDocumentPackShareLink = catchAsync(
       targetType: 'Professional',
       metadata: {
         source: 'documents_wallet',
-        linkExpiresInSeconds: DOCUMENT_PACK_SHARE_TOKEN_TTL_SECONDS,
+        linkExpiresInSeconds: ttlSeconds,
+        documentCount: docIds.length,
+        allowDownload,
       },
     });
 
@@ -825,9 +893,12 @@ export const createDocumentPackShareLink = catchAsync(
       status: 'success',
       data: {
         secureLink,
-        expiresInSeconds: DOCUMENT_PACK_SHARE_TOKEN_TTL_SECONDS,
+        expiresInSeconds: ttlSeconds,
+        expiresInHours,
         expiresAt,
         previewOnly: true,
+        allowDownload,
+        documentCount: docIds.length,
       },
     });
   },
@@ -847,12 +918,19 @@ export const getSharedDocumentPack = catchAsync(
       return next(error);
     }
 
+    // A link created with a selection exposes only those ids; older links have no
+    // `docIds` claim and keep covering the whole wallet.
+    const selectedIds = Array.isArray(payload.docIds)
+      ? payload.docIds.filter((id): id is string => typeof id === 'string')
+      : null;
+
     const documents = await prisma.professionalDocument.findMany({
       where: {
         professionalId: payload.sub!,
         category: {
           notIn: [DocumentCategory.CV_RESUME, DocumentCategory.COVER_LETTER],
         },
+        ...(selectedIds ? { id: { in: selectedIds } } : {}),
       },
       orderBy: { createdAt: 'desc' },
       select: {
@@ -876,6 +954,7 @@ export const getSharedDocumentPack = catchAsync(
       results: documents.length,
       data: {
         previewOnly,
+        allowDownload: payload.allowDownload === true,
         expiresAt,
         documents: documents.map((document) => ({
           id: document.id,
@@ -912,6 +991,16 @@ export const streamSharedDocumentFile = catchAsync(
       );
     }
 
+    // Honour the selection the professional made when creating the link.
+    const selectedIds = Array.isArray(payload.docIds)
+      ? payload.docIds.filter((id): id is string => typeof id === 'string')
+      : null;
+    if (selectedIds && !selectedIds.includes(documentId)) {
+      return next(
+        new AppError('This document was not shared with this link.', 403),
+      );
+    }
+
     const document = await prisma.professionalDocument.findFirst({
       where: {
         id: documentId,
@@ -941,10 +1030,14 @@ export const streamSharedDocumentFile = catchAsync(
       .trim()
       .slice(0, 120);
 
+    // `?download=1` is only honoured when the sharer allowed downloads.
+    const wantsDownload =
+      payload.allowDownload === true && req.query.download === '1';
+
     res.setHeader('Content-Type', contentType);
     res.setHeader(
       'Content-Disposition',
-      `inline; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(document.name || 'document')}`,
+      `${wantsDownload ? 'attachment' : 'inline'}; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(document.name || 'document')}`,
     );
     res.setHeader('Content-Length', String(buf.length));
     res.setHeader('Cache-Control', 'private, no-store');

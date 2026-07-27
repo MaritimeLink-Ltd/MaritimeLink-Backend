@@ -5,6 +5,10 @@ import { AppError } from '../utils/AppError.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { prisma } from '../config/prisma.js';
 import { CustomRequest } from '../types/index.js';
+import {
+  describeRestriction,
+  liftExpiredRecruiterSuspension,
+} from '../services/accountModerationService.js';
 
 interface JWTPayload {
   id: string;
@@ -45,7 +49,17 @@ export const protectRecruiter = catchAsync(
       );
     }
 
-    if (currentRecruiter.status !== 'APPROVED') {
+    const effectiveStatus =
+      await liftExpiredRecruiterSuspension(currentRecruiter);
+    const restriction = describeRestriction({
+      ...currentRecruiter,
+      status: effectiveStatus,
+    });
+    if (restriction) {
+      return next(new AppError(restriction, 403));
+    }
+
+    if (effectiveStatus !== 'APPROVED') {
       return next(new AppError('Your account is not approved yet.', 403));
     }
 
@@ -94,11 +108,13 @@ export const protectRecruiterKyc = catchAsync(
 
     if (
       currentRecruiter.status === 'REJECTED' ||
-      currentRecruiter.status === 'BLOCKED'
+      currentRecruiter.status === 'BLOCKED' ||
+      currentRecruiter.status === 'SUSPENDED'
     ) {
       return next(
         new AppError(
-          `Your account is currently ${currentRecruiter.status.toLowerCase()}. Please contact support.`,
+          describeRestriction(currentRecruiter) ||
+            `Your account is currently ${currentRecruiter.status.toLowerCase()}. Please contact support.`,
           403,
         ),
       );

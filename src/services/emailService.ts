@@ -218,25 +218,91 @@ export const sendAccountSuspendedEmail = async (params: {
   recipientName: string;
   accountLabel: string;
   reason?: string;
+  /** Permanent suspension (block) rather than a reversible one. */
+  permanent?: boolean;
+  /** ISO date the suspension lifts automatically, when one was set. */
+  suspendedUntil?: string;
 }) => {
   const label = params.accountLabel.toLowerCase();
+  const permanent = params.permanent === true;
+
+  const durationHtml = permanent
+    ? emailParagraph(
+        'This suspension is permanent. You may appeal the decision by replying to our support team.',
+      )
+    : params.suspendedUntil
+      ? emailParagraph(
+          `Access is paused until <strong>${escapeHtml(params.suspendedUntil)}</strong>, after which your account is restored automatically.`,
+        )
+      : emailParagraph(
+          'Access stays paused until our team completes its review.',
+        );
 
   await deliver(
     params.to,
-    'Your account has been suspended',
+    permanent
+      ? 'Your account has been permanently suspended'
+      : 'Your account has been suspended',
     buildEmailHtml({
-      headline: 'Account suspended',
+      headline: permanent
+        ? 'Account permanently suspended'
+        : 'Account suspended',
       preheader: 'Your account access has been paused',
       greeting: `Hi ${params.recipientName},`,
       variant: 'danger',
-      bodyHtml: `${emailParagraph(`Your ${escapeHtml(label)} account has been <strong>suspended</strong> and you no longer have access to your dashboard.`)}${
+      bodyHtml: `${emailParagraph(`Your ${escapeHtml(label)} account has been <strong>${permanent ? 'permanently suspended' : 'suspended'}</strong> under our platform policy, and you no longer have access to your dashboard.`)}${
         params.reason?.trim()
           ? emailCallout(
               `<strong>Reason:</strong> ${escapeHtml(params.reason.trim())}`,
               'danger',
             )
           : ''
-      }${emailParagraph('Contact support if you believe this is a mistake or need more information.')}`,
+      }${durationHtml}${emailParagraph('Contact support if you believe this is a mistake or need more information.')}`,
+    }),
+  );
+};
+
+export const sendAccountReportAcknowledgementEmail = async (params: {
+  to: string;
+  recipientName: string;
+  reference: string;
+  reportedName: string;
+  reason: string;
+}) => {
+  await deliver(
+    params.to,
+    `We received your report (${params.reference})`,
+    buildEmailHtml({
+      headline: 'Report received',
+      preheader: 'Our moderation team is reviewing your report',
+      greeting: `Hi ${params.recipientName},`,
+      variant: 'info',
+      bodyHtml: `${emailParagraph('Thank you for flagging this account. Our moderation team will review the report and take action where our policies have been breached.')}${emailCallout(
+        `<strong>Reference:</strong> ${escapeHtml(params.reference)}<br/><strong>Account reported:</strong> ${escapeHtml(params.reportedName)}<br/><strong>Reason:</strong> ${escapeHtml(params.reason)}`,
+      )}${emailParagraph('We do not share the outcome of individual investigations, but we will contact you if we need more information.')}`,
+    }),
+  );
+};
+
+export const sendAccountReportResolvedEmail = async (params: {
+  to: string;
+  recipientName: string;
+  reference: string;
+  reportedName: string;
+  outcome: string;
+}) => {
+  await deliver(
+    params.to,
+    `Update on your report (${params.reference})`,
+    buildEmailHtml({
+      headline: 'Report reviewed',
+      preheader: 'Our moderation team has finished reviewing your report',
+      greeting: `Hi ${params.recipientName},`,
+      variant: 'success',
+      bodyHtml: `${emailParagraph(`Our moderation team has finished reviewing your report about <strong>${escapeHtml(params.reportedName)}</strong>.`)}${emailCallout(
+        `<strong>Reference:</strong> ${escapeHtml(params.reference)}<br/><strong>Outcome:</strong> ${escapeHtml(params.outcome)}`,
+        'success',
+      )}${emailParagraph('Thank you for helping keep Maritime Link safe.')}`,
     }),
   );
 };

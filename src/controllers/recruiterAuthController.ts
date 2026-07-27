@@ -29,6 +29,10 @@ import {
 } from '../generated/client/index.js';
 import { getClientIp } from '../utils/requestMetadata.js';
 import {
+  describeRestriction,
+  liftExpiredRecruiterSuspension,
+} from '../services/accountModerationService.js';
+import {
   recruiterKycLoginSelect,
   mapKycForLogin,
 } from '../utils/kycLoginPayload.js';
@@ -681,10 +685,19 @@ export const login = catchAsync(
       );
     }
 
-    if (['REJECTED', 'BLOCKED'].includes(recruiter.status)) {
+    const effectiveStatus = await liftExpiredRecruiterSuspension(recruiter);
+    const restriction = describeRestriction({
+      ...recruiter,
+      status: effectiveStatus,
+    });
+    if (restriction) {
+      return next(new AppError(restriction, 403));
+    }
+
+    if (effectiveStatus === 'REJECTED') {
       return next(
         new AppError(
-          `Your account is currently ${recruiter.status.toLowerCase()}. Please contact support.`,
+          'Your account is currently rejected. Please contact support.',
           403,
         ),
       );

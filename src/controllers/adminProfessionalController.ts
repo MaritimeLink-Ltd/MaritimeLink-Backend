@@ -201,6 +201,9 @@ export const getProfessionalStats = catchAsync(
     const blocked = await prisma.professional.count({
       where: { status: 'BLOCKED' },
     });
+    const suspended = await prisma.professional.count({
+      where: { status: 'SUSPENDED' },
+    });
 
     res.status(200).json({
       status: 'success',
@@ -210,6 +213,7 @@ export const getProfessionalStats = catchAsync(
         verified,
         flagged,
         blocked,
+        suspended,
       },
     });
   },

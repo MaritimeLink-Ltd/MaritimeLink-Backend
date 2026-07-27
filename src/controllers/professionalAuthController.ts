@@ -27,6 +27,10 @@ import {
   mapKycForLogin,
 } from '../utils/kycLoginPayload.js';
 import { stripeService } from '../services/stripeService.js';
+import {
+  describeRestriction,
+  liftExpiredProfessionalSuspension,
+} from '../services/accountModerationService.js';
 
 /**
  * Step 1: Registration
@@ -647,6 +651,16 @@ export const login = catchAsync(
       return next(
         new AppError('Account not verified. Please verify your email.', 401),
       );
+    }
+
+    const effectiveStatus =
+      await liftExpiredProfessionalSuspension(professional);
+    const restriction = describeRestriction({
+      ...professional,
+      status: effectiveStatus,
+    });
+    if (restriction) {
+      return next(new AppError(restriction, 403));
     }
 
     const token = jwt.sign({ id: professional.id }, env.JWT_SECRET, {

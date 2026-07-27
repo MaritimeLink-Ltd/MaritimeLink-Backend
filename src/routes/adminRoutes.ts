@@ -11,6 +11,8 @@ import * as adminAccountController from '../controllers/adminAccountController.j
 import * as applicationController from '../controllers/applicationController.js';
 import * as candidateController from '../controllers/recruiterCandidateController.js';
 import * as adminTrainerController from '../controllers/adminTrainerController.js';
+import * as adminModerationController from '../controllers/adminModerationController.js';
+import * as adminReportController from '../controllers/adminReportController.js';
 import { protectAdmin } from '../middlewares/adminAuthMiddleware.js';
 
 const router = Router();
@@ -1001,7 +1003,279 @@ router.patch(
  *         description: Resolved account data
  */
 router.get('/accounts/rejected', adminAccountController.getRejectedAccounts);
+
+// --- ACCOUNT MODERATION (suspend / block / reinstate) ---
+// Registered before '/accounts/:id' so the literal segment is not captured as an id.
+
+/**
+ * @swagger
+ * /api/admin/accounts/moderated:
+ *   get:
+ *     summary: All currently suspended or blocked accounts
+ *     tags: [Admin Moderation]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema: { type: string, enum: [ALL, SUSPENDED, BLOCKED] }
+ *     responses:
+ *       200:
+ *         description: Moderated account list.
+ */
+router.get(
+  '/accounts/moderated',
+  adminModerationController.getModeratedAccounts,
+);
+
+/**
+ * @swagger
+ * /api/admin/accounts/{id}/moderation:
+ *   get:
+ *     summary: Current moderation state and history for an account
+ *     tags: [Admin Moderation]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *       - in: query
+ *         name: accountType
+ *         schema: { type: string, enum: [professional, recruiter, trainer] }
+ *     responses:
+ *       200:
+ *         description: Moderation state, action history, and report count.
+ */
+router.get(
+  '/accounts/:id/moderation',
+  adminModerationController.getModerationState,
+);
+
+/**
+ * @swagger
+ * /api/admin/accounts/{id}/suspend:
+ *   post:
+ *     summary: Suspend an account (reversible)
+ *     description: >
+ *       Pauses platform access and emails the account holder the policy reason.
+ *       Optionally self-lifts on `suspendedUntil`.
+ *     tags: [Admin Moderation]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [reason]
+ *             properties:
+ *               reason: { type: string, minLength: 5 }
+ *               suspendedUntil: { type: string, format: date-time }
+ *               accountType: { type: string, enum: [professional, recruiter, trainer] }
+ *     responses:
+ *       200:
+ *         description: Account suspended.
+ */
+router.post('/accounts/:id/suspend', adminModerationController.suspendAccount);
+
+/**
+ * @swagger
+ * /api/admin/accounts/{id}/block:
+ *   post:
+ *     summary: Permanently suspend (block) an account
+ *     tags: [Admin Moderation]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [reason]
+ *             properties:
+ *               reason: { type: string, minLength: 5 }
+ *               accountType: { type: string, enum: [professional, recruiter, trainer] }
+ *     responses:
+ *       200:
+ *         description: Account blocked.
+ */
+router.post('/accounts/:id/block', adminModerationController.blockAccount);
+
+/**
+ * @swagger
+ * /api/admin/accounts/{id}/reinstate:
+ *   post:
+ *     summary: Reinstate a suspended or blocked account
+ *     description: Restores the status the account held before it was moderated.
+ *     tags: [Admin Moderation]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               note: { type: string }
+ *               accountType: { type: string, enum: [professional, recruiter, trainer] }
+ *     responses:
+ *       200:
+ *         description: Account reinstated.
+ */
+router.post(
+  '/accounts/:id/reinstate',
+  adminModerationController.reinstateAccount,
+);
+
 router.get('/accounts/:id', adminAccountController.getAccountById);
+
+// --- USER REPORTS (member-to-member moderation queue) ---
+
+/**
+ * @swagger
+ * /api/admin/reports/stats:
+ *   get:
+ *     summary: Report queue counters
+ *     tags: [Admin Moderation]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Totals by report status.
+ */
+router.get('/reports/stats', adminReportController.getReportStats);
+
+/**
+ * @swagger
+ * /api/admin/reports:
+ *   get:
+ *     summary: List reported accounts
+ *     tags: [Admin Moderation]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema: { type: string, enum: [ALL, PENDING, UNDER_REVIEW, ACTIONED, DISMISSED] }
+ *       - in: query
+ *         name: reason
+ *         schema: { type: string }
+ *       - in: query
+ *         name: reportedId
+ *         schema: { type: string }
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer }
+ *     responses:
+ *       200:
+ *         description: Paginated report list.
+ */
+router.get('/reports', adminReportController.getReports);
+
+/**
+ * @swagger
+ * /api/admin/reports/{id}:
+ *   get:
+ *     summary: Report detail, other reports against the same account, and the reported thread
+ *     tags: [Admin Moderation]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *         description: Report UUID or reference (e.g. RPT-1001).
+ *     responses:
+ *       200:
+ *         description: Report detail.
+ */
+router.get('/reports/:id', adminReportController.getReportById);
+
+/**
+ * @swagger
+ * /api/admin/reports/{id}:
+ *   patch:
+ *     summary: Record the outcome of a report review
+ *     tags: [Admin Moderation]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               status: { type: string, enum: [PENDING, UNDER_REVIEW, ACTIONED, DISMISSED] }
+ *               actionTaken: { type: string, enum: [NONE, WARNING_ISSUED, ACCOUNT_SUSPENDED, ACCOUNT_BLOCKED] }
+ *               resolutionNote: { type: string }
+ *     responses:
+ *       200:
+ *         description: Report updated.
+ */
+router.patch('/reports/:id', adminReportController.updateReport);
+
+/**
+ * @swagger
+ * /api/admin/reports/{id}/notes:
+ *   post:
+ *     summary: Add an internal admin note to a report
+ *     description: >
+ *       Records an admin-only note against the report without changing its status,
+ *       so several admins can work a report before an outcome is decided. The
+ *       author's email is stored with the note.
+ *     tags: [Admin Reports]
+ *     security: [{ bearerAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [content]
+ *             properties:
+ *               content: { type: string, maxLength: 5000 }
+ *     responses:
+ *       201:
+ *         description: Note added.
+ *       400:
+ *         description: Empty or oversized note.
+ *       404:
+ *         description: Report not found.
+ */
+router.post('/reports/:id/notes', adminReportController.addReportNote);
 
 // --- TRAINER PAYOUT & STRIPE CONNECT ROUTES ---
 

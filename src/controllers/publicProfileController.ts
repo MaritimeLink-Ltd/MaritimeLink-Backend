@@ -3,6 +3,8 @@ import { prisma } from '../config/prisma.js';
 import { AppError } from '../utils/AppError.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { CustomRequest } from '../types/index.js';
+import { buildPublicExperienceSummary } from '../utils/publicProfileExperience.js';
+import { isIdentityVerified } from '../utils/verificationBadge.js';
 
 /**
  * Public, search-engine indexable professional profiles ("LinkedIn-style").
@@ -50,48 +52,6 @@ const idPrefixFromSlug = (slug: string): string | null => {
   return /^[0-9a-f]{8}$/.test(candidate) ? candidate : null;
 };
 
-/** Whole years/months of sea time — deliberately coarse, no vessel or employer names. */
-const summariseSeaService = (
-  logs: {
-    joiningDate: Date | null;
-    tillDate: Date | null;
-    vesselType: string | null;
-  }[],
-) => {
-  const MS_PER_DAY = 86_400_000;
-  let totalDays = 0;
-  const vesselTypes = new Set<string>();
-
-  logs.forEach((log) => {
-    const type = String(log.vesselType || '').trim();
-    if (type) vesselTypes.add(type);
-
-    if (!log.joiningDate || !log.tillDate) return;
-    const days =
-      (new Date(log.tillDate).getTime() - new Date(log.joiningDate).getTime()) /
-      MS_PER_DAY;
-    if (days > 0) totalDays += days;
-  });
-
-  const years = Math.floor(totalDays / 365.25);
-  const months = Math.floor((totalDays - years * 365.25) / 30.44);
-
-  return {
-    vesselTypes: [...vesselTypes],
-    seaTimeYears: years,
-    seaTimeMonths: months,
-    seaTimeLabel:
-      totalDays <= 0
-        ? null
-        : [
-            years > 0 ? `${years} year${years === 1 ? '' : 's'}` : '',
-            months > 0 ? `${months} month${months === 1 ? '' : 's'}` : '',
-          ]
-            .filter(Boolean)
-            .join(' ') || 'Less than a month',
-  };
-};
-
 /**
  * GET /api/public/professionals/:slug  (public, no auth)
  */
@@ -106,6 +66,8 @@ export const getPublicProfile = catchAsync(
       where: {
         id: { startsWith: idPrefix },
         publicProfileEnabled: true,
+        // A moderated account must not stay publicly visible or search-indexed.
+        status: { notIn: ['SUSPENDED', 'BLOCKED'] },
       },
       select: {
         id: true,
@@ -117,17 +79,22 @@ export const getPublicProfile = catchAsync(
         profilePhotoUrl: true,
         availableForWork: true,
         isVerified: true,
+        status: true,
         updatedAt: true,
         kyc: { select: { status: true } },
         resume: {
           select: {
             country: true,
+            // Self-authored career blurb, shown publicly at the client's request.
+            summary: true,
             skills: { select: { skillName: true, rating: true } },
             seaService: {
               select: {
                 joiningDate: true,
                 tillDate: true,
                 vesselType: true,
+                vesselName: true,
+                role: true,
               },
             },
           },
@@ -139,7 +106,9 @@ export const getPublicProfile = catchAsync(
       return next(new AppError('Profile not found', 404));
     }
 
-    const sea = summariseSeaService(professional.resume?.seaService || []);
+    const sea = buildPublicExperienceSummary(
+      professional.resume?.seaService || [],
+    );
     const name =
       professional.fullname ||
       [professional.firstName, professional.lastName]
@@ -156,12 +125,13 @@ export const getPublicProfile = catchAsync(
           rank: professional.profession || professional.subcategory || null,
           profilePhotoUrl: professional.profilePhotoUrl,
           country: professional.resume?.country || null,
+          summary: professional.resume?.summary || null,
           availableForWork: professional.availableForWork,
-          compliant:
-            professional.isVerified || professional.kyc?.status === 'APPROVED',
+          verified: isIdentityVerified(professional),
           vesselTypes: sea.vesselTypes,
           seaTimeLabel: sea.seaTimeLabel,
           seaTimeYears: sea.seaTimeYears,
+          experienceLines: sea.experienceLines,
           skills: (professional.resume?.skills || []).map((skill) => ({
             skillName: skill.skillName,
             rating: skill.rating,
@@ -182,7 +152,10 @@ export const listPublicProfiles = catchAsync(
     const limit = Math.min(Number(req.query.limit) || 5000, 20000);
 
     const professionals = await prisma.professional.findMany({
-      where: { publicProfileEnabled: true },
+      where: {
+        publicProfileEnabled: true,
+        status: { notIn: ['SUSPENDED', 'BLOCKED'] },
+      },
       select: {
         id: true,
         firstName: true,

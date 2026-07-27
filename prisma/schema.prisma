@@ -8,45 +8,50 @@ datasource db {
 }
 
 model Professional {
-  id                   String                 @id @default(uuid())
-  fullname             String?
-  email                String                 @unique
-  password             String
-  profession           JobCategory?
-  idPassportUrl        String?
-  bio                  String?
-  isVerified           Boolean                @default(false)
-  otpCode              String?
-  otpExpiresAt         DateTime?
-  passwordResetToken   String?
-  passwordResetExpires DateTime?
-  createdAt            DateTime               @default(now())
-  updatedAt            DateTime               @updatedAt
-  cvUrl                String?
-  lastCoverLetter      String?
-  firstName            String?
-  lastName             String?
-  middleName           String?
-  profilePhotoUrl      String?
-  registrationStep     Int                    @default(1)
-  subcategory          String?
-  lastActive           DateTime               @default(now())
-  status               ProfessionalStatus     @default(PENDING)
-  tier                 UserTier               @default(FREE)
-  availableForWork     Boolean                @default(false)
-  publicProfileEnabled Boolean                @default(false)
-  membershipUpdatedAt  DateTime?
-  alerts               Alert[]
-  conversations        Conversation[]
-  bookings             CourseBooking[]
-  applications         JobApplication[]
-  invitations          JobInvitation[]
-  documents            ProfessionalDocument[]
-  feedback             ProfessionalFeedback[]
-  kyc                  ProfessionalKyc?
-  resume               ProfessionalResume?
-  savedCourses         SavedCourse[]
-  savedJobs            SavedJob[]
+  id                     String                 @id @default(uuid())
+  fullname               String?
+  email                  String                 @unique
+  password               String
+  profession             JobCategory?
+  idPassportUrl          String?
+  bio                    String?
+  isVerified             Boolean                @default(false)
+  otpCode                String?
+  otpExpiresAt           DateTime?
+  passwordResetToken     String?
+  passwordResetExpires   DateTime?
+  createdAt              DateTime               @default(now())
+  updatedAt              DateTime               @updatedAt
+  cvUrl                  String?
+  lastCoverLetter        String?
+  firstName              String?
+  lastName               String?
+  middleName             String?
+  profilePhotoUrl        String?
+  registrationStep       Int                    @default(1)
+  subcategory            String?
+  lastActive             DateTime               @default(now())
+  status                 ProfessionalStatus     @default(PENDING)
+  tier                   UserTier               @default(FREE)
+  availableForWork       Boolean                @default(false)
+  publicProfileEnabled   Boolean                @default(false)
+  membershipUpdatedAt    DateTime?
+  suspendedAt            DateTime?
+  suspendedUntil         DateTime?
+  suspensionReason       String?
+  suspendedById          String?
+  statusBeforeSuspension ProfessionalStatus?
+  alerts                 Alert[]
+  conversations          Conversation[]
+  bookings               CourseBooking[]
+  applications           JobApplication[]
+  invitations            JobInvitation[]
+  documents              ProfessionalDocument[]
+  feedback               ProfessionalFeedback[]
+  kyc                    ProfessionalKyc?
+  resume                 ProfessionalResume?
+  savedCourses           SavedCourse[]
+  savedJobs              SavedJob[]
 }
 
 model ProfessionalFeedback {
@@ -60,11 +65,11 @@ model ProfessionalFeedback {
 }
 
 model Recruiter {
-  id                                 String          @id @default(uuid())
-  email                              String          @unique
+  id                                 String           @id @default(uuid())
+  email                              String           @unique
   password                           String
   role                               RecruiterRole
-  isVerified                         Boolean         @default(false)
+  isVerified                         Boolean          @default(false)
   otpCode                            String?
   otpExpiresAt                       DateTime?
   passwordResetToken                 String?
@@ -74,9 +79,9 @@ model Recruiter {
   website                            String?
   orgEmail                           String?
   idPassportUrl                      String?
-  status                             RecruiterStatus @default(PENDING)
-  createdAt                          DateTime        @default(now())
-  updatedAt                          DateTime        @updatedAt
+  status                             RecruiterStatus  @default(PENDING)
+  createdAt                          DateTime         @default(now())
+  updatedAt                          DateTime         @updatedAt
   companyCity                        String?
   companyCountry                     String?
   companyLinkedIn                    String?
@@ -90,19 +95,19 @@ model Recruiter {
   phoneNumber                        String?
   phoneOtpCode                       String?
   phoneOtpExpiresAt                  DateTime?
-  phoneVerified                      Boolean         @default(false)
-  registrationStep                   Int             @default(1)
-  agreedToTerms                      Boolean         @default(false)
+  phoneVerified                      Boolean          @default(false)
+  registrationStep                   Int              @default(1)
+  agreedToTerms                      Boolean          @default(false)
   howDidYouHear                      String?
-  isAuthorized                       Boolean         @default(false)
+  isAuthorized                       Boolean          @default(false)
   phoneCode                          String?
   companyLogo                        String?
-  lastActive                         DateTime        @default(now())
-  tier                               RecruiterTier   @default(FREE)
+  lastActive                         DateTime         @default(now())
+  tier                               RecruiterTier    @default(FREE)
   membershipUpdatedAt                DateTime?
   companyId                          String?
   stripeAccountId                    String?
-  stripeOnboardingComplete           Boolean         @default(false)
+  stripeOnboardingComplete           Boolean          @default(false)
   profilePhotoUrl                    String?
   organizationRiskLevel              KycRiskLevel?
   organizationVerificationData       Json?
@@ -111,7 +116,12 @@ model Recruiter {
   organizationVerificationSelectedAt DateTime?
   organizationVerificationSource     String?
   organizationVerified               Boolean?
-  company                            Company?        @relation(fields: [companyId], references: [id])
+  suspendedAt                        DateTime?
+  suspendedUntil                     DateTime?
+  suspensionReason                   String?
+  suspendedById                      String?
+  statusBeforeSuspension             RecruiterStatus?
+  company                            Company?         @relation(fields: [companyId], references: [id])
   companyMember                      CompanyMember?
   conversations                      Conversation[]
   courses                            Course[]
@@ -364,35 +374,88 @@ model Admin {
   jobs                 Job[]
   kycNotes             KycNote[]
   assignedCases        SupportCase[]  @relation("AssignedCases")
+  reviewedReports      UserReport[]   @relation("ReviewedReports")
+  reportNotes          ReportNote[]
 
   @@map("admins")
 }
 
+/// A member-to-member abuse report. Kept separate from SupportCase: a support case is
+/// a help request, a report is a moderation signal against a specific account.
+model UserReport {
+  id             String       @id @default(uuid())
+  reference      String       @unique
+  reporterId     String
+  reporterType   ActorType
+  reporterEmail  String?
+  reporterName   String?
+  reportedId     String
+  reportedType   ActorType
+  reportedEmail  String?
+  reportedName   String?
+  reason         ReportReason
+  details        String
+  conversationId String?
+  status         ReportStatus @default(PENDING)
+  actionTaken    ReportAction @default(NONE)
+  resolutionNote String?
+  reviewedById   String?
+  reviewedAt     DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  reviewedBy     Admin?       @relation("ReviewedReports", fields: [reviewedById], references: [id])
+  notes          ReportNote[]
+
+  @@index([status])
+  @@index([reportedId])
+  @@index([reporterId])
+  @@index([createdAt])
+  @@map("user_reports")
+}
+
+/// Internal admin-only notes on a report. Multiple admins can leave notes while a
+/// report is still open; the author's email is denormalised so the audit trail
+/// survives even if the admin account is later removed.
+model ReportNote {
+  id         String     @id @default(uuid())
+  reportId   String
+  adminId    String?
+  adminEmail String?
+  content    String
+  createdAt  DateTime   @default(now())
+  admin      Admin?     @relation(fields: [adminId], references: [id])
+  report     UserReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  @@index([reportId])
+  @@index([createdAt])
+  @@map("report_notes")
+}
+
 model Job {
-  id           String           @id @default(uuid())
-  title        String
-  location     String
-  category     JobCategory
-  contractType JobType
-  salary       String
-  description  String
-  recruiterId  String?
-  adminId      String?
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
-  isFlagged    Boolean          @default(false)
-  status       JobStatus        @default(ACTIVE)
-  companyId    String?
-  riskLevel    KycRiskLevel     @default(LOW)
-  closingDate  DateTime?
+  id                      String           @id @default(uuid())
+  title                   String
+  location                String
+  category                JobCategory
+  contractType            JobType
+  salary                  String
+  description             String
+  recruiterId             String?
+  adminId                 String?
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+  isFlagged               Boolean          @default(false)
+  status                  JobStatus        @default(ACTIVE)
+  companyId               String?
+  riskLevel               KycRiskLevel     @default(LOW)
+  closingDate             DateTime?
   isPremiumListing        Boolean          @default(false)
   premiumListingExpiresAt DateTime?
-  applications JobApplication[]
-  invitations  JobInvitation[]
-  admin        Admin?           @relation(fields: [adminId], references: [id], onDelete: Cascade)
-  company      Company?         @relation(fields: [companyId], references: [id])
-  recruiter    Recruiter?       @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
-  savedBy      SavedJob[]
+  applications            JobApplication[]
+  invitations             JobInvitation[]
+  admin                   Admin?           @relation(fields: [adminId], references: [id], onDelete: Cascade)
+  company                 Company?         @relation(fields: [companyId], references: [id])
+  recruiter               Recruiter?       @relation(fields: [recruiterId], references: [id], onDelete: Cascade)
+  savedBy                 SavedJob[]
 
   @@map("jobs")
 }
@@ -777,6 +840,7 @@ enum RecruiterStatus {
   APPROVED
   REJECTED
   FLAGGED
+  SUSPENDED
   BLOCKED
 }
 
@@ -784,6 +848,7 @@ enum ProfessionalStatus {
   PENDING
   VERIFIED
   FLAGGED
+  SUSPENDED
   BLOCKED
 }
 
@@ -928,4 +993,28 @@ enum CaseStatus {
   OPEN
   RESOLVED
   CLOSED
+}
+
+enum ReportReason {
+  SCAM_OR_FRAUD
+  HARASSMENT_OR_ABUSE
+  FAKE_ACCOUNT
+  INAPPROPRIATE_CONTENT
+  SPAM
+  PAYMENT_ISSUE
+  OTHER
+}
+
+enum ReportStatus {
+  PENDING
+  UNDER_REVIEW
+  ACTIONED
+  DISMISSED
+}
+
+enum ReportAction {
+  NONE
+  WARNING_ISSUED
+  ACCOUNT_SUSPENDED
+  ACCOUNT_BLOCKED
 }
