@@ -11,6 +11,7 @@ import {
   sendCourseBookingCancelledEmail,
   sendCourseBookingEmails,
   sendCoursePublishedEmail,
+  sendDocumentExpiryDigestEmail,
   sendJobApplicationEmails,
   sendJobInvitationEmail,
   sendJobPublishedEmail,
@@ -19,6 +20,7 @@ import {
   sendKycSubmittedEmail,
   sendMessageReceivedEmail,
   sendPaymentStatusEmail,
+  type DocumentExpiryDigestItem,
   sendSecureDocumentLinkEmail,
   sendSupportCaseEmail,
 } from './emailService.js';
@@ -843,5 +845,67 @@ export async function notifyCoursePublished(courseId: string): Promise<void> {
     recipientName: displayName(course.recruiter),
     courseTitle: course.title,
     dashboardUrl: appUrl('/trainingprovider-dashboard/courses'),
+  });
+}
+
+/**
+ * Document expiry digest: one in-app alert + one email covering every
+ * certificate that crossed a reminder milestone for this professional.
+ * Called by the daily reminder job, not by a request handler.
+ */
+export async function notifyDocumentExpiry(params: {
+  professionalId: string;
+  email: string;
+  recipientName: string;
+  expired: DocumentExpiryDigestItem[];
+  expiring: DocumentExpiryDigestItem[];
+  io?: SocketServer;
+}): Promise<void> {
+  const { professionalId, expired, expiring, io } = params;
+  if (expired.length === 0 && expiring.length === 0) return;
+
+  const plural = (n: number) => (n === 1 ? '' : 's');
+  const parts: string[] = [];
+  if (expired.length > 0) {
+    parts.push(`${expired.length} document${plural(expired.length)} expired`);
+  }
+  if (expiring.length > 0) {
+    parts.push(
+      `${expiring.length} document${plural(expiring.length)} expiring soon`,
+    );
+  }
+  const summary = parts.join(', ');
+
+  const alert = await prisma.alert.create({
+    data: {
+      professionalId,
+      type: 'DOCUMENT_EXPIRY',
+      title:
+        expired.length > 0
+          ? 'Documents need renewing'
+          : 'Documents expiring soon',
+      message: `${summary}. Open your document wallet to renew.`,
+      metadata: {
+        expiredCount: expired.length,
+        expiringCount: expiring.length,
+        documents: [...expired, ...expiring].map((d) => ({
+          name: d.documentName,
+          expiryDate: d.expiryDate,
+          daysRemaining: d.daysRemaining,
+        })),
+      },
+    },
+  });
+
+  if (io) {
+    io.to(professionalId).emit('professional_alert', { alert });
+  }
+
+  await sendDocumentExpiryDigestEmail({
+    to: params.email,
+    recipientName: params.recipientName,
+    expired,
+    expiring,
+    dashboardUrl: appUrl('/personal/documents'),
   });
 }

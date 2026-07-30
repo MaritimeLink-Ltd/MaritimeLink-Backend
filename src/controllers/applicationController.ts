@@ -25,6 +25,7 @@ import {
   RECRUITER_FREE_JOB_APPLICATION_LIMIT,
   getRecruiterFeatureAccess,
 } from '../utils/recruiterCapabilities.js';
+import { toPublicResumeBasics } from '../utils/candidateResumeBasics.js';
 
 const APPLICATION_STATUS_ALIASES: Record<string, ApplicationStatus> = {
   APPLIED: ApplicationStatus.APPLIED,
@@ -669,18 +670,22 @@ export const getJobApplicants = catchAsync(
       );
     }
 
-    let canViewResume = true;
+    // Admins bypass tier gating entirely; recruiters get their plan's matrix.
+    let applicantAccess = getRecruiterFeatureAccess({
+      recruiterTier: 'PREMIUM',
+      job,
+    });
     if (!isAdmin && job.recruiterId) {
       const recruiter = await prisma.recruiter.findUnique({
         where: { id: job.recruiterId },
         select: { tier: true },
       });
-      const access = getRecruiterFeatureAccess({
+      applicantAccess = getRecruiterFeatureAccess({
         recruiterTier: recruiter?.tier,
         job,
       });
-      canViewResume = access.viewResume;
     }
+    const canViewResume = applicantAccess.viewResume;
 
     // Filters
     const { status } = req.query;
@@ -759,13 +764,16 @@ export const getJobApplicants = catchAsync(
 
       return {
         ...app,
+        access: applicantAccess,
         professional: {
           ...app.professional,
           // Compliance uses only doc id/expiry (already selected above, never
           // full file data) so it stays accurate regardless of tier — actual
           // resume/CV content is what "View Resume" gates.
           cvUrl: canViewResume ? app.professional.cvUrl : null,
-          resume: canViewResume ? app.professional.resume : null,
+          resume: canViewResume
+            ? app.professional.resume
+            : toPublicResumeBasics(app.professional.resume),
           totalYearsExperience: years,
           isVerified,
           location: app.professional.resume?.country || 'Global',

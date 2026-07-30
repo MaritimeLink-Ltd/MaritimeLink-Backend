@@ -699,25 +699,30 @@ model KycNote {
 }
 
 model ProfessionalDocument {
-  id                 String             @id @default(uuid())
-  professionalId     String
-  category           DocumentCategory
-  name               String
-  number             String?
-  issuingCountry     String?
-  issueDate          DateTime?
-  expiryDate         DateTime?
-  fileUrl            String
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-  mimeType           String?
-  ocrData            Json?
-  ocrStatus          OCRStatus          @default(PENDING)
-  verificationStatus VerificationStatus @default(PENDING)
-  professional       Professional       @relation(fields: [professionalId], references: [id], onDelete: Cascade)
-  jobApplications    JobApplication[]   @relation("ApplicationDocuments")
-  courseBookings     CourseBooking[]    @relation("BookingDocuments")
+  id                      String             @id @default(uuid())
+  professionalId          String
+  category                DocumentCategory
+  name                    String
+  number                  String?
+  issuingCountry          String?
+  issueDate               DateTime?
+  expiryDate              DateTime?
+  fileUrl                 String
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+  mimeType                String?
+  ocrData                 Json?
+  ocrStatus               OCRStatus          @default(PENDING)
+  verificationStatus      VerificationStatus @default(PENDING)
+  /// Last expiry-reminder milestone emailed for this document ("90" | "60" | "30" | "7" | "EXPIRED").
+  /// Kept so the daily reminder job sends once per milestone instead of every day.
+  lastExpiryReminderStage String?
+  lastExpiryReminderAt    DateTime?
+  professional            Professional       @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+  jobApplications         JobApplication[]   @relation("ApplicationDocuments")
+  courseBookings          CourseBooking[]    @relation("BookingDocuments")
 
+  @@index([expiryDate])
   @@map("professional_documents")
 }
 

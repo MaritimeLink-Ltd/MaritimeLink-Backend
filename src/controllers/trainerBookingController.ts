@@ -1,5 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma.js';
+import { commissionFor, payoutFor } from '../config/commission.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
@@ -416,8 +417,8 @@ export const approveAttendee = catchAsync(
       );
     }
 
-    const platformFee = Number(booking.amountPaid) * 0.18;
-    const trainerPayout = Number(booking.amountPaid) * 0.82;
+    const platformFee = commissionFor(Number(booking.amountPaid));
+    const trainerPayout = payoutFor(Number(booking.amountPaid));
 
     if (booking.paymentStatus === 'SUCCEEDED') {
       const trainer = booking.course.recruiter;

@@ -1,5 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma.js';
+import { commissionFor, payoutFor } from '../config/commission.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
@@ -360,11 +361,13 @@ export const getPlatformRevenue = catchAsync(
       0,
     );
     const platformCommission = bookings.reduce(
-      (sum, b) => sum + Number(b.platformFee ?? Number(b.amountPaid) * 0.18),
+      (sum, b) =>
+        sum + Number(b.platformFee ?? commissionFor(Number(b.amountPaid))),
       0,
     );
     const trainerPayouts = bookings.reduce(
-      (sum, b) => sum + Number(b.trainerPayout ?? Number(b.amountPaid) * 0.82),
+      (sum, b) =>
+        sum + Number(b.trainerPayout ?? payoutFor(Number(b.amountPaid))),
       0,
     );
 
@@ -373,7 +376,7 @@ export const getPlatformRevenue = catchAsync(
       (b) => !b.trainerPayout || Number(b.trainerPayout) === 0,
     );
     const pendingAmount = pendingPayouts.reduce(
-      (sum, b) => sum + Number(b.amountPaid) * 0.82,
+      (sum, b) => sum + payoutFor(Number(b.amountPaid)),
       0,
     );
 
@@ -395,7 +398,9 @@ export const getPlatformRevenue = catchAsync(
         }
         acc[recruiterId].bookings += 1;
         acc[recruiterId].revenue += Number(booking.amountPaid);
-        acc[recruiterId].payout += Number(booking.amountPaid) * 0.82;
+        acc[recruiterId].payout += Number(
+          booking.trainerPayout ?? payoutFor(Number(booking.amountPaid)),
+        );
         return acc;
       },
       {} as Record<
@@ -457,8 +462,8 @@ export const processPayout = catchAsync(
 
     // Calculate payout amounts
     const updates = bookings.map((booking) => {
-      const platformFee = Number(booking.amountPaid) * 0.18;
-      const trainerPayout = Number(booking.amountPaid) * 0.82;
+      const platformFee = commissionFor(Number(booking.amountPaid));
+      const trainerPayout = payoutFor(Number(booking.amountPaid));
 
       return prisma.courseBooking.update({
         where: { id: booking.id },
@@ -472,7 +477,7 @@ export const processPayout = catchAsync(
     await prisma.$transaction(updates);
 
     const totalPayout = bookings.reduce(
-      (sum, b) => sum + Number(b.amountPaid) * 0.82,
+      (sum, b) => sum + payoutFor(Number(b.amountPaid)),
       0,
     );
 

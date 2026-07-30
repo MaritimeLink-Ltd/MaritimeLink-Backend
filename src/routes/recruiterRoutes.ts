@@ -152,6 +152,27 @@ router.post('/verify-phone', recruiterController.verifyPhone);
 
 /**
  * @swagger
+ * /api/recruiter/resend-phone-otp:
+ *   post:
+ *     summary: Resend the phone OTP from step 3
+ *     tags: [Recruiter]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [recruiterId]
+ *             properties:
+ *               recruiterId: { type: string }
+ *     responses:
+ *       200:
+ *         description: Verification code resent
+ */
+router.post('/resend-phone-otp', recruiterController.resendPhoneOTP);
+
+/**
+ * @swagger
  * /api/recruiter/company-preview:
  *   get:
  *     summary: Step 5a - Get Company Preview

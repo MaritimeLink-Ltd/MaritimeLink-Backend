@@ -1,6 +1,7 @@
 import Stripe from 'stripe';
 import { env } from '../config/env.js';
 import { prisma } from '../config/prisma.js';
+import { COURSE_COMMISSION_RATE_PERCENT } from '../config/commission.js';
 import { logActivity } from './activityLogger.js';
 import { ActionStatus, ActorType } from '../generated/client/index.js';
 import { AppError } from '../utils/AppError.js';
@@ -245,7 +246,7 @@ export const stripeService = {
       currency,
       courseTitle,
       trainerStripeId,
-      commissionRate = 18, // Default to 18%
+      commissionRate = COURSE_COMMISSION_RATE_PERCENT,
     } = params;
 
     const commissionAmount = Math.round(amount * (commissionRate / 100) * 100); // in cents

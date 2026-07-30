@@ -49,12 +49,27 @@ export const getRecruiterMembership = catchAsync(
       return next(new AppError('Recruiter account not found', 404));
     }
 
+    // Flex is bought per listing, so it is not on `tier`. The client needs to know
+    // whether any listing is still live to mirror the server's feature matrix.
+    const activeFlexListing = await prisma.job.findFirst({
+      where: {
+        recruiterId,
+        isPremiumListing: true,
+        premiumListingExpiresAt: { gt: new Date() },
+      },
+      select: { premiumListingExpiresAt: true },
+      orderBy: { premiumListingExpiresAt: 'asc' },
+    });
+
     res.status(200).json({
       status: 'success',
       data: {
         membership: {
           tier: recruiter.tier,
           membershipUpdatedAt: recruiter.membershipUpdatedAt,
+          hasActiveFlexListing: Boolean(activeFlexListing),
+          flexListingExpiresAt:
+            activeFlexListing?.premiumListingExpiresAt ?? null,
           plans: RECRUITER_PLANS,
         },
       },
@@ -153,6 +168,26 @@ export const updateRecruiterMembership = catchAsync(
       return next(
         new AppError(
           'Paid plans require card checkout. Use membership checkout instead.',
+          400,
+        ),
+      );
+    }
+
+    // A paid Flex listing runs for its full 30 days. While one is live the account
+    // may only move up to Premium, never down to Free.
+    const activeFlexListing = await prisma.job.findFirst({
+      where: {
+        recruiterId: req.user?.id,
+        isPremiumListing: true,
+        premiumListingExpiresAt: { gt: new Date() },
+      },
+      select: { premiumListingExpiresAt: true },
+    });
+
+    if (activeFlexListing) {
+      return next(
+        new AppError(
+          `You have an active Flex listing until ${activeFlexListing.premiumListingExpiresAt?.toISOString().slice(0, 10)}. You can upgrade to Premium, but cannot switch to Free before it expires.`,
           400,
         ),
       );

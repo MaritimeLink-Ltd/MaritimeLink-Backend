@@ -15,6 +15,8 @@
     "prisma:pull": "prisma db pull",
     "test": "NODE_OPTIONS=--experimental-vm-modules jest",
     "stripe:setup-membership": "tsx src/scripts/setup-stripe-membership-prices.ts",
+    "job:expiry-reminders": "tsx src/scripts/send-expiry-reminders.ts",
+    "job:expiry-reminders:prod": "node dist/scripts/send-expiry-reminders.js",
     "prepare": "if [ \"$NODE_ENV\" != \"production\" ]; then husky; fi"
   },
   "keywords": [],

@@ -2,11 +2,13 @@ import nodemailer from 'nodemailer';
 import { env } from '../config/env.js';
 import { ApplicationStatus } from '../generated/client/index.js';
 import {
+  EMAIL_BRAND,
   buildEmailHtml,
   emailCallout,
   emailOtpBlock,
   emailParagraph,
   escapeHtml,
+  supportEmailLink,
 } from './emailLayout.js';
 
 const transporter = nodemailer.createTransport({
@@ -100,7 +102,7 @@ export const sendKycStatusEmail = async ({
               'danger',
             )
           : ''
-      }${emailParagraph('Update your documents and resubmit from your profile, or contact support if you need help.')}`;
+      }${emailParagraph(`Update your documents and resubmit from your profile, or contact us at ${supportEmailLink()} if you need help.`)}`;
 
   await deliver(
     to,
@@ -205,7 +207,7 @@ export const sendAccountStatusEmail = async (params: {
                   'danger',
                 )
               : ''
-          }${emailParagraph('Contact support if you have questions about next steps.')}`,
+          }${emailParagraph(`Contact us at ${supportEmailLink()} if you have questions about next steps.`)}`,
       cta: approved
         ? { label: 'Go to dashboard', url: params.dashboardUrl }
         : undefined,
@@ -228,7 +230,7 @@ export const sendAccountSuspendedEmail = async (params: {
 
   const durationHtml = permanent
     ? emailParagraph(
-        'This suspension is permanent. You may appeal the decision by replying to our support team.',
+        `This suspension is permanent. You may appeal the decision by emailing ${supportEmailLink()}.`,
       )
     : params.suspendedUntil
       ? emailParagraph(
@@ -257,7 +259,7 @@ export const sendAccountSuspendedEmail = async (params: {
               'danger',
             )
           : ''
-      }${durationHtml}${emailParagraph('Contact support if you believe this is a mistake or need more information.')}`,
+      }${durationHtml}${emailParagraph(`Contact us at ${supportEmailLink()} if you believe this is a mistake or need more information.`)}`,
     }),
   );
 };
@@ -690,6 +692,103 @@ export const sendDocumentExpiryEmail = async (params: {
       bodyHtml: expired
         ? `${emailParagraph(`<strong>${doc}</strong> expired on <strong>${date}</strong>.`)}${emailCallout('Your compliance status may be affected until you upload a renewed document to your wallet.', 'danger')}`
         : `${emailParagraph(`<strong>${doc}</strong> expires on <strong>${date}</strong>.`)}${emailCallout('Renew and upload an updated certificate before the expiry date to stay compliant.', 'warning')}`,
+      cta: { label: 'Open document wallet', url: params.dashboardUrl },
+    }),
+  );
+};
+
+export type DocumentExpiryDigestItem = {
+  documentName: string;
+  /** Already formatted for display, e.g. "12 Aug 2026" */
+  expiryDate: string;
+  /** Negative when the document has already expired */
+  daysRemaining: number;
+};
+
+const expiryDigestRow = (item: DocumentExpiryDigestItem): string => {
+  const name = escapeHtml(item.documentName);
+  const date = escapeHtml(item.expiryDate);
+  const expired = item.daysRemaining < 0;
+  const days = Math.abs(item.daysRemaining);
+  const timing = expired
+    ? `Expired ${days} day${days === 1 ? '' : 's'} ago`
+    : days === 0
+      ? 'Expires today'
+      : `${days} day${days === 1 ? '' : 's'} remaining`;
+
+  return `
+    <tr>
+      <td style="padding: 12px 0; border-bottom: 1px solid ${EMAIL_BRAND.border};">
+        <p style="margin: 0 0 4px; font-size: 15px; font-weight: 600; color: ${EMAIL_BRAND.text};">${name}</p>
+        <p style="margin: 0; font-size: 13px; color: ${EMAIL_BRAND.textMuted};">
+          Expiry date: ${date} &nbsp;·&nbsp;
+          <span style="color: ${expired ? EMAIL_BRAND.danger : EMAIL_BRAND.warning}; font-weight: 600;">${timing}</span>
+        </p>
+      </td>
+    </tr>`;
+};
+
+const expiryDigestSection = (
+  heading: string,
+  items: DocumentExpiryDigestItem[],
+): string => {
+  if (items.length === 0) return '';
+  return `
+    <p style="margin: 24px 0 4px; font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: ${EMAIL_BRAND.textMuted};">${escapeHtml(heading)}</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse: collapse;">
+      ${items.map(expiryDigestRow).join('')}
+    </table>`;
+};
+
+/**
+ * One digest per professional per run — a seafarer with eight expiring
+ * certificates gets a single email, not eight.
+ */
+export const sendDocumentExpiryDigestEmail = async (params: {
+  to: string;
+  recipientName: string;
+  expired: DocumentExpiryDigestItem[];
+  expiring: DocumentExpiryDigestItem[];
+  dashboardUrl: string;
+}) => {
+  const { expired, expiring } = params;
+  const expiredCount = expired.length;
+  const expiringCount = expiring.length;
+  if (expiredCount === 0 && expiringCount === 0) return;
+
+  const plural = (n: number) => (n === 1 ? '' : 's');
+
+  const subject =
+    expiredCount > 0 && expiringCount > 0
+      ? `${expiredCount} document${plural(expiredCount)} expired, ${expiringCount} expiring soon`
+      : expiredCount > 0
+        ? `${expiredCount} document${plural(expiredCount)} expired`
+        : `${expiringCount} document${plural(expiringCount)} expiring soon`;
+
+  const intro =
+    expiredCount > 0
+      ? emailParagraph(
+          'Some of the certificates in your document wallet need attention. Expired documents can block job applications and affect your compliance status.',
+        )
+      : emailParagraph(
+          'The certificates below are approaching their expiry date. Renewing early keeps your document wallet compliant and your profile visible to recruiters.',
+        );
+
+  await deliver(
+    params.to,
+    subject,
+    buildEmailHtml({
+      headline:
+        expiredCount > 0
+          ? 'Documents need renewing'
+          : 'Documents expiring soon',
+      preheader: subject,
+      greeting: `Hi ${params.recipientName},`,
+      variant: expiredCount > 0 ? 'danger' : 'warning',
+      bodyHtml: `${intro}${expiryDigestSection('Expired', expired)}${expiryDigestSection('Expiring soon', expiring)}${emailCallout(
+        'Upload the renewed certificate to your document wallet as soon as you receive it — the old copy stays on file for your records.',
+        expiredCount > 0 ? 'danger' : 'warning',
+      )}`,
       cta: { label: 'Open document wallet', url: params.dashboardUrl },
     }),
   );

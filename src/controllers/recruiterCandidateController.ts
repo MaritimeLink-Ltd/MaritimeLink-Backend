@@ -15,6 +15,7 @@ import {
   getVesselTypes,
 } from '../utils/experienceUtils.js';
 import { scoreProfessionalForJob } from '../utils/jobMatching.js';
+import { toPublicResumeBasics } from '../utils/candidateResumeBasics.js';
 import {
   notifyJobInvitation,
   safeNotify,
@@ -592,8 +593,16 @@ export const getCandidateProfile = catchAsync(
       ...professional,
       cvUrl: access.viewResume ? professional.cvUrl : null,
       lastCoverLetter: access.viewResume ? professional.lastCoverLetter : null,
-      resume: access.viewResume ? professional.resume : null,
+      // Free/Flex recruiters keep the public-profile basics so the candidate never
+      // looks like an empty record; the full resume stays behind `viewResume`.
+      resume: access.viewResume
+        ? professional.resume
+        : toPublicResumeBasics(professional.resume),
       documents: access.viewDocumentWallet ? professional.documents : [],
+      // Always the true count, even when `documents` is withheld, so a gated
+      // recruiter can be shown "this candidate has N documents — upgrade to view"
+      // rather than an empty list that reads as "no documents on file".
+      documentCount: professional.documents.length,
     };
 
     res.status(200).json({

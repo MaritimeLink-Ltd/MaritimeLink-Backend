@@ -1,4 +1,5 @@
 import { env } from '../config/env.js';
+import { SUPPORT_EMAIL } from '../config/contact.js';
 
 /** Maritime Link web app brand (matches MaritimeLink-Frontend). */
 export const EMAIL_BRAND = {
@@ -96,6 +97,14 @@ export function emailCallout(
         </td>
       </tr>
     </table>`;
+}
+
+/**
+ * Inline `mailto:` link to the platform support mailbox, for use inside body copy.
+ * Keeps every "contact us" prompt pointing at the same inbox.
+ */
+export function supportEmailLink(): string {
+  return `<a href="mailto:${SUPPORT_EMAIL}" style="color: ${EMAIL_BRAND.primaryLight}; text-decoration: underline;">${SUPPORT_EMAIL}</a>`;
 }
 
 /** OTP / verification code block. */
@@ -218,6 +227,10 @@ export function buildEmailHtml(params: EmailLayoutParams): string {
               </p>
               <p style="margin: 0 0 8px; font-size: 12px; color: rgba(255,255,255,0.55);">
                 <a href="${escapeHtml(dashboardBase)}" style="color: #7dd3fc; text-decoration: none;">Visit Maritime Link</a>
+              </p>
+              <p style="margin: 0 0 8px; font-size: 12px; color: rgba(255,255,255,0.55);">
+                Need help? Contact us at
+                <a href="mailto:${SUPPORT_EMAIL}" style="color: #7dd3fc; text-decoration: none;">${SUPPORT_EMAIL}</a>
               </p>
               <p style="margin: 16px 0 0; font-size: 11px; line-height: 1.5; color: rgba(255,255,255,0.45);">
                 © ${year} Maritime Link. If you did not expect this email, you can safely ignore it.

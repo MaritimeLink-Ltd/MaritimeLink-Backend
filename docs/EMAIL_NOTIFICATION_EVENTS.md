@@ -12,7 +12,7 @@ Priority-tier events are wired in the API. Later-phase events are listed for ref
 | KYC submitted | `notifyKycSubmitted` — KYC selfie upload when pack complete |
 | KYC approved / rejected | `notifyKycStatusChange` — admin KYC status endpoints |
 | KYC resubmission requested | `notifyKycResubmissionRequested` — admin sets KYC status to `PENDING` |
-| Document expiring / expired | `scripts/send-document-expiry-emails.ts` (daily cron) |
+| Document expiring / expired | `notifyDocumentExpiry` — `npm run job:expiry-reminders` (daily cron). One digest per professional; milestones at 90/60/30/7 days and on expiry |
 | Job application submitted | `notifyJobApplicationSubmitted` — `applyToJob` |
 | New application received | (same — emails recruiter) |
 | Invited to apply | `notifyJobInvitation` — job invite |

@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { prisma } from '../config/prisma.js';
+import { payoutFor } from '../config/commission.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { CustomRequest } from '../types/index.js';
 import {
@@ -313,7 +314,7 @@ export const getRevenueOverview = catchAsync(
     const platformRevenue = Number(revenueAgg._sum.platformFee || 0);
     const pendingPayouts = paidBookings
       .filter((b) => !b.trainerPayout || Number(b.trainerPayout) === 0)
-      .reduce((sum, b) => sum + Number(b.amountPaid) * 0.82, 0);
+      .reduce((sum, b) => sum + payoutFor(Number(b.amountPaid)), 0);
 
     res.status(200).json({
       status: 'success',

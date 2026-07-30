@@ -1,5 +1,6 @@
 import { Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma.js';
+import { commissionFor, payoutFor } from '../config/commission.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
@@ -33,8 +34,8 @@ export const getRevenue = catchAsync(
       (sum, booking) => sum + Number(booking.amountPaid),
       0,
     );
-    const platformFee = totalRevenue * 0.12; // 12% commission
-    const trainerPayout = totalRevenue * 0.88; // 88% payout
+    const platformFee = commissionFor(totalRevenue);
+    const trainerPayout = payoutFor(totalRevenue);
 
     // Group by course
     const revenueByCourse = bookings.reduce(

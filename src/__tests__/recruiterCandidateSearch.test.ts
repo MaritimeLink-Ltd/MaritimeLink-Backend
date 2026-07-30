@@ -267,8 +267,25 @@ describe('Recruiter candidate search', () => {
       expect(res.status).toBe(200);
       expect(res.body.data.access.viewResume).toBe(false);
       expect(res.body.data.access.viewDocumentWallet).toBe(false);
-      expect(res.body.data.professional.resume).toBeNull();
+
+      // A gated recruiter keeps the public-profile basics — anything less made the
+      // candidate read as an empty record — but nothing beyond them.
+      const gatedResume = res.body.data.professional.resume;
+      expect(gatedResume).not.toBeNull();
+      expect(Object.keys(gatedResume).sort()).toEqual([
+        'country',
+        'seaService',
+        'skills',
+        'summary',
+      ]);
+
+      // The paid parts stay withheld.
+      expect(res.body.data.professional.cvUrl).toBeNull();
+      expect(res.body.data.professional.lastCoverLetter).toBeNull();
       expect(res.body.data.professional.documents).toEqual([]);
+      // ...but the true count is still reported so the UI can prompt an upgrade
+      // instead of claiming there are no documents on file.
+      expect(typeof res.body.data.professional.documentCount).toBe('number');
     } finally {
       await prisma.recruiter.delete({ where: { id: freeRecruiter.id } });
     }

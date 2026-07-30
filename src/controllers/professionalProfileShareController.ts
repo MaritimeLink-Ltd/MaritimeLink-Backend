@@ -47,6 +47,7 @@ type ProfileShareJwt = JwtPayload & {
   sub?: string;
   type?: string;
   includeResume?: boolean;
+  allowDownload?: boolean;
   docIds?: string[];
 };
 
@@ -97,6 +98,11 @@ export const createProfileShareLink = catchAsync(
     }
 
     const includeResume = req.body?.includeResume !== false;
+
+    // Preview-only unless the professional explicitly allows downloads, matching the
+    // document pack flow. Baked into the token so the choice cannot be changed by the
+    // recipient, and so revoking means simply letting the link expire.
+    const allowDownload = req.body?.allowDownload === true;
 
     const rawDocumentIds = Array.isArray(req.body?.documentIds)
       ? req.body.documentIds
@@ -155,6 +161,7 @@ export const createProfileShareLink = catchAsync(
         sub: professionalId,
         type: PROFILE_SHARE_TOKEN_TYPE,
         includeResume,
+        allowDownload,
         docIds,
       },
       env.JWT_SECRET,
@@ -176,6 +183,7 @@ export const createProfileShareLink = catchAsync(
       metadata: {
         source: 'career_summary',
         includeResume,
+        allowDownload,
         documentCount: docIds.length,
         linkExpiresInSeconds: expiresInSeconds,
       },
@@ -189,6 +197,7 @@ export const createProfileShareLink = catchAsync(
         expiresInSeconds,
         expiresInHours,
         includeResume,
+        allowDownload,
         documentCount: docIds.length,
         previewOnly: true,
       },
@@ -292,6 +301,7 @@ export const getSharedProfile = catchAsync(
         previewOnly: true,
         expiresAt,
         includeResume,
+        allowDownload: payload.allowDownload === true,
         profile: {
           name: fullName || 'MaritimeLink Professional',
           rank: professional.profession || professional.subcategory || null,
@@ -384,10 +394,14 @@ export const streamSharedProfileDocument = catchAsync(
       .trim()
       .slice(0, 120);
 
+    // `?download=1` is only honoured when the sharer allowed downloads.
+    const wantsDownload =
+      payload.allowDownload === true && req.query.download === '1';
+
     res.setHeader('Content-Type', contentType);
     res.setHeader(
       'Content-Disposition',
-      `inline; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(
+      `${wantsDownload ? 'attachment' : 'inline'}; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(
         document.name || 'document',
       )}`,
     );

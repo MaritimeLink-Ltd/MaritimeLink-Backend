@@ -99,7 +99,7 @@ const assertRecruiterCanActivateJob = async (
 
   if (activeJobCount >= RECRUITER_FREE_ACTIVE_JOB_LIMIT) {
     throw new AppError(
-      'Free accounts can only have 1 active job listing. Upgrade to Flex or Premium to publish more.',
+      'Your plan allows only 1 active job listing at a time. Upgrade to Premium Recruiter for unlimited active listings.',
       403,
       'RECRUITER_JOB_LIMIT',
     );

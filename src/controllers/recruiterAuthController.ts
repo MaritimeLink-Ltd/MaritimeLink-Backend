@@ -742,6 +742,81 @@ export const login = catchAsync(
 );
 
 /**
+ * Resend the phone OTP issued by `setPersonalInfo` (signup step 3).
+ *
+ * Shared by recruiters and training agents. The code is delivered by SMS and mirrored
+ * to the account email, matching how step 3 sends it in the first place.
+ */
+export const resendPhoneOTP = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const { recruiterId } = req.body;
+
+    if (!recruiterId) {
+      return next(new AppError('Please provide a recruiterId', 400));
+    }
+
+    const recruiter = await prisma.recruiter.findUnique({
+      where: { id: recruiterId },
+      select: {
+        id: true,
+        email: true,
+        phoneCode: true,
+        phoneNumber: true,
+        phoneVerified: true,
+      },
+    });
+
+    if (!recruiter) {
+      return next(new AppError('Account not found', 404));
+    }
+
+    if (recruiter.phoneVerified) {
+      return next(new AppError('Phone number is already verified', 400));
+    }
+
+    if (!recruiter.phoneCode || !recruiter.phoneNumber) {
+      return next(
+        new AppError('No phone number on file. Please complete step 3.', 400),
+      );
+    }
+
+    const phoneOtpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const phoneOtpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    await prisma.recruiter.update({
+      where: { id: recruiter.id },
+      data: { phoneOtpCode, phoneOtpExpiresAt },
+    });
+
+    console.log(
+      `[LOCAL TEST OTP] Resent phone OTP for ${recruiter.phoneCode}${recruiter.phoneNumber}: ${phoneOtpCode}`,
+    );
+
+    // Neither channel is allowed to fail the request — the code is already saved,
+    // and step 3 treats delivery the same way.
+    const message = `Your MaritimeLink verification code is: ${phoneOtpCode}`;
+    try {
+      await sendSMS(recruiter.phoneCode + recruiter.phoneNumber, message);
+    } catch (error) {
+      console.error('Failed to resend phone OTP SMS:', error);
+    }
+
+    if (recruiter.email) {
+      try {
+        await sendPhoneOTPEmail(recruiter.email, phoneOtpCode);
+      } catch (error) {
+        console.error('Failed to resend phone OTP email:', error);
+      }
+    }
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Verification code resent to your phone.',
+    });
+  },
+);
+
+/**
  * Resend OTP
  */
 export const resendOTP = catchAsync(
