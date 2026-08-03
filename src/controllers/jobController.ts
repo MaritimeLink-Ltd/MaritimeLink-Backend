@@ -76,13 +76,15 @@ const resolveEffectiveJobStatus = <
 };
 
 /**
- * Flex is pay-as-you-go: unlimited listings, but every listing beyond the one
- * free slot has to carry its own paid 30-day Flex upgrade. So only *unpaid*
- * active listings count against the cap — a live Flex listing never blocks the
- * recruiter from posting the next one.
+ * Flex is pay-as-you-go: a recruiter may create as many listings as they like,
+ * but only the one listing the Free plan includes goes live without paying.
+ * Every further listing needs its own 30-day Flex payment (or Premium).
  *
- * @returns false when the recruiter is out of free slots and this listing needs
- *          a Flex payment before it can go live.
+ * The count covers *every* live listing, paid ones included. Excluding paid
+ * listings handed a Flex recruiter a spare free listing on top of the ones they
+ * had bought, which is how an unpaid job could go live under Flex.
+ *
+ * @returns false when this listing has to be paid for before it can go live.
  */
 const canRecruiterActivateJobForFree = async (
   recruiterId: string,
@@ -95,26 +97,20 @@ const canRecruiterActivateJobForFree = async (
 
   if (recruiter?.tier === 'PREMIUM') return true;
 
-  const unpaidActiveJobCount = await prisma.job.count({
+  const activeJobCount = await prisma.job.count({
     where: {
       recruiterId,
       status: JobStatus.ACTIVE,
       ...(excludeJobId ? { id: { not: excludeJobId } } : {}),
-      // Anything without a live Flex upgrade is an unpaid listing.
-      OR: [
-        { isPremiumListing: false },
-        { premiumListingExpiresAt: null },
-        { premiumListingExpiresAt: { lte: new Date() } },
-      ],
     },
   });
 
-  return unpaidActiveJobCount < RECRUITER_FREE_ACTIVE_JOB_LIMIT;
+  return activeJobCount < RECRUITER_FREE_ACTIVE_JOB_LIMIT;
 };
 
-/** Message shown when the free slot is used and the listing must be paid for. */
+/** Message shown when a listing has to be paid for before it can be published. */
 const FLEX_PAYMENT_REQUIRED_MESSAGE =
-  'Your free listing slot is already in use. Pay the Flex fee for this listing to publish it for 30 days, or upgrade to Premium Recruiter for unlimited active listings.';
+  'This job listing has not been paid for yet, so it stays a draft and is not visible to professionals. Pay the Flex fee to publish it for 30 days, or upgrade to Premium Recruiter for unlimited active listings.';
 
 /**
  * Create a new job post

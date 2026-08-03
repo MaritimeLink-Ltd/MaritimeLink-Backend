@@ -131,8 +131,10 @@ describe('Recruiter subscription gating (Free / Flex / Premium)', () => {
     jobIds.push(res.body.data.job.id);
   });
 
-  it('does not count a paid Flex listing against the free active-listing slot', async () => {
+  it('keeps a new listing unpaid-and-drafted even when the only live job is a paid Flex one', async () => {
     // Park the free listing so the only ACTIVE job left is a paid Flex one.
+    // This is the case that let an unpaid job go live under Flex: the paid
+    // listing used to be excluded from the count, handing back a free slot.
     await prisma.job.update({
       where: { id: jobIds[0] },
       data: { status: 'DRAFT' },
@@ -153,19 +155,18 @@ describe('Recruiter subscription gating (Free / Flex / Premium)', () => {
         .send(jobPayload('Gating Job Three', 'ACTIVE'));
 
       expect(res.status).toBe(201);
-      expect(res.body.data.requiresFlexPayment).toBe(false);
-      expect(res.body.data.job.status).toBe('ACTIVE');
+      expect(res.body.data.requiresFlexPayment).toBe(true);
+      expect(res.body.data.job.status).toBe('DRAFT');
       jobIds.push(res.body.data.job.id);
 
-      // ...and that new free listing now occupies the slot again.
-      const blocked = await request(app)
-        .post('/api/recruiter/jobs')
+      // Publishing it directly is refused for the same reason.
+      const published = await request(app)
+        .patch(`/api/jobs/${res.body.data.job.id}/status`)
         .set('Authorization', `Bearer ${recruiterToken}`)
-        .send(jobPayload('Gating Job Four', 'ACTIVE'));
+        .send({ status: 'ACTIVE' });
 
-      expect(blocked.status).toBe(201);
-      expect(blocked.body.data.requiresFlexPayment).toBe(true);
-      jobIds.push(blocked.body.data.job.id);
+      expect(published.status).toBe(403);
+      expect(published.body.code).toBe('FLEX_PAYMENT_REQUIRED');
     } finally {
       // Restore the fixture the rest of the suite expects.
       await prisma.job.updateMany({
@@ -177,6 +178,48 @@ describe('Recruiter subscription gating (Free / Flex / Premium)', () => {
         data: { status: 'ACTIVE' },
       });
     }
+  });
+
+  it('publishes the drafted listing once its Flex payment completes', async () => {
+    const draft = await request(app)
+      .post('/api/recruiter/jobs')
+      .set('Authorization', `Bearer ${recruiterToken}`)
+      .send(jobPayload('Gating Job Paid On Checkout', 'ACTIVE'));
+
+    expect(draft.body.data.requiresFlexPayment).toBe(true);
+    expect(draft.body.data.job.status).toBe('DRAFT');
+    const jobId = draft.body.data.job.id;
+    jobIds.push(jobId);
+
+    const { stripeService } = await import('../services/stripeService.js');
+    await stripeService.activateFlexListingFromSession({
+      id: 'cs_test_gating',
+      payment_status: 'paid',
+      status: 'complete',
+      metadata: {
+        type: 'recruiter_flex_listing',
+        recruiterId,
+        jobId,
+      },
+    } as never);
+
+    const published = await prisma.job.findUnique({
+      where: { id: jobId },
+      select: {
+        status: true,
+        isPremiumListing: true,
+        premiumListingExpiresAt: true,
+      },
+    });
+
+    expect(published?.status).toBe('ACTIVE');
+    expect(published?.isPremiumListing).toBe(true);
+    expect(published?.premiumListingExpiresAt).toBeTruthy();
+
+    await prisma.job.update({
+      where: { id: jobId },
+      data: { status: 'DRAFT' },
+    });
   });
 
   it('still allows creating a DRAFT job (not counted against the active-job limit)', async () => {

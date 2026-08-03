@@ -1,7 +1,7 @@
 /**
- * Free Recruiter cap: max simultaneously active *unpaid* job listings.
- * Flex listings are bought per job and are excluded from this count, so a Flex
- * recruiter can run unlimited listings as long as each one is paid for.
+ * Free Recruiter cap: max simultaneously active job listings that cost nothing.
+ * Counted across every live listing, paid ones included — a Flex recruiter runs
+ * unlimited listings, but each one beyond this needs its own payment.
  */
 export const RECRUITER_FREE_ACTIVE_JOB_LIMIT = 1;
 
