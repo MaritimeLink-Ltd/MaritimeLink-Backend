@@ -5,6 +5,12 @@ import { prisma } from '../config/prisma.js';
 import { env } from '../config/env.js';
 import { AppError } from '../utils/AppError.js';
 import { catchAsync } from '../utils/catchAsync.js';
+import {
+  isProfessionalSignupIncomplete,
+  isRecruiterSignupIncomplete,
+  SIGNUP_INCOMPLETE_CODE,
+  SIGNUP_INCOMPLETE_MESSAGE,
+} from '../utils/signupProgress.js';
 
 /**
  * Unified Login for both Professionals and Recruiters
@@ -29,7 +35,23 @@ export const unifiedLogin = catchAsync(
 
       if (!professional.isVerified) {
         return next(
-          new AppError('Account not verified. Please verify your email.', 401),
+          new AppError(
+            'Your email address has not been verified yet. Enter the code we sent you to finish creating your account.',
+            403,
+            'ACCOUNT_NOT_VERIFIED',
+            { professionalId: professional.id, email: professional.email },
+          ),
+        );
+      }
+
+      if (isProfessionalSignupIncomplete(professional)) {
+        return next(
+          new AppError(SIGNUP_INCOMPLETE_MESSAGE, 403, SIGNUP_INCOMPLETE_CODE, {
+            professionalId: professional.id,
+            email: professional.email,
+            profession: professional.profession,
+            registrationStep: professional.registrationStep,
+          }),
         );
       }
 
@@ -68,7 +90,16 @@ export const unifiedLogin = catchAsync(
 
       if (!recruiter.isVerified) {
         return next(
-          new AppError('Email not verified. Please verify your email.', 401),
+          new AppError(
+            'Your email address has not been verified yet. Enter the code we sent you to finish creating your account.',
+            403,
+            'ACCOUNT_NOT_VERIFIED',
+            {
+              recruiterId: recruiter.id,
+              email: recruiter.email,
+              role: recruiter.role,
+            },
+          ),
         );
       }
 
@@ -78,6 +109,17 @@ export const unifiedLogin = catchAsync(
             `Your account is currently ${recruiter.status.toLowerCase()}. Please contact support.`,
             403,
           ),
+        );
+      }
+
+      if (isRecruiterSignupIncomplete(recruiter)) {
+        return next(
+          new AppError(SIGNUP_INCOMPLETE_MESSAGE, 403, SIGNUP_INCOMPLETE_CODE, {
+            recruiterId: recruiter.id,
+            email: recruiter.email,
+            role: recruiter.role,
+            registrationStep: recruiter.registrationStep,
+          }),
         );
       }
 

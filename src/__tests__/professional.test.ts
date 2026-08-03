@@ -325,4 +325,109 @@ describe('Professional Flow E2E Tests', () => {
       expect(res.status).toBe(401);
     });
   });
+
+  describe('Login with an incomplete signup', () => {
+    const abandonedEmail = `prof_abandoned_${Date.now()}@example.com`;
+    const abandonedPassword = 'Password123!';
+    let abandonedId: string;
+
+    beforeAll(async () => {
+      const res = await request(app).post('/api/professional/register').send({
+        firstName: 'Left',
+        lastName: 'Midway',
+        email: abandonedEmail,
+        password: abandonedPassword,
+      });
+      abandonedId = res.body.data.professionalId;
+      // Never verifies the OTP — simulates a user who missed or lost the code.
+    });
+
+    afterAll(async () => {
+      if (abandonedId) {
+        await prisma.professional.delete({ where: { id: abandonedId } });
+      }
+    });
+
+    it('login returns ACCOUNT_NOT_VERIFIED with enough data to resume at the OTP step, not a dead-end error', async () => {
+      const res = await request(app).post('/api/professional/login').send({
+        email: abandonedEmail,
+        password: abandonedPassword,
+      });
+
+      // 403 not 401: the client tears down local storage on a login 401, which
+      // would wipe the ids the resume needs.
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe('ACCOUNT_NOT_VERIFIED');
+      // The resume fields sit under `data`, one level below `code` — the client
+      // reads them from there.
+      expect(res.body.data).toEqual({
+        professionalId: abandonedId,
+        email: abandonedEmail,
+      });
+    });
+
+    it('the resumed OTP step actually works: resend then verify with the fresh code', async () => {
+      const resendRes = await request(app)
+        .post('/api/professional/resend-otp')
+        .send({ email: abandonedEmail });
+      expect(resendRes.status).toBe(200);
+
+      const stored = await prisma.professional.findUnique({
+        where: { id: abandonedId },
+        select: { otpCode: true },
+      });
+
+      const verifyRes = await request(app)
+        .post('/api/professional/verify-otp')
+        .send({ professionalId: abandonedId, code: stored?.otpCode });
+
+      expect(verifyRes.status).toBe(200);
+    });
+
+    it('login still resumes the signup after email verification, since the rest of the wizard is unfinished', async () => {
+      const res = await request(app).post('/api/professional/login').send({
+        email: abandonedEmail,
+        password: abandonedPassword,
+      });
+
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe('SIGNUP_INCOMPLETE');
+      expect(res.body.data.professionalId).toBe(abandonedId);
+      // Step 2 = email verified; profession/photo/role still to go.
+      expect(res.body.data.registrationStep).toBe(2);
+      expect(res.body.token).toBeUndefined();
+    });
+
+    it('logs in normally once the final signup step is done', async () => {
+      const roleRes = await request(app).patch('/api/professional/role').send({
+        professionalId: abandonedId,
+        subcategory: 'Deck Officer',
+      });
+      expect(roleRes.status).toBe(200);
+
+      const loginRes = await request(app).post('/api/professional/login').send({
+        email: abandonedEmail,
+        password: abandonedPassword,
+      });
+      expect(loginRes.status).toBe(200);
+      expect(loginRes.body.token).toBeDefined();
+    });
+
+    it('does not push an admin-approved account back into signup, whatever its step', async () => {
+      // Accounts created outside the wizard (seeded, imported, admin-made) sit
+      // on a low step while being perfectly usable — they must still log in.
+      await prisma.professional.update({
+        where: { id: abandonedId },
+        data: { registrationStep: 1, status: 'VERIFIED' },
+      });
+
+      const res = await request(app).post('/api/professional/login').send({
+        email: abandonedEmail,
+        password: abandonedPassword,
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.token).toBeDefined();
+    });
+  });
 });

@@ -24,6 +24,7 @@ export const errorHandler = (
       status: 'error',
       message: err.message,
       ...(err.code && { code: err.code }),
+      ...(err.data && { data: err.data }),
     });
     return;
   }

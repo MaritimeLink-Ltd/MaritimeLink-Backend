@@ -21,7 +21,10 @@ import {
   updateJobSchema,
   updateJobStatusSchema,
 } from '../validations/jobValidation.js';
-import { RECRUITER_FREE_ACTIVE_JOB_LIMIT } from '../utils/recruiterCapabilities.js';
+import {
+  RECRUITER_FREE_ACTIVE_JOB_LIMIT,
+  isJobPremiumActive,
+} from '../utils/recruiterCapabilities.js';
 
 const normalizeFieldValue = (value: unknown) => {
   if (value instanceof Date) return value.toISOString();
@@ -73,12 +76,15 @@ const resolveEffectiveJobStatus = <
 };
 
 /**
- * Non-Premium recruiters may only have one ACTIVE job listing at a time
- * (Free and Flex tiers both cap at 1 — Flex only unlocks per-listing features,
- * not additional concurrent listings). `excludeJobId` lets updateJobStatus
- * re-check without counting the job being activated against itself.
+ * Flex is pay-as-you-go: unlimited listings, but every listing beyond the one
+ * free slot has to carry its own paid 30-day Flex upgrade. So only *unpaid*
+ * active listings count against the cap — a live Flex listing never blocks the
+ * recruiter from posting the next one.
+ *
+ * @returns false when the recruiter is out of free slots and this listing needs
+ *          a Flex payment before it can go live.
  */
-const assertRecruiterCanActivateJob = async (
+const canRecruiterActivateJobForFree = async (
   recruiterId: string,
   excludeJobId?: string,
 ) => {
@@ -87,24 +93,28 @@ const assertRecruiterCanActivateJob = async (
     select: { tier: true },
   });
 
-  if (recruiter?.tier === 'PREMIUM') return;
+  if (recruiter?.tier === 'PREMIUM') return true;
 
-  const activeJobCount = await prisma.job.count({
+  const unpaidActiveJobCount = await prisma.job.count({
     where: {
       recruiterId,
       status: JobStatus.ACTIVE,
       ...(excludeJobId ? { id: { not: excludeJobId } } : {}),
+      // Anything without a live Flex upgrade is an unpaid listing.
+      OR: [
+        { isPremiumListing: false },
+        { premiumListingExpiresAt: null },
+        { premiumListingExpiresAt: { lte: new Date() } },
+      ],
     },
   });
 
-  if (activeJobCount >= RECRUITER_FREE_ACTIVE_JOB_LIMIT) {
-    throw new AppError(
-      'Your plan allows only 1 active job listing at a time. Upgrade to Premium Recruiter for unlimited active listings.',
-      403,
-      'RECRUITER_JOB_LIMIT',
-    );
-  }
+  return unpaidActiveJobCount < RECRUITER_FREE_ACTIVE_JOB_LIMIT;
 };
+
+/** Message shown when the free slot is used and the listing must be paid for. */
+const FLEX_PAYMENT_REQUIRED_MESSAGE =
+  'Your free listing slot is already in use. Pay the Flex fee for this listing to publish it for 30 days, or upgrade to Premium Recruiter for unlimited active listings.';
 
 /**
  * Create a new job post
@@ -121,14 +131,19 @@ export const createJob = catchAsync(
 
     const isAdmin = isPlatformAdminRole(userRole);
 
-    if (!isAdmin && validatedData.status === JobStatus.ACTIVE) {
-      await assertRecruiterCanActivateJob(userId);
-    }
+    // Out of free slots, the job is still created — as a draft the recruiter can
+    // pay for. Refusing to create it would leave nothing to attach a Flex
+    // payment to, which is what locked Flex accounts to a single listing.
+    const requiresFlexPayment =
+      !isAdmin &&
+      validatedData.status === JobStatus.ACTIVE &&
+      !(await canRecruiterActivateJobForFree(userId));
 
     const { closingDate, ...jobData } = validatedData;
     const job = await prisma.job.create({
       data: {
         ...jobData,
+        status: requiresFlexPayment ? JobStatus.DRAFT : jobData.status,
         closingDate: closingDate ? new Date(closingDate) : null,
         adminId: isAdmin ? userId : null,
         recruiterId: !isAdmin ? userId : null,
@@ -158,7 +173,13 @@ export const createJob = catchAsync(
 
     res.status(201).json({
       status: 'success',
-      data: { job },
+      ...(requiresFlexPayment
+        ? {
+            message: FLEX_PAYMENT_REQUIRED_MESSAGE,
+            code: 'FLEX_PAYMENT_REQUIRED',
+          }
+        : {}),
+      data: { job, requiresFlexPayment },
     });
   },
 );
@@ -468,9 +489,19 @@ export const updateJobStatus = catchAsync(
       !isPlatformAdminRole(userRole) &&
       status === JobStatus.ACTIVE &&
       job.status !== JobStatus.ACTIVE &&
-      job.recruiterId
+      job.recruiterId &&
+      // A listing that already carries a live Flex upgrade is paid for and may
+      // always be republished within its 30 days.
+      !isJobPremiumActive(job) &&
+      !(await canRecruiterActivateJobForFree(job.recruiterId, job.id))
     ) {
-      await assertRecruiterCanActivateJob(job.recruiterId, job.id);
+      return next(
+        new AppError(
+          FLEX_PAYMENT_REQUIRED_MESSAGE,
+          403,
+          'FLEX_PAYMENT_REQUIRED',
+        ),
+      );
     }
 
     const updatedJob = await prisma.job.update({
@@ -513,6 +544,25 @@ export const updateJob = catchAsync(
 
     if (!userId || !canManageJob(job, userId, userRole)) {
       return next(new AppError('Unauthorized', 403));
+    }
+
+    // Editing must not become a way around the per-listing fee: publishing via
+    // an update is held to the same rule as createJob / updateJobStatus.
+    if (
+      !isPlatformAdminRole(userRole) &&
+      validatedData.status === JobStatus.ACTIVE &&
+      job.status !== JobStatus.ACTIVE &&
+      job.recruiterId &&
+      !isJobPremiumActive(job) &&
+      !(await canRecruiterActivateJobForFree(job.recruiterId, job.id))
+    ) {
+      return next(
+        new AppError(
+          FLEX_PAYMENT_REQUIRED_MESSAGE,
+          403,
+          'FLEX_PAYMENT_REQUIRED',
+        ),
+      );
     }
 
     const { closingDate } = validatedData;

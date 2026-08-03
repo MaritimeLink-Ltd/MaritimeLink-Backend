@@ -84,7 +84,11 @@ router.get('/notifications', adminDashboardController.getAdminNotifications);
  * /api/admin/dashboard/revenue:
  *   get:
  *     summary: Step 4 - Get Revenue and Financial Overview
- *     description: Retrieve all financial metrics including total revenue, growth, and user type breakdown.
+ *     description: >
+ *       Subscription revenue (professionals + recruiters, monthly recurring, sourced
+ *       from Stripe) plus the commission-based training-provider figures for the
+ *       current month. `overview.source` is `unavailable` when Stripe could not be
+ *       reached, in which case subscriber counts are still returned but revenue is 0.
  *     tags: [Admin Dashboard]
  *     security:
  *       - bearerAuth: []
@@ -97,25 +101,27 @@ router.get('/notifications', adminDashboardController.getAdminNotifications);
  *               status: "success"
  *               data:
  *                 overview:
+ *                   totalRevenue: 4250
+ *                   totalSubscribers: 1250
  *                   activeSubscriptions: 1250
- *                   totalRevenue: 425000
- *                   growth: "+12.5%"
- *                 breakdown:
+ *                   currency: "GBP"
+ *                   interval: "month"
+ *                   source: "stripe"
+ *                 subscriptions:
  *                   professionals:
- *                     amount: 125000
- *                     active: 1000
- *                     growth: "+8%"
+ *                     subscribers: 1200
+ *                     revenue: 1250
  *                   recruiters:
- *                     amount: 300000
- *                     active: 50
- *                     growth: "+15%"
+ *                     subscribers: 50
+ *                     revenue: 3000
  *                 training:
- *                   totalThisMonth: 14250
+ *                   period: "This Month"
+ *                   commissionRevenue: 14250
  *                   growth: "+3.2%"
- *                   sources:
- *                     courseSales: 8450
- *                     pendingPayouts: 1200
- *                     refunds: 0
+ *                   grossSales: 8450
+ *                   costOfSales: 7350
+ *                   pendingPayouts: 1200
+ *                   refunds: 0
  */
 router.get('/revenue', adminDashboardController.getRevenueOverview);
 

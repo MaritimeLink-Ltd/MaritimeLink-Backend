@@ -44,6 +44,20 @@ describe('Recruiter subscription gating (Free / Flex / Premium)', () => {
     status,
   });
 
+  /** Same shape as `jobPayload`, typed for direct prisma writes. */
+  const paidFlexListingData = (title: string, description: string) => ({
+    title,
+    location: 'Global',
+    category: 'OFFICER' as const,
+    contractType: 'PERMANENT' as const,
+    salary: '$1000/mo',
+    description,
+    status: 'ACTIVE' as const,
+    recruiterId,
+    isPremiumListing: true,
+    premiumListingExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+  });
+
   beforeAll(async () => {
     const hashedPassword = await bcrypt.hash(password, 12);
     const recruiter = await prisma.recruiter.create({
@@ -102,14 +116,67 @@ describe('Recruiter subscription gating (Free / Flex / Premium)', () => {
     jobIds.push(res.body.data.job.id);
   });
 
-  it('blocks a Free recruiter from a 2nd simultaneous active job listing', async () => {
+  it('holds a 2nd listing as a draft that needs its own Flex payment', async () => {
     const res = await request(app)
       .post('/api/recruiter/jobs')
       .set('Authorization', `Bearer ${recruiterToken}`)
       .send(jobPayload('Gating Job Two', 'ACTIVE'));
 
-    expect(res.status).toBe(403);
-    expect(res.body.code).toBe('RECRUITER_JOB_LIMIT');
+    // Created rather than refused: there has to be a job for the Flex fee to
+    // attach to, otherwise the account is locked to a single listing.
+    expect(res.status).toBe(201);
+    expect(res.body.code).toBe('FLEX_PAYMENT_REQUIRED');
+    expect(res.body.data.requiresFlexPayment).toBe(true);
+    expect(res.body.data.job.status).toBe('DRAFT');
+    jobIds.push(res.body.data.job.id);
+  });
+
+  it('does not count a paid Flex listing against the free active-listing slot', async () => {
+    // Park the free listing so the only ACTIVE job left is a paid Flex one.
+    await prisma.job.update({
+      where: { id: jobIds[0] },
+      data: { status: 'DRAFT' },
+    });
+
+    const paidListing = await prisma.job.create({
+      data: paidFlexListingData(
+        'Gating Job Paid Flex',
+        'Paid Flex listing for the free-slot accounting test.',
+      ),
+    });
+    jobIds.push(paidListing.id);
+
+    try {
+      const res = await request(app)
+        .post('/api/recruiter/jobs')
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .send(jobPayload('Gating Job Three', 'ACTIVE'));
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.requiresFlexPayment).toBe(false);
+      expect(res.body.data.job.status).toBe('ACTIVE');
+      jobIds.push(res.body.data.job.id);
+
+      // ...and that new free listing now occupies the slot again.
+      const blocked = await request(app)
+        .post('/api/recruiter/jobs')
+        .set('Authorization', `Bearer ${recruiterToken}`)
+        .send(jobPayload('Gating Job Four', 'ACTIVE'));
+
+      expect(blocked.status).toBe(201);
+      expect(blocked.body.data.requiresFlexPayment).toBe(true);
+      jobIds.push(blocked.body.data.job.id);
+    } finally {
+      // Restore the fixture the rest of the suite expects.
+      await prisma.job.updateMany({
+        where: { id: { in: jobIds.slice(1) } },
+        data: { status: 'DRAFT' },
+      });
+      await prisma.job.update({
+        where: { id: jobIds[0] },
+        data: { status: 'ACTIVE' },
+      });
+    }
   });
 
   it('still allows creating a DRAFT job (not counted against the active-job limit)', async () => {
@@ -423,16 +490,53 @@ describe('Recruiter subscription gating (Free / Flex / Premium)', () => {
     }
   });
 
-  it('a Flex-active listing unlocks View Resume for ANY candidate (not just applicants), per the pricing doc — but Document Wallet stays applicant-only', async () => {
-    // professionalIds[6] never applied to any of this recruiter's jobs.
+  it('a Flex listing does NOT unlock View Resume for candidates outside it', async () => {
+    // professionalIds[6] never applied to this recruiter's jobs and does not
+    // match them either — Flex buys the listing, not the candidate pool.
     const res = await request(app)
       .get(`/api/recruiter/professionals/${professionalIds[6]}`)
       .set('Authorization', `Bearer ${recruiterToken}`);
 
     expect(res.status).toBe(200);
-    expect(res.body.data.access.viewResume).toBe(true);
+    expect(res.body.data.access.viewResume).toBe(false);
     expect(res.body.data.access.viewDocumentWallet).toBe(false);
     expect(res.body.data.professional.documents).toEqual([]);
+  });
+
+  it('unlocks View Resume for a candidate the platform matched to a paid Flex listing', async () => {
+    const matchJob = await prisma.job.create({
+      data: paidFlexListingData(
+        'Gating Job Flex Match',
+        'Paid Flex listing used for the matched-candidate test.',
+      ),
+    });
+    jobIds.push(matchJob.id);
+
+    // Same category as the listing, which is what the matcher scores on.
+    await prisma.professional.update({
+      where: { id: professionalIds[6] },
+      data: { profession: 'OFFICER' },
+    });
+
+    try {
+      const res = await request(app)
+        .get(`/api/recruiter/professionals/${professionalIds[6]}`)
+        .set('Authorization', `Bearer ${recruiterToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.access.viewResume).toBe(true);
+      // A match is not an application, so the wallet stays locked.
+      expect(res.body.data.access.viewDocumentWallet).toBe(false);
+    } finally {
+      await prisma.professional.update({
+        where: { id: professionalIds[6] },
+        data: { profession: null },
+      });
+      await prisma.job.update({
+        where: { id: matchJob.id },
+        data: { status: 'DRAFT' },
+      });
+    }
   });
 
   it('professional membership plan list excludes recruiter Stripe products', async () => {

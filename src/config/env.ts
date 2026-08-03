@@ -49,7 +49,10 @@ const envSchema = z.object({
   GEMINI_API_KEY: z.string().optional(),
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),
+  /** Only needed for plain SMS sends; phone OTP uses Verify instead. */
   TWILIO_PHONE_NUMBER: z.string().optional(),
+  /** Twilio Verify service (VA...) used for phone OTP — needs no purchased number. */
+  TWILIO_VERIFY_SERVICE_SID: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

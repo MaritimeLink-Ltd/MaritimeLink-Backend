@@ -439,4 +439,165 @@ describe('Recruiter & Trainer Flow E2E Tests', () => {
       expect(res.status).toBe(400);
     });
   });
+
+  describe('Login with an incomplete signup', () => {
+    const abandonedEmail = `rec_abandoned_${Date.now()}@example.com`;
+    const abandonedPassword = 'Password123!';
+    let abandonedId: string;
+
+    beforeAll(async () => {
+      const res = await request(app).post('/api/recruiter/register').send({
+        email: abandonedEmail,
+        password: abandonedPassword,
+        confirmPassword: abandonedPassword,
+        role: 'TRAINING_AGENT',
+      });
+      abandonedId = res.body.data.recruiterId;
+      // Never verifies the OTP — simulates a user who missed or lost the code.
+      // Covers Training Agent too: it shares this login handler with Recruiter.
+    });
+
+    afterAll(async () => {
+      if (abandonedId) {
+        await prisma.recruiter
+          .delete({ where: { id: abandonedId } })
+          .catch(() => {});
+      }
+    });
+
+    it('login returns ACCOUNT_NOT_VERIFIED with enough data to resume at the OTP step, not a dead-end error', async () => {
+      const res = await request(app).post('/api/recruiter/login').send({
+        email: abandonedEmail,
+        password: abandonedPassword,
+      });
+
+      // 403 not 401: the client tears down local storage on a login 401, which
+      // would wipe the ids the resume needs.
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe('ACCOUNT_NOT_VERIFIED');
+      expect(res.body.data).toEqual({
+        recruiterId: abandonedId,
+        email: abandonedEmail,
+        role: 'TRAINING_AGENT',
+      });
+    });
+
+    it('the resumed OTP step actually works: resend then verify with the fresh code', async () => {
+      const resendRes = await request(app)
+        .post('/api/recruiter/resend-otp')
+        .send({ email: abandonedEmail });
+      expect(resendRes.status).toBe(200);
+
+      const stored = await prisma.recruiter.findUnique({
+        where: { id: abandonedId },
+        select: { otpCode: true },
+      });
+
+      const verifyRes = await request(app)
+        .post('/api/recruiter/verify-otp')
+        .send({ recruiterId: abandonedId, code: stored?.otpCode });
+
+      expect(verifyRes.status).toBe(200);
+    });
+
+    it('login resumes the signup after email verification, rather than issuing a token for a half-built account', async () => {
+      const res = await request(app).post('/api/recruiter/login').send({
+        email: abandonedEmail,
+        password: abandonedPassword,
+      });
+
+      expect(res.status).toBe(403);
+      expect(res.body.code).toBe('SIGNUP_INCOMPLETE');
+      expect(res.body.data.recruiterId).toBe(abandonedId);
+      expect(res.body.data.role).toBe('TRAINING_AGENT');
+      // Step 2 = email verified; personal info, phone, company and compliance
+      // are all still to go — this is the case that was landing on a dashboard.
+      expect(res.body.data.registrationStep).toBe(2);
+      expect(res.body.token).toBeUndefined();
+    });
+
+    it('reports each later step so the client can resume at the right page', async () => {
+      for (const step of [3, 4, 5]) {
+        await prisma.recruiter.update({
+          where: { id: abandonedId },
+          data: { registrationStep: step },
+        });
+
+        const res = await request(app).post('/api/recruiter/login').send({
+          email: abandonedEmail,
+          password: abandonedPassword,
+        });
+
+        expect(res.status).toBe(403);
+        expect(res.body.code).toBe('SIGNUP_INCOMPLETE');
+        expect(res.body.data.registrationStep).toBe(step);
+      }
+    });
+
+    it('logs in normally once the wizard is complete', async () => {
+      await prisma.recruiter.update({
+        where: { id: abandonedId },
+        data: { registrationStep: 6 },
+      });
+
+      const res = await request(app).post('/api/recruiter/login').send({
+        email: abandonedEmail,
+        password: abandonedPassword,
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.token).toBeDefined();
+    });
+
+    it('does not push an admin-approved account back into signup, whatever its step', async () => {
+      // Accounts created outside the wizard (seeded, imported, admin-made) sit
+      // on a low step while being perfectly usable — they must still log in.
+      await prisma.recruiter.update({
+        where: { id: abandonedId },
+        data: { registrationStep: 1, status: 'APPROVED' },
+      });
+
+      const res = await request(app).post('/api/recruiter/login').send({
+        email: abandonedEmail,
+        password: abandonedPassword,
+      });
+
+      expect(res.status).toBe(200);
+      expect(res.body.token).toBeDefined();
+    });
+
+    it('resumes a RECRUITMENT_AGENT the same way, since the client routes on the role', async () => {
+      const agentEmail = `rec_abandoned_agent_${Date.now()}@example.com`;
+      const registerRes = await request(app)
+        .post('/api/recruiter/register')
+        .send({
+          email: agentEmail,
+          password: abandonedPassword,
+          confirmPassword: abandonedPassword,
+          role: 'RECRUITMENT_AGENT',
+        });
+      const agentId = registerRes.body.data.recruiterId;
+
+      try {
+        await prisma.recruiter.update({
+          where: { id: agentId },
+          data: { isVerified: true, registrationStep: 3 },
+        });
+
+        const res = await request(app).post('/api/recruiter/login').send({
+          email: agentEmail,
+          password: abandonedPassword,
+        });
+
+        expect(res.status).toBe(403);
+        expect(res.body.code).toBe('SIGNUP_INCOMPLETE');
+        expect(res.body.data.role).toBe('RECRUITMENT_AGENT');
+        expect(res.body.data.registrationStep).toBe(3);
+      } finally {
+        await prisma.recruiter
+          .delete({ where: { id: agentId } })
+          .catch(() => {});
+      }
+    });
+  });
 });

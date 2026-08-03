@@ -26,6 +26,11 @@ import {
   professionalKycLoginSelect,
   mapKycForLogin,
 } from '../utils/kycLoginPayload.js';
+import {
+  isProfessionalSignupIncomplete,
+  SIGNUP_INCOMPLETE_CODE,
+  SIGNUP_INCOMPLETE_MESSAGE,
+} from '../utils/signupProgress.js';
 import { stripeService } from '../services/stripeService.js';
 import {
   describeRestriction,
@@ -648,8 +653,19 @@ export const login = catchAsync(
     }
 
     if (!professional.isVerified) {
+      // isVerified only flips true once step 2 (email OTP) completes, so an
+      // unverified account is always sitting at step 1 — send the frontend
+      // what it needs to drop the user straight back on the OTP screen
+      // instead of a dead-end error.
+      // 403 rather than 401: the client treats a login 401 as a dead session and
+      // tears down local storage, which would wipe the ids the resume needs.
       return next(
-        new AppError('Account not verified. Please verify your email.', 401),
+        new AppError(
+          'Your email address has not been verified yet. Enter the code we sent you to finish creating your account.',
+          403,
+          'ACCOUNT_NOT_VERIFIED',
+          { professionalId: professional.id, email: professional.email },
+        ),
       );
     }
 
@@ -661,6 +677,25 @@ export const login = catchAsync(
     });
     if (restriction) {
       return next(new AppError(restriction, 403));
+    }
+
+    // Signed up but never finished the wizard (profession, profile photo,
+    // role). Send the client the step they stopped at so it can resume there
+    // rather than dropping a half-built account on the dashboard.
+    if (
+      isProfessionalSignupIncomplete({
+        status: effectiveStatus,
+        registrationStep: professional.registrationStep,
+      })
+    ) {
+      return next(
+        new AppError(SIGNUP_INCOMPLETE_MESSAGE, 403, SIGNUP_INCOMPLETE_CODE, {
+          professionalId: professional.id,
+          email: professional.email,
+          profession: professional.profession,
+          registrationStep: professional.registrationStep,
+        }),
+      );
     }
 
     const token = jwt.sign({ id: professional.id }, env.JWT_SECRET, {

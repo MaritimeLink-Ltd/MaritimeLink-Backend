@@ -259,7 +259,7 @@ export const sendAccountSuspendedEmail = async (params: {
               'danger',
             )
           : ''
-      }${durationHtml}${emailParagraph(`Contact us at ${supportEmailLink()} if you believe this is a mistake or need more information.`)}`,
+      }${durationHtml}${emailParagraph(`Contact us at ${supportEmailLink()} if you need to appeal this decision.`)}`,
     }),
   );
 };

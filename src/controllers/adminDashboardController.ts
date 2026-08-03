@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { prisma } from '../config/prisma.js';
-import { payoutFor } from '../config/commission.js';
+import { commissionFor, payoutFor } from '../config/commission.js';
+import { stripeService } from '../services/stripeService.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { CustomRequest } from '../types/index.js';
 import {
@@ -10,6 +11,20 @@ import {
   RecruiterStatus,
   VerificationStatus,
 } from '../generated/client/index.js';
+
+const round2 = (value: number) =>
+  Math.round((value + Number.EPSILON) * 100) / 100;
+
+/**
+ * Month-over-month change as a signed percentage string, or `null` when there is
+ * no prior figure to compare against (growth from zero is not a percentage).
+ */
+const percentGrowth = (current: number, previous: number): string | null => {
+  if (!previous) return null;
+  const change = ((current - previous) / previous) * 100;
+  const rounded = Math.round(change * 10) / 10;
+  return `${rounded >= 0 ? '+' : ''}${rounded}%`;
+};
 
 const statusColor = (status: string) => {
   if (status === 'SUCCESS' || status === 'SUCCEEDED') {
@@ -285,67 +300,159 @@ export const getPlatformActivity = catchAsync(
  */
 export const getRevenueOverview = catchAsync(
   async (req: CustomRequest, res: Response) => {
-    // Aggregate data from paid course bookings
-    const [revenueAgg, paidBookings] = await Promise.all([
-      prisma.courseBooking.aggregate({
-        where: { paymentStatus: 'SUCCEEDED' },
-        _sum: {
-          amountPaid: true,
-          platformFee: true,
-          trainerPayout: true,
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const previousMonthStart = new Date(
+      now.getFullYear(),
+      now.getMonth() - 1,
+      1,
+    );
+
+    const bookingSelect = {
+      amountPaid: true,
+      platformFee: true,
+      trainerPayout: true,
+    };
+
+    const [
+      monthBookings,
+      previousMonthBookings,
+      outstandingBookings,
+      monthRefunds,
+      proProfessionals,
+      premiumRecruiters,
+    ] = await Promise.all([
+      // Training-provider revenue is commission on course bookings, reported for
+      // the current month.
+      prisma.courseBooking.findMany({
+        where: {
+          paymentStatus: PaymentStatus.SUCCEEDED,
+          paidAt: { gte: monthStart },
         },
+        select: bookingSelect,
       }),
       prisma.courseBooking.findMany({
-        where: { paymentStatus: 'SUCCEEDED' },
-        select: {
-          amountPaid: true,
-          trainerPayout: true,
+        where: {
+          paymentStatus: PaymentStatus.SUCCEEDED,
+          paidAt: { gte: previousMonthStart, lt: monthStart },
         },
+        select: bookingSelect,
       }),
+      // Payouts still owed are not month-scoped — they are whatever is unsettled.
+      prisma.courseBooking.findMany({
+        where: { paymentStatus: PaymentStatus.SUCCEEDED },
+        select: { amountPaid: true, trainerPayout: true },
+      }),
+      prisma.courseBooking.aggregate({
+        where: {
+          paymentStatus: PaymentStatus.REFUNDED,
+          updatedAt: { gte: monthStart },
+        },
+        _sum: { amountPaid: true },
+      }),
+      prisma.professional.count({ where: { tier: 'PRO' } }),
+      prisma.recruiter.count({ where: { tier: 'PREMIUM' } }),
     ]);
 
-    // Real active subscriptions check (users on a paid tier)
-    const proPros = await prisma.professional.count({ where: { tier: 'PRO' } });
-    const proRecs = await prisma.recruiter.count({
-      where: { tier: 'PREMIUM' },
-    });
+    const sumCommission = (
+      bookings: { amountPaid: unknown; platformFee: unknown }[],
+    ) =>
+      bookings.reduce(
+        (sum, b) =>
+          sum +
+          (b.platformFee != null
+            ? Number(b.platformFee)
+            : commissionFor(Number(b.amountPaid))),
+        0,
+      );
 
-    const grossRevenue = Number(revenueAgg._sum.amountPaid || 0);
-    const platformRevenue = Number(revenueAgg._sum.platformFee || 0);
-    const pendingPayouts = paidBookings
+    const commissionRevenue = sumCommission(monthBookings);
+    const previousCommissionRevenue = sumCommission(previousMonthBookings);
+    const grossSales = monthBookings.reduce(
+      (sum, b) => sum + Number(b.amountPaid),
+      0,
+    );
+    // What the sales cost us: the providers' share of this month's bookings.
+    const costOfSales = monthBookings.reduce(
+      (sum, b) =>
+        sum +
+        (b.trainerPayout != null
+          ? Number(b.trainerPayout)
+          : payoutFor(Number(b.amountPaid))),
+      0,
+    );
+    const pendingPayouts = outstandingBookings
       .filter((b) => !b.trainerPayout || Number(b.trainerPayout) === 0)
       .reduce((sum, b) => sum + payoutFor(Number(b.amountPaid)), 0);
+    const refunds = Number(monthRefunds._sum.amountPaid || 0);
+
+    // Subscription revenue lives in Stripe, not in our tables. If Stripe is
+    // unreachable we still report the subscriber counts we own rather than
+    // failing the whole dashboard card.
+    let subscriptionRevenueSource: 'stripe' | 'unavailable' = 'stripe';
+    let membershipRevenue = {
+      professionals: { subscribers: proProfessionals, revenue: 0 },
+      recruiters: { subscribers: premiumRecruiters, revenue: 0 },
+      currency: 'GBP',
+    };
+    try {
+      const stripeSummary = await stripeService.summarizeMembershipRevenue();
+      membershipRevenue = {
+        // Counts stay ours — a subscriber is someone holding a paid tier here.
+        professionals: {
+          subscribers: proProfessionals,
+          revenue: stripeSummary.professionals.revenue,
+        },
+        recruiters: {
+          subscribers: premiumRecruiters,
+          revenue: stripeSummary.recruiters.revenue,
+        },
+        currency: stripeSummary.currency,
+      };
+    } catch (error) {
+      subscriptionRevenueSource = 'unavailable';
+      console.error('Failed to load Stripe membership revenue:', error);
+    }
+
+    const totalSubscriptionRevenue = round2(
+      membershipRevenue.professionals.revenue +
+        membershipRevenue.recruiters.revenue,
+    );
+    const totalSubscribers =
+      membershipRevenue.professionals.subscribers +
+      membershipRevenue.recruiters.subscribers;
 
     res.status(200).json({
       status: 'success',
       data: {
         overview: {
-          activeSubscriptions: proPros + proRecs,
-          // Platform earnings (what the platform has earned)
-          totalRevenue: platformRevenue,
-          growth: '+12.5%', // Growth still requires time-series calculation, keeping static for now
+          // Subscription revenue only: training providers are commission-based
+          // and reported separately below.
+          totalRevenue: totalSubscriptionRevenue,
+          totalSubscribers,
+          activeSubscriptions: totalSubscribers,
+          currency: membershipRevenue.currency,
+          interval: 'month',
+          source: subscriptionRevenueSource,
         },
-        breakdown: {
+        subscriptions: {
           professionals: {
-            amount: platformRevenue * 0.3,
-            active: proPros,
-            growth: '+8%',
+            subscribers: membershipRevenue.professionals.subscribers,
+            revenue: round2(membershipRevenue.professionals.revenue),
           },
           recruiters: {
-            amount: platformRevenue * 0.7,
-            active: proRecs,
-            growth: '+15%',
+            subscribers: membershipRevenue.recruiters.subscribers,
+            revenue: round2(membershipRevenue.recruiters.revenue),
           },
         },
         training: {
-          totalThisMonth: platformRevenue,
-          growth: '+3.2%',
-          sources: {
-            // Keep gross sales visible as a source metric.
-            courseSales: grossRevenue,
-            pendingPayouts,
-            refunds: 0,
-          },
+          period: 'This Month',
+          commissionRevenue: round2(commissionRevenue),
+          growth: percentGrowth(commissionRevenue, previousCommissionRevenue),
+          grossSales: round2(grossSales),
+          costOfSales: round2(costOfSales),
+          pendingPayouts: round2(pendingPayouts),
+          refunds: round2(refunds),
         },
       },
     });

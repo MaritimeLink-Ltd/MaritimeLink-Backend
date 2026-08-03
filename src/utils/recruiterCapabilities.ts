@@ -1,4 +1,8 @@
-/** Free Recruiter cap: max simultaneously active job listings. */
+/**
+ * Free Recruiter cap: max simultaneously active *unpaid* job listings.
+ * Flex listings are bought per job and are excluded from this count, so a Flex
+ * recruiter can run unlimited listings as long as each one is paid for.
+ */
 export const RECRUITER_FREE_ACTIVE_JOB_LIMIT = 1;
 
 /** Free Recruiter cap: max applications accepted per non-premium job listing. */
@@ -34,16 +38,22 @@ export interface RecruiterFeatureAccess {
  * Computes what a recruiter can do for a given job context.
  * Premium Recruiter (recurring subscription) unlocks everything everywhere.
  * A Free recruiter only gets the Flex-tier feature set on a specific job that
- * has an active (unexpired) Flex listing upgrade — except `viewResume`, which
- * per the pricing doc is NOT scoped to "candidates who applied" for Flex (only
- * `viewDocumentWallet` carries that restriction), so it also unlocks whenever
- * the recruiter has *any* currently-active Flex listing, not just this job's.
+ * has an active (unexpired) Flex listing upgrade.
+ *
+ * Flex is deliberately NOT a licence to browse the candidate pool: a Flex
+ * recruiter reaches a candidate's resume only through a listing they have paid
+ * for — either the candidate applied to that listing, or the matching engine
+ * matched them to it. Blanket resume access stays a Premium feature.
  */
 export function getRecruiterFeatureAccess(params: {
   recruiterTier: string | null | undefined;
   job?: RecruiterListingLike | null;
-  /** Does this recruiter have an active Flex listing on ANY job (not just `job`)? */
-  hasAnyActiveFlexListing?: boolean;
+  /**
+   * Has the candidate in context been matched by the platform to one of this
+   * recruiter's currently-active Flex listings? Only meaningful for the
+   * candidate-scoped endpoints; leave unset elsewhere.
+   */
+  candidateMatchedToActiveFlexListing?: boolean;
 }): RecruiterFeatureAccess {
   const isPremiumRecruiter =
     String(params.recruiterTier || 'FREE').toUpperCase() === 'PREMIUM';
@@ -63,14 +73,16 @@ export function getRecruiterFeatureAccess(params: {
   }
 
   const jobFlexActive = Boolean(params.job && isJobPremiumActive(params.job));
-  const anyFlexActive =
-    Boolean(params.hasAnyActiveFlexListing) || jobFlexActive;
 
   return {
     unlimitedApplications: jobFlexActive,
     smartMatching: jobFlexActive,
     inviteCandidates: jobFlexActive,
-    viewResume: anyFlexActive,
+    // Applicants on a paid listing, plus candidates the platform matched to one.
+    viewResume:
+      jobFlexActive || Boolean(params.candidateMatchedToActiveFlexListing),
+    // Wallet stays applicant-only: it needs the candidate to have applied to the
+    // paid listing, so a match alone is not enough.
     viewDocumentWallet: jobFlexActive,
     directMessagingBeforeApplication: false,
     csvExport: false,

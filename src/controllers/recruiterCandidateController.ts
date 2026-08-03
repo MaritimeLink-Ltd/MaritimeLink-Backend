@@ -14,7 +14,10 @@ import {
   buildSeaServiceExperience,
   getVesselTypes,
 } from '../utils/experienceUtils.js';
-import { scoreProfessionalForJob } from '../utils/jobMatching.js';
+import {
+  scoreProfessionalForJob,
+  JOB_MATCH_SCORE_THRESHOLD,
+} from '../utils/jobMatching.js';
 import { toPublicResumeBasics } from '../utils/candidateResumeBasics.js';
 import {
   notifyJobInvitation,
@@ -230,7 +233,7 @@ export const getMatchingCandidates = catchAsync(
       .filter((prof) => !excludedProfessionalIds.has(prof.id))
       .map((prof) => {
         const match = scoreProfessionalForJob(job, prof);
-        if (match.score < 35) return null;
+        if (match.score < JOB_MATCH_SCORE_THRESHOLD) return null;
 
         if (prof.applications?.some((app) => app.jobId === jobId)) {
           return null;
@@ -566,26 +569,40 @@ export const getCandidateProfile = catchAsync(
         applications[0]?.job ||
         null;
 
-      // "View Resume" isn't scoped to "candidates who applied" for Flex (only
-      // Document Wallet is) — so it unlocks off ANY currently-active Flex
-      // listing, not just one this specific candidate applied to.
-      let hasAnyActiveFlexListing = false;
-      if (String(recruiter?.tier || 'FREE').toUpperCase() !== 'PREMIUM') {
-        const activeFlexJob = await prisma.job.findFirst({
+      // Flex buys access to the candidates on a paid listing — not to the whole
+      // pool. When this candidate has not applied to a paid listing, they still
+      // qualify if the matching engine matches them to one of them.
+      let candidateMatchedToActiveFlexListing = false;
+      if (
+        String(recruiter?.tier || 'FREE').toUpperCase() !== 'PREMIUM' &&
+        !(bestJob && isJobPremiumActive(bestJob))
+      ) {
+        const activeFlexJobs = await prisma.job.findMany({
           where: {
             recruiterId,
+            status: JobStatus.ACTIVE,
             isPremiumListing: true,
             premiumListingExpiresAt: { gt: new Date() },
           },
-          select: { id: true },
+          select: {
+            title: true,
+            description: true,
+            location: true,
+            category: true,
+          },
         });
-        hasAnyActiveFlexListing = Boolean(activeFlexJob);
+
+        candidateMatchedToActiveFlexListing = activeFlexJobs.some(
+          (job) =>
+            scoreProfessionalForJob(job, professional).score >=
+            JOB_MATCH_SCORE_THRESHOLD,
+        );
       }
 
       access = getRecruiterFeatureAccess({
         recruiterTier: recruiter?.tier,
         job: bestJob,
-        hasAnyActiveFlexListing,
+        candidateMatchedToActiveFlexListing,
       });
     }
 

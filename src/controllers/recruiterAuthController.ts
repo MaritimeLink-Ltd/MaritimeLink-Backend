@@ -11,7 +11,13 @@ import {
   sendPhoneOTPEmail,
   sendPasswordResetEmail,
 } from '../services/emailService.js';
-import { sendSMS } from '../services/smsService.js';
+import {
+  sendSMS,
+  isPhoneVerifyConfigured,
+  startPhoneVerification,
+  checkPhoneVerification,
+  toE164,
+} from '../services/smsService.js';
 import {
   compareCompanyDetails,
   fetchGeminiCompanyDetails,
@@ -36,6 +42,11 @@ import {
   recruiterKycLoginSelect,
   mapKycForLogin,
 } from '../utils/kycLoginPayload.js';
+import {
+  isRecruiterSignupIncomplete,
+  SIGNUP_INCOMPLETE_CODE,
+  SIGNUP_INCOMPLETE_MESSAGE,
+} from '../utils/signupProgress.js';
 
 import {
   agentRegisterSchema,
@@ -174,13 +185,22 @@ export const setPersonalInfo = catchAsync(
       otherRole,
     } = validatedData;
 
-    // Generate Phone OTP
-    const phoneOtpCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const phoneOtpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    // With Twilio Verify the code lives on Twilio's side, so nothing is stored
+    // locally. The fallback below keeps local development (and the test suite)
+    // working without Twilio credentials.
+    const useVerify = isPhoneVerifyConfigured();
+    const phoneOtpCode = useVerify
+      ? null
+      : Math.floor(100000 + Math.random() * 900000).toString();
+    const phoneOtpExpiresAt = phoneOtpCode
+      ? new Date(Date.now() + 10 * 60 * 1000)
+      : null;
 
-    console.log(
-      `[LOCAL TEST OTP] Recruiter phone OTP for ${phoneCode}${phoneNumber}: ${phoneOtpCode}`,
-    );
+    if (phoneOtpCode) {
+      console.log(
+        `[LOCAL TEST OTP] Recruiter phone OTP for ${phoneCode}${phoneNumber}: ${phoneOtpCode}`,
+      );
+    }
 
     await prisma.recruiter.update({
       where: { id: recruiterId },
@@ -198,26 +218,31 @@ export const setPersonalInfo = catchAsync(
       },
     });
 
-    // Send OTP via SMS
-    const message = `Your MaritimeLink verification code is: ${phoneOtpCode}`;
-    try {
-      await sendSMS(phoneCode + phoneNumber, message);
-    } catch (error) {
-      console.error('Failed to send phone OTP SMS:', error);
-    }
-
-    // Fetch recruiter email to send OTP via email as requested
-    const recruiter = await prisma.recruiter.findUnique({
-      where: { id: recruiterId },
-      select: { email: true },
-    });
-
-    if (recruiter?.email) {
+    if (useVerify) {
+      // A delivery failure here is worth surfacing: there is no stored code to
+      // fall back on, so the user cannot continue without a resend.
+      await startPhoneVerification(toE164(phoneCode, phoneNumber));
+    } else {
+      const message = `Your MaritimeLink verification code is: ${phoneOtpCode}`;
       try {
-        await sendPhoneOTPEmail(recruiter.email, phoneOtpCode);
+        await sendSMS(phoneCode + phoneNumber, message);
       } catch (error) {
-        console.error('Failed to send phone OTP email:', error);
-        // We don't throw here to avoid breaking the registration flow
+        console.error('Failed to send phone OTP SMS:', error);
+      }
+
+      // Fetch recruiter email to send OTP via email as requested
+      const recruiter = await prisma.recruiter.findUnique({
+        where: { id: recruiterId },
+        select: { email: true },
+      });
+
+      if (recruiter?.email && phoneOtpCode) {
+        try {
+          await sendPhoneOTPEmail(recruiter.email, phoneOtpCode);
+        } catch (error) {
+          console.error('Failed to send phone OTP email:', error);
+          // We don't throw here to avoid breaking the registration flow
+        }
       }
     }
 
@@ -236,16 +261,38 @@ export const verifyPhone = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const { recruiterId, code } = req.body;
 
-    const recruiter = await prisma.recruiter.findFirst({
-      where: {
-        id: recruiterId,
-        phoneOtpCode: code,
-        phoneOtpExpiresAt: { gt: new Date() },
-      },
-    });
+    if (isPhoneVerifyConfigured()) {
+      const recruiter = await prisma.recruiter.findUnique({
+        where: { id: recruiterId },
+        select: { phoneCode: true, phoneNumber: true },
+      });
 
-    if (!recruiter) {
-      return next(new AppError('Invalid or expired phone OTP', 400));
+      if (!recruiter?.phoneCode || !recruiter.phoneNumber) {
+        return next(
+          new AppError('No phone number on file. Please complete step 3.', 400),
+        );
+      }
+
+      const approved = await checkPhoneVerification(
+        toE164(recruiter.phoneCode, recruiter.phoneNumber),
+        String(code ?? ''),
+      );
+
+      if (!approved) {
+        return next(new AppError('Invalid or expired phone OTP', 400));
+      }
+    } else {
+      const recruiter = await prisma.recruiter.findFirst({
+        where: {
+          id: recruiterId,
+          phoneOtpCode: code,
+          phoneOtpExpiresAt: { gt: new Date() },
+        },
+      });
+
+      if (!recruiter) {
+        return next(new AppError('Invalid or expired phone OTP', 400));
+      }
     }
 
     await prisma.recruiter.update({
@@ -680,8 +727,24 @@ export const login = catchAsync(
     }
 
     if (!recruiter.isVerified) {
+      // isVerified only flips true once step 2 (email OTP) completes, so an
+      // unverified account is always sitting at step 1 — send the frontend
+      // what it needs to drop the user straight back on the OTP screen
+      // instead of a dead-end error. Shared by both Recruiter and Training
+      // Agent logins, since they use the same account model and this handler.
+      // 403 rather than 401: the client treats a login 401 as a dead session and
+      // tears down local storage, which would wipe the ids the resume needs.
       return next(
-        new AppError('Email not verified. Please verify your email.', 401),
+        new AppError(
+          'Your email address has not been verified yet. Enter the code we sent you to finish creating your account.',
+          403,
+          'ACCOUNT_NOT_VERIFIED',
+          {
+            recruiterId: recruiter.id,
+            email: recruiter.email,
+            role: recruiter.role,
+          },
+        ),
       );
     }
 
@@ -700,6 +763,26 @@ export const login = catchAsync(
           'Your account is currently rejected. Please contact support.',
           403,
         ),
+      );
+    }
+
+    // Signed up but never finished the wizard (personal info, phone
+    // verification, company details, compliance). Send the client the step
+    // they stopped at so it can resume there rather than dropping a half-built
+    // account on the dashboard.
+    if (
+      isRecruiterSignupIncomplete({
+        status: effectiveStatus,
+        registrationStep: recruiter.registrationStep,
+      })
+    ) {
+      return next(
+        new AppError(SIGNUP_INCOMPLETE_MESSAGE, 403, SIGNUP_INCOMPLETE_CODE, {
+          recruiterId: recruiter.id,
+          email: recruiter.email,
+          role: recruiter.role,
+          registrationStep: recruiter.registrationStep,
+        }),
       );
     }
 
@@ -780,32 +863,48 @@ export const resendPhoneOTP = catchAsync(
       );
     }
 
-    const phoneOtpCode = Math.floor(100000 + Math.random() * 900000).toString();
-    const phoneOtpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    if (isPhoneVerifyConfigured()) {
+      // Twilio owns the code, so a stale local one must not stay valid.
+      await prisma.recruiter.update({
+        where: { id: recruiter.id },
+        data: { phoneOtpCode: null, phoneOtpExpiresAt: null },
+      });
 
-    await prisma.recruiter.update({
-      where: { id: recruiter.id },
-      data: { phoneOtpCode, phoneOtpExpiresAt },
-    });
+      // A failed resend is reported: there is nothing else to fall back on, and
+      // Twilio's own rate limiting comes back as a 429 the user can act on.
+      await startPhoneVerification(
+        toE164(recruiter.phoneCode, recruiter.phoneNumber),
+      );
+    } else {
+      const phoneOtpCode = Math.floor(
+        100000 + Math.random() * 900000,
+      ).toString();
+      const phoneOtpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-    console.log(
-      `[LOCAL TEST OTP] Resent phone OTP for ${recruiter.phoneCode}${recruiter.phoneNumber}: ${phoneOtpCode}`,
-    );
+      await prisma.recruiter.update({
+        where: { id: recruiter.id },
+        data: { phoneOtpCode, phoneOtpExpiresAt },
+      });
 
-    // Neither channel is allowed to fail the request — the code is already saved,
-    // and step 3 treats delivery the same way.
-    const message = `Your MaritimeLink verification code is: ${phoneOtpCode}`;
-    try {
-      await sendSMS(recruiter.phoneCode + recruiter.phoneNumber, message);
-    } catch (error) {
-      console.error('Failed to resend phone OTP SMS:', error);
-    }
+      console.log(
+        `[LOCAL TEST OTP] Resent phone OTP for ${recruiter.phoneCode}${recruiter.phoneNumber}: ${phoneOtpCode}`,
+      );
 
-    if (recruiter.email) {
+      // Neither channel is allowed to fail the request — the code is already saved,
+      // and step 3 treats delivery the same way.
+      const message = `Your MaritimeLink verification code is: ${phoneOtpCode}`;
       try {
-        await sendPhoneOTPEmail(recruiter.email, phoneOtpCode);
+        await sendSMS(recruiter.phoneCode + recruiter.phoneNumber, message);
       } catch (error) {
-        console.error('Failed to resend phone OTP email:', error);
+        console.error('Failed to resend phone OTP SMS:', error);
+      }
+
+      if (recruiter.email) {
+        try {
+          await sendPhoneOTPEmail(recruiter.email, phoneOtpCode);
+        } catch (error) {
+          console.error('Failed to resend phone OTP email:', error);
+        }
       }
     }
 

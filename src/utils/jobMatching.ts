@@ -90,6 +90,12 @@ type MatchableProfessional = {
   } | null;
 };
 
+/**
+ * Minimum score at which the platform treats a professional as matched to a job.
+ * Shared so the matches list and Flex resume access agree on "matched".
+ */
+export const JOB_MATCH_SCORE_THRESHOLD = 35;
+
 export const scoreProfessionalForJob = (
   job: MatchableJob,
   professional: MatchableProfessional,

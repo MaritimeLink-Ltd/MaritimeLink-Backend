@@ -3,7 +3,11 @@ import { env } from '../config/env.js';
 import { prisma } from '../config/prisma.js';
 import { COURSE_COMMISSION_RATE_PERCENT } from '../config/commission.js';
 import { logActivity } from './activityLogger.js';
-import { ActionStatus, ActorType } from '../generated/client/index.js';
+import {
+  ActionStatus,
+  ActorType,
+  JobStatus,
+} from '../generated/client/index.js';
 import { AppError } from '../utils/AppError.js';
 import {
   notifyCourseBookingPaymentSuccess,
@@ -43,6 +47,67 @@ export interface MembershipPlanOption {
   /** Tier stored on Professional after successful subscription */
   membershipTier: 'FREE' | 'PRO';
   popular: boolean;
+}
+
+export interface MembershipRevenueSummary {
+  professionals: { subscribers: number; revenue: number };
+  recruiters: { subscribers: number; revenue: number };
+  currency: string;
+}
+
+const MEMBERSHIP_REVENUE_PAGE_SIZE = 100;
+/** Safety valve so an admin dashboard request can never walk an unbounded Stripe list. */
+const MEMBERSHIP_REVENUE_MAX_PAGES = 20;
+
+const roundCurrency = (value: number): number =>
+  Math.round((value + Number.EPSILON) * 100) / 100;
+
+/**
+ * Which side of the platform a subscription belongs to. Checkout stamps
+ * `metadata.type` on the subscription; older subscriptions created before that
+ * fall back to the configured recruiter price.
+ */
+function membershipAudienceFor(
+  subscription: Stripe.Subscription,
+): 'professionals' | 'recruiters' | null {
+  const type = subscription.metadata?.type;
+  if (type === 'recruiter_membership') return 'recruiters';
+  if (type === 'membership') return 'professionals';
+
+  const priceIds = subscription.items.data.map((item) => item.price?.id);
+  if (priceIds.includes(env.STRIPE_RECRUITER_PREMIUM_PRICE_ID)) {
+    return 'recruiters';
+  }
+  if (
+    priceIds.some(
+      (id) =>
+        id &&
+        (id === env.STRIPE_MEMBERSHIP_PRO_PRICE_ID ||
+          id === env.STRIPE_MEMBERSHIP_PREMIUM_PRICE_ID),
+    )
+  ) {
+    return 'professionals';
+  }
+  return null;
+}
+
+/** A subscription item's charge normalised to a monthly figure. */
+function monthlyAmountFor(item: Stripe.SubscriptionItem): number {
+  const unitAmount = item.price?.unit_amount;
+  if (!unitAmount) return 0;
+
+  const amount = (unitAmount / 100) * (item.quantity ?? 1);
+  const recurring = item.price?.recurring;
+  if (!recurring) return amount;
+
+  const perMonth: Record<string, number> = {
+    day: 365 / 12,
+    week: 52 / 12,
+    month: 1,
+    year: 1 / 12,
+  };
+  const factor = perMonth[recurring.interval] ?? 1;
+  return (amount * factor) / (recurring.interval_count || 1);
 }
 
 const EXCLUDED_MEMBERSHIP_PRODUCT_NAMES = new Set(['course']);
@@ -505,6 +570,58 @@ export const stripeService = {
   },
 
   /**
+   * Monthly recurring revenue from live membership subscriptions, split by audience.
+   *
+   * Subscription revenue is not persisted anywhere in our database — only the
+   * resulting `tier` is — so Stripe is the only source that knows what each
+   * subscriber actually pays. Professionals can be on either membership plan
+   * (£19.99 or £29.99), so a `count × single price` estimate would misstate it.
+   */
+  async summarizeMembershipRevenue(): Promise<MembershipRevenueSummary> {
+    const summary: MembershipRevenueSummary = {
+      professionals: { subscribers: 0, revenue: 0 },
+      recruiters: { subscribers: 0, revenue: 0 },
+      currency: 'GBP',
+    };
+
+    const maxSubscriptions =
+      MEMBERSHIP_REVENUE_PAGE_SIZE * MEMBERSHIP_REVENUE_MAX_PAGES;
+    let processed = 0;
+    // `items.data.price` comes back on the subscription by default, so the list
+    // needs no expansion — auto-pagination walks every page.
+    for await (const subscription of stripe.subscriptions.list({
+      status: 'active',
+      limit: MEMBERSHIP_REVENUE_PAGE_SIZE,
+    })) {
+      processed += 1;
+      if (processed > maxSubscriptions) {
+        console.warn(
+          'summarizeMembershipRevenue: subscription cap reached, totals are partial',
+        );
+        break;
+      }
+
+      const audience = membershipAudienceFor(subscription);
+      if (!audience) continue;
+
+      const bucket = summary[audience];
+      bucket.subscribers += 1;
+      for (const item of subscription.items.data) {
+        bucket.revenue += monthlyAmountFor(item);
+        if (item.price?.currency) {
+          summary.currency = item.price.currency.toUpperCase();
+        }
+      }
+    }
+
+    summary.professionals.revenue = roundCurrency(
+      summary.professionals.revenue,
+    );
+    summary.recruiters.revenue = roundCurrency(summary.recruiters.revenue);
+    return summary;
+  },
+
+  /**
    * Stripe Checkout (subscription) for professional membership upgrade.
    */
   async createMembershipCheckoutSession(params: {
@@ -809,14 +926,26 @@ export const stripeService = {
     const expiresAt = new Date();
     expiresAt.setDate(expiresAt.getDate() + 30);
 
+    const existing = await prisma.job.findUnique({
+      where: { id: jobId },
+      select: { status: true },
+    });
+
     const job = await prisma.job.update({
       where: { id: jobId },
       data: {
         isPremiumListing: true,
         premiumListingExpiresAt: expiresAt,
+        // Listings created past the free slot are parked as drafts until paid —
+        // paying is what publishes them. Any other status is left alone so a
+        // filled or removed job is not silently reopened.
+        ...(existing?.status === JobStatus.DRAFT
+          ? { status: JobStatus.ACTIVE }
+          : {}),
       },
       select: {
         id: true,
+        status: true,
         isPremiumListing: true,
         premiumListingExpiresAt: true,
       },
