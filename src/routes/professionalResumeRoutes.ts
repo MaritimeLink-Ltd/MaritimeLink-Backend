@@ -100,6 +100,27 @@ router.post('/skills', resumeController.addSkill);
 
 /**
  * @swagger
+ * /api/professional/resume/skills/{id}:
+ *   delete:
+ *     summary: Delete a skill entry
+ *     tags: [Resume]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Skill deleted
+ *       404:
+ *         description: Skill not found
+ */
+router.delete('/skills/:id', resumeController.deleteSkill);
+
+/**
+ * @swagger
  * /api/professional/resume/licenses:
  *   post:
  *     summary: Step 9 - Licenses & Endorsements
@@ -127,6 +148,27 @@ router.post('/skills', resumeController.addSkill);
  *         description: License added
  */
 router.post('/licenses', resumeController.addLicense);
+
+/**
+ * @swagger
+ * /api/professional/resume/licenses/{id}:
+ *   delete:
+ *     summary: Delete a license, endorsement, or certificate entry
+ *     tags: [Resume]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: License deleted
+ *       404:
+ *         description: License not found
+ */
+router.delete('/licenses/:id', resumeController.deleteLicense);
 
 /**
  * @swagger
@@ -164,6 +206,27 @@ router.post('/sea-service', resumeController.addSeaService);
 
 /**
  * @swagger
+ * /api/professional/resume/sea-service/{id}:
+ *   delete:
+ *     summary: Delete a sea service log entry
+ *     tags: [Resume]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Sea service log deleted
+ *       404:
+ *         description: Sea service entry not found
+ */
+router.delete('/sea-service/:id', resumeController.deleteSeaService);
+
+/**
+ * @swagger
  * /api/professional/resume/education:
  *   post:
  *     summary: Step 11a - Academic Qualifications
@@ -194,6 +257,27 @@ router.post('/education', resumeController.addEducation);
 
 /**
  * @swagger
+ * /api/professional/resume/education/{id}:
+ *   delete:
+ *     summary: Delete an academic qualification entry
+ *     tags: [Resume]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Education deleted
+ *       404:
+ *         description: Education entry not found
+ */
+router.delete('/education/:id', resumeController.deleteEducation);
+
+/**
+ * @swagger
  * /api/professional/resume/stcw-certificates:
  *   post:
  *     summary: Step 11b - STCW Certificates
@@ -219,6 +303,27 @@ router.post('/education', resumeController.addEducation);
  *         description: STCW Certificate added
  */
 router.post('/stcw-certificates', resumeController.addSTCWCertificate);
+
+/**
+ * @swagger
+ * /api/professional/resume/stcw-certificates/{id}:
+ *   delete:
+ *     summary: Delete an STCW certificate entry
+ *     tags: [Resume]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: STCW Certificate deleted
+ *       404:
+ *         description: STCW Certificate not found
+ */
+router.delete('/stcw-certificates/:id', resumeController.deleteSTCWCertificate);
 
 /**
  * @swagger
@@ -252,6 +357,30 @@ router.post('/stcw-certificates', resumeController.addSTCWCertificate);
 router.post(
   '/medical-travel-documents',
   resumeController.addMedicalTravelDocument,
+);
+
+/**
+ * @swagger
+ * /api/professional/resume/medical-travel-documents/{id}:
+ *   delete:
+ *     summary: Delete a medical or travel document entry
+ *     tags: [Resume]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Document deleted
+ *       404:
+ *         description: Document not found
+ */
+router.delete(
+  '/medical-travel-documents/:id',
+  resumeController.deleteMedicalTravelDocument,
 );
 
 /**
@@ -314,6 +443,27 @@ router.post('/next-of-kin', resumeController.addNextOfKin);
 
 /**
  * @swagger
+ * /api/professional/resume/next-of-kin/{id}:
+ *   delete:
+ *     summary: Delete a next of kin entry
+ *     tags: [Resume]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Next of kin deleted
+ *       404:
+ *         description: Next of kin entry not found
+ */
+router.delete('/next-of-kin/:id', resumeController.deleteNextOfKin);
+
+/**
+ * @swagger
  * /api/professional/resume/referees:
  *   post:
  *     summary: Step 15 - Referees
@@ -340,6 +490,27 @@ router.post('/next-of-kin', resumeController.addNextOfKin);
  *         description: Referee added
  */
 router.post('/referees', resumeController.addReferee);
+
+/**
+ * @swagger
+ * /api/professional/resume/referees/{id}:
+ *   delete:
+ *     summary: Delete a referee entry
+ *     tags: [Resume]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Referee deleted
+ *       404:
+ *         description: Referee not found
+ */
+router.delete('/referees/:id', resumeController.deleteReferee);
 
 /**
  * @swagger

@@ -86,11 +86,17 @@ export const addSkill = catchAsync(
     });
     if (!resume) return next(new AppError('Resume not found', 404));
 
-    await prisma.professionalSkill.create({
+    const created = await prisma.professionalSkill.create({
       data: { ...validatedData, resumeId: resume.id },
     });
 
-    res.status(201).json({ status: 'success', message: 'Skill added' });
+    res
+      .status(201)
+      .json({
+        status: 'success',
+        message: 'Skill added',
+        data: { id: created.id },
+      });
   },
 );
 
@@ -109,11 +115,17 @@ export const addLicense = catchAsync(
     });
     if (!resume) return next(new AppError('Resume not found', 404));
 
-    await prisma.professionalLicense.create({
+    const created = await prisma.professionalLicense.create({
       data: { ...validatedData, resumeId: resume.id },
     });
 
-    res.status(201).json({ status: 'success', message: 'License added' });
+    res
+      .status(201)
+      .json({
+        status: 'success',
+        message: 'License added',
+        data: { id: created.id },
+      });
   },
 );
 
@@ -132,13 +144,15 @@ export const addSeaService = catchAsync(
     });
     if (!resume) return next(new AppError('Resume not found', 404));
 
-    await prisma.professionalSeaServiceLog.create({
+    const created = await prisma.professionalSeaServiceLog.create({
       data: { ...validatedData, resumeId: resume.id },
     });
 
-    res
-      .status(201)
-      .json({ status: 'success', message: 'Sea service log added' });
+    res.status(201).json({
+      status: 'success',
+      message: 'Sea service log added',
+      data: { id: created.id },
+    });
   },
 );
 
@@ -157,11 +171,17 @@ export const addEducation = catchAsync(
     });
     if (!resume) return next(new AppError('Resume not found', 404));
 
-    await prisma.professionalEducation.create({
+    const created = await prisma.professionalEducation.create({
       data: { ...validatedData, resumeId: resume.id },
     });
 
-    res.status(201).json({ status: 'success', message: 'Education added' });
+    res
+      .status(201)
+      .json({
+        status: 'success',
+        message: 'Education added',
+        data: { id: created.id },
+      });
   },
 );
 
@@ -180,13 +200,15 @@ export const addSTCWCertificate = catchAsync(
     });
     if (!resume) return next(new AppError('Resume not found', 404));
 
-    await prisma.professionalSTCWCertificate.create({
+    const created = await prisma.professionalSTCWCertificate.create({
       data: { ...validatedData, resumeId: resume.id },
     });
 
-    res
-      .status(201)
-      .json({ status: 'success', message: 'STCW Certificate added' });
+    res.status(201).json({
+      status: 'success',
+      message: 'STCW Certificate added',
+      data: { id: created.id },
+    });
   },
 );
 
@@ -206,19 +228,22 @@ export const addMedicalTravelDocument = catchAsync(
     });
     if (!resume) return next(new AppError('Resume not found', 404));
 
+    let created;
     if (type === 'MEDICAL') {
-      await prisma.professionalMedicalCertificate.create({
+      created = await prisma.professionalMedicalCertificate.create({
         data: { ...docData, resumeId: resume.id },
       });
     } else {
-      await prisma.professionalTravelDocument.create({
+      created = await prisma.professionalTravelDocument.create({
         data: { ...docData, resumeId: resume.id },
       });
     }
 
-    res
-      .status(201)
-      .json({ status: 'success', message: `${type} document added` });
+    res.status(201).json({
+      status: 'success',
+      message: `${type} document added`,
+      data: { id: created.id },
+    });
   },
 );
 
@@ -257,11 +282,15 @@ export const addNextOfKin = catchAsync(
     });
     if (!resume) return next(new AppError('Resume not found', 404));
 
-    await prisma.professionalNextOfKin.create({
+    const created = await prisma.professionalNextOfKin.create({
       data: { ...validatedData, resumeId: resume.id },
     });
 
-    res.status(201).json({ status: 'success', message: 'Next of kin added' });
+    res.status(201).json({
+      status: 'success',
+      message: 'Next of kin added',
+      data: { id: created.id },
+    });
   },
 );
 
@@ -280,11 +309,209 @@ export const addReferee = catchAsync(
     });
     if (!resume) return next(new AppError('Resume not found', 404));
 
-    await prisma.professionalReferee.create({
+    const created = await prisma.professionalReferee.create({
       data: { ...validatedData, resumeId: resume.id },
     });
 
-    res.status(201).json({ status: 'success', message: 'Referee added' });
+    res.status(201).json({
+      status: 'success',
+      message: 'Referee added',
+      data: { id: created.id },
+    });
+  },
+);
+
+/**
+ * Deletes a row from a resume sub-resource table, scoped to the requesting
+ * professional's own resume so one professional can never delete another's
+ * data. Returns whether a row was actually removed.
+ */
+const deleteScopedResumeItem = async (
+  professionalId: string,
+  itemId: string,
+  model: {
+    deleteMany: (args: {
+      where: { id: string; resumeId: string };
+    }) => Promise<{ count: number }>;
+  },
+) => {
+  const resume = await prisma.professionalResume.findUnique({
+    where: { professionalId },
+  });
+  if (!resume) return false;
+
+  const { count } = await model.deleteMany({
+    where: { id: itemId, resumeId: resume.id },
+  });
+  return count > 0;
+};
+
+/**
+ * Step 8: Delete Key Skill
+ */
+export const deleteSkill = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const professionalId = req.user?.id;
+    if (!professionalId) return next(new AppError('Unauthorized', 401));
+
+    const deleted = await deleteScopedResumeItem(
+      professionalId,
+      req.params.id,
+      prisma.professionalSkill,
+    );
+    if (!deleted) return next(new AppError('Skill not found', 404));
+
+    res.status(200).json({ status: 'success', message: 'Skill deleted' });
+  },
+);
+
+/**
+ * Step 9: Delete License/Endorsement/Certificate
+ */
+export const deleteLicense = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const professionalId = req.user?.id;
+    if (!professionalId) return next(new AppError('Unauthorized', 401));
+
+    const deleted = await deleteScopedResumeItem(
+      professionalId,
+      req.params.id,
+      prisma.professionalLicense,
+    );
+    if (!deleted) return next(new AppError('License not found', 404));
+
+    res.status(200).json({ status: 'success', message: 'License deleted' });
+  },
+);
+
+/**
+ * Step 10: Delete Sea Service Log entry
+ */
+export const deleteSeaService = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const professionalId = req.user?.id;
+    if (!professionalId) return next(new AppError('Unauthorized', 401));
+
+    const deleted = await deleteScopedResumeItem(
+      professionalId,
+      req.params.id,
+      prisma.professionalSeaServiceLog,
+    );
+    if (!deleted) return next(new AppError('Sea service entry not found', 404));
+
+    res
+      .status(200)
+      .json({ status: 'success', message: 'Sea service log deleted' });
+  },
+);
+
+/**
+ * Step 11a: Delete Academic Qualification
+ */
+export const deleteEducation = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const professionalId = req.user?.id;
+    if (!professionalId) return next(new AppError('Unauthorized', 401));
+
+    const deleted = await deleteScopedResumeItem(
+      professionalId,
+      req.params.id,
+      prisma.professionalEducation,
+    );
+    if (!deleted) return next(new AppError('Education entry not found', 404));
+
+    res.status(200).json({ status: 'success', message: 'Education deleted' });
+  },
+);
+
+/**
+ * Step 11b: Delete STCW Certificate
+ */
+export const deleteSTCWCertificate = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const professionalId = req.user?.id;
+    if (!professionalId) return next(new AppError('Unauthorized', 401));
+
+    const deleted = await deleteScopedResumeItem(
+      professionalId,
+      req.params.id,
+      prisma.professionalSTCWCertificate,
+    );
+    if (!deleted) return next(new AppError('STCW Certificate not found', 404));
+
+    res
+      .status(200)
+      .json({ status: 'success', message: 'STCW Certificate deleted' });
+  },
+);
+
+/**
+ * Step 12: Delete Medical or Travel Document
+ */
+export const deleteMedicalTravelDocument = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const professionalId = req.user?.id;
+    if (!professionalId) return next(new AppError('Unauthorized', 401));
+
+    const deletedMedical = await deleteScopedResumeItem(
+      professionalId,
+      req.params.id,
+      prisma.professionalMedicalCertificate,
+    );
+    if (deletedMedical) {
+      res.status(200).json({ status: 'success', message: 'Document deleted' });
+      return;
+    }
+
+    const deletedTravel = await deleteScopedResumeItem(
+      professionalId,
+      req.params.id,
+      prisma.professionalTravelDocument,
+    );
+    if (deletedTravel) {
+      res.status(200).json({ status: 'success', message: 'Document deleted' });
+      return;
+    }
+
+    return next(new AppError('Document not found', 404));
+  },
+);
+
+/**
+ * Step 14: Delete Next of Kin
+ */
+export const deleteNextOfKin = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const professionalId = req.user?.id;
+    if (!professionalId) return next(new AppError('Unauthorized', 401));
+
+    const deleted = await deleteScopedResumeItem(
+      professionalId,
+      req.params.id,
+      prisma.professionalNextOfKin,
+    );
+    if (!deleted) return next(new AppError('Next of kin entry not found', 404));
+
+    res.status(200).json({ status: 'success', message: 'Next of kin deleted' });
+  },
+);
+
+/**
+ * Step 15: Delete Referee
+ */
+export const deleteReferee = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const professionalId = req.user?.id;
+    if (!professionalId) return next(new AppError('Unauthorized', 401));
+
+    const deleted = await deleteScopedResumeItem(
+      professionalId,
+      req.params.id,
+      prisma.professionalReferee,
+    );
+    if (!deleted) return next(new AppError('Referee not found', 404));
+
+    res.status(200).json({ status: 'success', message: 'Referee deleted' });
   },
 );
 
