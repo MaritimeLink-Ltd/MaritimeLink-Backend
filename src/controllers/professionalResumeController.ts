@@ -341,6 +341,213 @@ const deleteScopedResumeItem = async (
 };
 
 /**
+ * Updates a row in a resume sub-resource table, scoped to the requesting
+ * professional's own resume so one professional can never edit another's
+ * data. Returns whether a row was actually updated.
+ */
+const updateScopedResumeItem = async (
+  professionalId: string,
+  itemId: string,
+  model: {
+    updateMany: (args: {
+      where: { id: string; resumeId: string };
+      data: Record<string, unknown>;
+    }) => Promise<{ count: number }>;
+  },
+  data: Record<string, unknown>,
+) => {
+  const resume = await prisma.professionalResume.findUnique({
+    where: { professionalId },
+  });
+  if (!resume) return false;
+
+  const { count } = await model.updateMany({
+    where: { id: itemId, resumeId: resume.id },
+    data,
+  });
+  return count > 0;
+};
+
+/**
+ * Step 8: Update Key Skill
+ */
+export const updateSkill = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const professionalId = req.user?.id;
+    if (!professionalId) return next(new AppError('Unauthorized', 401));
+
+    const validatedData = skillStepSchema.parse(req.body);
+    const updated = await updateScopedResumeItem(
+      professionalId,
+      req.params.id,
+      prisma.professionalSkill,
+      validatedData,
+    );
+    if (!updated) return next(new AppError('Skill not found', 404));
+
+    res.status(200).json({ status: 'success', message: 'Skill updated' });
+  },
+);
+
+/**
+ * Step 9: Update License/Endorsement/Certificate
+ */
+export const updateLicense = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const professionalId = req.user?.id;
+    if (!professionalId) return next(new AppError('Unauthorized', 401));
+
+    const validatedData = licenseStepSchema.parse(req.body);
+    const updated = await updateScopedResumeItem(
+      professionalId,
+      req.params.id,
+      prisma.professionalLicense,
+      validatedData,
+    );
+    if (!updated) return next(new AppError('License not found', 404));
+
+    res.status(200).json({ status: 'success', message: 'License updated' });
+  },
+);
+
+/**
+ * Step 10: Update Sea Service Log entry
+ */
+export const updateSeaService = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const professionalId = req.user?.id;
+    if (!professionalId) return next(new AppError('Unauthorized', 401));
+
+    const validatedData = seaServiceStepSchema.parse(req.body);
+    const updated = await updateScopedResumeItem(
+      professionalId,
+      req.params.id,
+      prisma.professionalSeaServiceLog,
+      validatedData,
+    );
+    if (!updated) return next(new AppError('Sea service entry not found', 404));
+
+    res
+      .status(200)
+      .json({ status: 'success', message: 'Sea service log updated' });
+  },
+);
+
+/**
+ * Step 11a: Update Academic Qualification
+ */
+export const updateEducation = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const professionalId = req.user?.id;
+    if (!professionalId) return next(new AppError('Unauthorized', 401));
+
+    const validatedData = educationStepSchema.parse(req.body);
+    const updated = await updateScopedResumeItem(
+      professionalId,
+      req.params.id,
+      prisma.professionalEducation,
+      validatedData,
+    );
+    if (!updated) return next(new AppError('Education entry not found', 404));
+
+    res.status(200).json({ status: 'success', message: 'Education updated' });
+  },
+);
+
+/**
+ * Step 11b: Update STCW Certificate
+ */
+export const updateSTCWCertificate = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const professionalId = req.user?.id;
+    if (!professionalId) return next(new AppError('Unauthorized', 401));
+
+    const validatedData = stcwCertificateStepSchema.parse(req.body);
+    const updated = await updateScopedResumeItem(
+      professionalId,
+      req.params.id,
+      prisma.professionalSTCWCertificate,
+      validatedData,
+    );
+    if (!updated) return next(new AppError('STCW Certificate not found', 404));
+
+    res
+      .status(200)
+      .json({ status: 'success', message: 'STCW Certificate updated' });
+  },
+);
+
+/**
+ * Step 12: Update Medical or Travel Document
+ *
+ * Medical and travel documents live in separate tables and are edited from
+ * their own tabs, so `type` selects the table rather than moving the row.
+ */
+export const updateMedicalTravelDocument = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const professionalId = req.user?.id;
+    if (!professionalId) return next(new AppError('Unauthorized', 401));
+
+    const validatedData = medicalTravelStepSchema.parse(req.body);
+    const { type, ...docData } = validatedData;
+
+    const updated = await updateScopedResumeItem(
+      professionalId,
+      req.params.id,
+      type === 'MEDICAL'
+        ? prisma.professionalMedicalCertificate
+        : prisma.professionalTravelDocument,
+      docData,
+    );
+    if (!updated) return next(new AppError('Document not found', 404));
+
+    res.status(200).json({ status: 'success', message: 'Document updated' });
+  },
+);
+
+/**
+ * Step 14: Update Next of Kin
+ */
+export const updateNextOfKin = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const professionalId = req.user?.id;
+    if (!professionalId) return next(new AppError('Unauthorized', 401));
+
+    const validatedData = nextOfKinStepSchema.parse(req.body);
+    const updated = await updateScopedResumeItem(
+      professionalId,
+      req.params.id,
+      prisma.professionalNextOfKin,
+      validatedData,
+    );
+    if (!updated) return next(new AppError('Next of kin entry not found', 404));
+
+    res.status(200).json({ status: 'success', message: 'Next of kin updated' });
+  },
+);
+
+/**
+ * Step 15: Update Referee
+ */
+export const updateReferee = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const professionalId = req.user?.id;
+    if (!professionalId) return next(new AppError('Unauthorized', 401));
+
+    const validatedData = refereeStepSchema.parse(req.body);
+    const updated = await updateScopedResumeItem(
+      professionalId,
+      req.params.id,
+      prisma.professionalReferee,
+      validatedData,
+    );
+    if (!updated) return next(new AppError('Referee not found', 404));
+
+    res.status(200).json({ status: 'success', message: 'Referee updated' });
+  },
+);
+
+/**
  * Step 8: Delete Key Skill
  */
 export const deleteSkill = catchAsync(

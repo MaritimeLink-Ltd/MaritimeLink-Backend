@@ -273,13 +273,30 @@ export const verifyPhone = catchAsync(
         );
       }
 
-      const approved = await checkPhoneVerification(
+      const result = await checkPhoneVerification(
         toE164(recruiter.phoneCode, recruiter.phoneNumber),
         String(code ?? ''),
       );
 
-      if (!approved) {
-        return next(new AppError('Invalid or expired phone OTP', 400));
+      if (result === 'mismatch') {
+        return next(
+          new AppError(
+            'That code is not correct. Please check the most recent SMS and try again.',
+            400,
+          ),
+        );
+      }
+
+      // Requesting a new code cancels the previous one, so the most common way
+      // to land here is entering an older code after tapping Resend. Say so —
+      // "invalid or expired" sends people back to retype the same dead code.
+      if (result === 'no_pending_code') {
+        return next(
+          new AppError(
+            'This code has expired, or a newer code was sent. Please enter the code from the most recent SMS, or tap Resend to get a new one.',
+            400,
+          ),
+        );
       }
     } else {
       const recruiter = await prisma.recruiter.findFirst({
@@ -910,7 +927,10 @@ export const resendPhoneOTP = catchAsync(
 
     res.status(200).json({
       status: 'success',
-      message: 'Verification code resent to your phone.',
+      // Sending a new code cancels the previous one, so saying only "resent"
+      // invites the user to retry the older code they still have on screen.
+      message:
+        'A new code has been sent to your phone. Earlier codes no longer work — please use the latest SMS.',
     });
   },
 );

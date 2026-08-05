@@ -97,6 +97,18 @@ export const startPhoneVerification = async (to: string) => {
         400,
       );
     }
+    if (code === 60605) {
+      // The country is switched off under Verify's *own* geo permissions
+      // (Console → Verify → Settings), which are separate from the Messaging
+      // ones — worth naming, because the generic message sends you hunting.
+      console.error(
+        `[VERIFY] ${to} is blocked by Verify Geo-Permissions. Enable the country for the SMS channel under Verify → Settings → Geo Permissions.`,
+      );
+      throw new AppError(
+        'SMS verification is not available for this country yet. Please contact support.',
+        400,
+      );
+    }
     throw new AppError(
       'Could not send the verification code. Please try again.',
       502,
@@ -105,19 +117,41 @@ export const startPhoneVerification = async (to: string) => {
 };
 
 /**
- * Returns true only when Twilio approves the code. An expired, already used, or
- * never-issued verification comes back as a 404, which is just an invalid code
- * from the caller's point of view.
+ * Why a code was rejected. "Wrong digits" and "there is no live code to check
+ * against" need different advice — retyping helps the first and never helps the
+ * second — so they are reported separately rather than collapsed into a
+ * boolean.
  */
-export const checkPhoneVerification = async (to: string, code: string) => {
+export type PhoneCheckResult = 'approved' | 'mismatch' | 'no_pending_code';
+
+/**
+ * Asks Twilio to approve a code. Requesting a new code (Resend) cancels the
+ * previous one, so a code the user still has on screen can be correct and yet
+ * no longer checkable — that case comes back as `no_pending_code`.
+ */
+export const checkPhoneVerification = async (
+  to: string,
+  code: string,
+): Promise<PhoneCheckResult> => {
   try {
     const check = await verifyService().verificationChecks.create({ to, code });
-    return check.status === 'approved';
+
+    // A wrong code and a correct one both return 200 — only the status
+    // separates them, so log it. Without this a rejected code is
+    // indistinguishable from a misconfiguration in the server logs.
+    console.log(`[VERIFY] Checked code for ${to}: ${check.status}`);
+    return check.status === 'approved' ? 'approved' : 'mismatch';
   } catch (error) {
     const errorCode = (error as { code?: number; status?: number }).code;
 
     if (errorCode === 20404 || errorCode === 60200) {
-      return false;
+      // 20404: no live verification for this number — it expired, was already
+      // approved, or a newer Resend replaced it. This is the usual reason an
+      // otherwise-correct code suddenly stops working.
+      console.warn(
+        `[VERIFY] No pending verification for ${to} (Twilio ${errorCode}). The code expired, was already used, or was replaced by a newer one.`,
+      );
+      return 'no_pending_code';
     }
     if (errorCode === 60202) {
       throw new AppError(
