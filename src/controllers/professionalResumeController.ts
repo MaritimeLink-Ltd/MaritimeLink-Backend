@@ -90,13 +90,11 @@ export const addSkill = catchAsync(
       data: { ...validatedData, resumeId: resume.id },
     });
 
-    res
-      .status(201)
-      .json({
-        status: 'success',
-        message: 'Skill added',
-        data: { id: created.id },
-      });
+    res.status(201).json({
+      status: 'success',
+      message: 'Skill added',
+      data: { id: created.id },
+    });
   },
 );
 
@@ -119,13 +117,11 @@ export const addLicense = catchAsync(
       data: { ...validatedData, resumeId: resume.id },
     });
 
-    res
-      .status(201)
-      .json({
-        status: 'success',
-        message: 'License added',
-        data: { id: created.id },
-      });
+    res.status(201).json({
+      status: 'success',
+      message: 'License added',
+      data: { id: created.id },
+    });
   },
 );
 
@@ -175,13 +171,11 @@ export const addEducation = catchAsync(
       data: { ...validatedData, resumeId: resume.id },
     });
 
-    res
-      .status(201)
-      .json({
-        status: 'success',
-        message: 'Education added',
-        data: { id: created.id },
-      });
+    res.status(201).json({
+      status: 'success',
+      message: 'Education added',
+      data: { id: created.id },
+    });
   },
 );
 
@@ -535,11 +529,27 @@ export const upsertResume = catchAsync(
       travelDocuments,
       nextOfKin,
       referees,
+      firstName,
+      middleName,
+      lastName,
       ...mainResumeData
     } = validatedData;
 
     // We use a transaction to ensure atomic updates
     const updatedResume = await prisma.$transaction(async (tx) => {
+      // 0. Names are columns on Professional, not on the resume.
+      const nameData = {
+        ...(firstName !== undefined ? { firstName } : {}),
+        ...(middleName !== undefined ? { middleName } : {}),
+        ...(lastName !== undefined ? { lastName } : {}),
+      };
+      if (Object.keys(nameData).length > 0) {
+        await tx.professional.update({
+          where: { id: professionalId },
+          data: nameData,
+        });
+      }
+
       // 1. Upsert the main resume record
       const resume = await tx.professionalResume.upsert({
         where: { professionalId },

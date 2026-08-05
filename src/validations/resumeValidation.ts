@@ -128,6 +128,11 @@ export const resumeSchema = z.object({
   subcategory: z.string().optional(),
 
   // Personal Info
+  // Names live on the Professional record, not the resume — upsertResume
+  // routes them there rather than into professionalResume.
+  firstName: z.string().min(2).max(50).optional(),
+  middleName: z.string().max(50).optional(),
+  lastName: z.string().min(2).max(50).optional(),
   address: z.string().optional(),
   city: z.string().optional(),
   state: z.string().optional(),
@@ -273,6 +278,7 @@ export const resumeSchema = z.object({
         id: z.string().uuid().optional(),
         name: z.string(),
         position: z.string().optional(),
+        companyName: z.string().optional(),
         countryCode: z.string().optional(),
         phoneNumber: z.string().optional(),
         email: z.string().email().optional(),
