@@ -12,10 +12,16 @@ import {
 } from './emailLayout.js';
 
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: env.SMTP_HOST,
+  port: env.SMTP_PORT,
+  secure: env.SMTP_SECURE === 'true',
   auth: {
     user: env.SMTP_USER,
     pass: env.SMTP_PASS,
+  },
+  // TEMPORARY: mail.elorag.com's TLS cert expired 2026-07-15; remove this once it's renewed.
+  tls: {
+    rejectUnauthorized: false,
   },
 });
 
