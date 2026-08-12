@@ -19,10 +19,6 @@ const transporter = nodemailer.createTransport({
     user: env.SMTP_USER,
     pass: env.SMTP_PASS,
   },
-  // TEMPORARY: mail.elorag.com's TLS cert expired 2026-07-15; remove this once it's renewed.
-  tls: {
-    rejectUnauthorized: false,
-  },
 });
 
 transporter.verify((error) => {
