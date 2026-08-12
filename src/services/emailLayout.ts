@@ -1,7 +1,7 @@
 import { env } from '../config/env.js';
 import { SUPPORT_EMAIL } from '../config/contact.js';
 
-/** Maritime Link web app brand (matches MaritimeLink-Frontend). */
+/** MaritimeLink web app brand (matches MaritimeLink-Frontend). */
 export const EMAIL_BRAND = {
   primary: '#003971',
   primaryDark: '#002455',
@@ -20,6 +20,9 @@ export const EMAIL_BRAND = {
   dangerBg: '#fef2f2',
   infoBg: '#eff6ff',
 } as const;
+
+/** Content-ID referencing the inline logo attachment added by emailService's `deliver`. */
+export const EMAIL_LOGO_CID = 'maritimelink-logo';
 
 export type EmailVariant = 'brand' | 'success' | 'warning' | 'danger' | 'info';
 
@@ -188,8 +191,17 @@ export function buildEmailHtml(params: EmailLayoutParams): string {
             <td style="background: linear-gradient(135deg, ${EMAIL_BRAND.primary} 0%, ${EMAIL_BRAND.primaryLight} 55%, ${EMAIL_BRAND.accent} 100%); background-color: ${EMAIL_BRAND.primary}; border-radius: 20px 20px 0 0; padding: 36px 40px 32px;">
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
                 <tr>
-                  <td>
-                    <p style="margin: 0 0 6px; font-size: 13px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255,255,255,0.85);">Maritime Link</p>
+                  <td valign="middle" width="52" style="padding-right: 14px;">
+                    <table role="presentation" width="52" height="52" cellpadding="0" cellspacing="0" style="border-collapse: collapse;">
+                      <tr>
+                        <td align="center" valign="middle" width="52" height="52" style="background-color: #ffffff; border-radius: 12px;">
+                          <img src="cid:${EMAIL_LOGO_CID}" width="34" height="34" alt="MaritimeLink" style="display: block;" />
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                  <td valign="middle">
+                    <p style="margin: 0 0 6px; font-size: 13px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255,255,255,0.85);">MaritimeLink</p>
                     <p style="margin: 0; font-size: 22px; font-weight: 800; color: #ffffff; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; letter-spacing: -0.02em;">Connect. Comply. Grow.</p>
                   </td>
                 </tr>
@@ -221,19 +233,19 @@ export function buildEmailHtml(params: EmailLayoutParams): string {
           <!-- Footer -->
           <tr>
             <td style="background-color: ${EMAIL_BRAND.primaryDark}; border-radius: 0 0 20px 20px; padding: 28px 40px; border: 1px solid ${EMAIL_BRAND.primaryDark}; border-top: none;">
-              <p style="margin: 0 0 12px; font-size: 14px; font-weight: 600; color: #ffffff;">Maritime Link</p>
+              <p style="margin: 0 0 12px; font-size: 14px; font-weight: 600; color: #ffffff;">MaritimeLink</p>
               <p style="margin: 0 0 16px; font-size: 13px; line-height: 1.6; color: rgba(255,255,255,0.75);">
                 Maritime careers, compliance, and training — in one platform.
               </p>
               <p style="margin: 0 0 8px; font-size: 12px; color: rgba(255,255,255,0.55);">
-                <a href="${escapeHtml(dashboardBase)}" style="color: #7dd3fc; text-decoration: none;">Visit Maritime Link</a>
+                <a href="${escapeHtml(dashboardBase)}" style="color: #7dd3fc; text-decoration: none;">Visit MaritimeLink</a>
               </p>
               <p style="margin: 0 0 8px; font-size: 12px; color: rgba(255,255,255,0.55);">
                 Need help? Contact us at
                 <a href="mailto:${SUPPORT_EMAIL}" style="color: #7dd3fc; text-decoration: none;">${SUPPORT_EMAIL}</a>
               </p>
               <p style="margin: 16px 0 0; font-size: 11px; line-height: 1.5; color: rgba(255,255,255,0.45);">
-                © ${year} Maritime Link. If you did not expect this email, you can safely ignore it.
+                © ${year} MaritimeLink. If you did not expect this email, you can safely ignore it.
               </p>
             </td>
           </tr>

@@ -18,7 +18,7 @@ const options: swaggerJsdoc.Options = {
           : 'Development server',
       },
       {
-        url: 'https://maritime-apis.onrender.com',
+        url: 'https://maritimelink-backend-0ijh.onrender.com',
         description: 'Production server (Render)',
       },
       {

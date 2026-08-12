@@ -1,8 +1,11 @@
+import path from 'path';
+import { fileURLToPath } from 'url';
 import nodemailer from 'nodemailer';
 import { env } from '../config/env.js';
 import { ApplicationStatus } from '../generated/client/index.js';
 import {
   EMAIL_BRAND,
+  EMAIL_LOGO_CID,
   buildEmailHtml,
   emailCallout,
   emailOtpBlock,
@@ -10,6 +13,9 @@ import {
   escapeHtml,
   supportEmailLink,
 } from './emailLayout.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const LOGO_PATH = path.join(__dirname, '../assets/email/logo-icon.png');
 
 const transporter = nodemailer.createTransport({
   host: env.SMTP_HOST,
@@ -35,17 +41,24 @@ async function deliver(
   html: string,
 ): Promise<void> {
   await transporter.sendMail({
-    from: env.SMTP_FROM,
+    from: `"MaritimeLink" <${env.SMTP_FROM}>`,
     to,
     subject,
     html,
+    attachments: [
+      {
+        filename: 'logo.png',
+        path: LOGO_PATH,
+        cid: EMAIL_LOGO_CID,
+      },
+    ],
   });
 }
 
 export const sendOTPEmail = async (to: string, otp: string) => {
   await deliver(
     to,
-    'Verification code for your Maritime Link account',
+    'Verification code for your MaritimeLink account',
     buildEmailHtml({
       headline: 'Verify your email',
       preheader: `Your verification code is ${otp}`,
@@ -59,10 +72,10 @@ export const sendOTPEmail = async (to: string, otp: string) => {
 export const sendPasswordResetEmail = async (to: string, resetLink: string) => {
   await deliver(
     to,
-    'Reset your Maritime Link password',
+    'Reset your MaritimeLink password',
     buildEmailHtml({
       headline: 'Password reset',
-      preheader: 'Reset your Maritime Link password',
+      preheader: 'Reset your MaritimeLink password',
       greeting: 'Hello,',
       variant: 'brand',
       bodyHtml: emailParagraph(
@@ -196,7 +209,7 @@ export const sendAccountStatusEmail = async (params: {
     buildEmailHtml({
       headline: approved ? 'Account approved' : 'Account not approved',
       preheader: approved
-        ? 'Welcome to Maritime Link'
+        ? 'Welcome to MaritimeLink'
         : 'Update on your registration',
       greeting: `Hi ${params.recipientName},`,
       variant: approved ? 'success' : 'danger',
@@ -306,7 +319,7 @@ export const sendAccountReportResolvedEmail = async (params: {
       bodyHtml: `${emailParagraph(`Our moderation team has finished reviewing your report about <strong>${escapeHtml(params.reportedName)}</strong>.`)}${emailCallout(
         `<strong>Reference:</strong> ${escapeHtml(params.reference)}<br/><strong>Outcome:</strong> ${escapeHtml(params.outcome)}`,
         'success',
-      )}${emailParagraph('Thank you for helping keep Maritime Link safe.')}`,
+      )}${emailParagraph('Thank you for helping keep MaritimeLink safe.')}`,
     }),
   );
 };
@@ -324,7 +337,7 @@ export const sendAccountReinstatedEmail = async (params: {
     'Your account access has been restored',
     buildEmailHtml({
       headline: 'Account reinstated',
-      preheader: 'Welcome back to Maritime Link',
+      preheader: 'Welcome back to MaritimeLink',
       greeting: `Hi ${params.recipientName},`,
       variant: 'success',
       bodyHtml: `${emailParagraph(`Your ${escapeHtml(label)} account has been <strong>reinstated</strong>. You can sign in and access your dashboard again.`)}${emailCallout('✓ Your account is active again.', 'success')}`,
@@ -417,7 +430,7 @@ export const sendJobPublishedEmail = async (params: {
       preheader: `${params.jobTitle} is now live`,
       greeting: `Hi ${params.recipientName},`,
       variant: 'success',
-      bodyHtml: `${emailParagraph(`Your job listing <strong>${job}</strong> is now live and visible to professionals on Maritime Link.`)}${emailCallout('Track applications and invitations from your recruiter dashboard.', 'success')}`,
+      bodyHtml: `${emailParagraph(`Your job listing <strong>${job}</strong> is now live and visible to professionals on MaritimeLink.`)}${emailCallout('Track applications and invitations from your recruiter dashboard.', 'success')}`,
       cta: { label: 'View job', url: params.dashboardUrl },
     }),
   );
@@ -483,7 +496,7 @@ export const sendMessageReceivedEmail = async (params: {
       preheader: `Message from ${params.senderName}`,
       greeting: `Hi ${params.recipientName},`,
       variant: 'brand',
-      bodyHtml: `${emailParagraph(`You have a new message from <strong>${escapeHtml(params.senderName)}</strong> on Maritime Link.`)}${emailCallout('Open your inbox to read and reply while the conversation is active.', 'brand')}`,
+      bodyHtml: `${emailParagraph(`You have a new message from <strong>${escapeHtml(params.senderName)}</strong> on MaritimeLink.`)}${emailCallout('Open your inbox to read and reply while the conversation is active.', 'brand')}`,
       cta: { label: 'Open inbox', url: params.inboxUrl },
     }),
   );
@@ -592,7 +605,7 @@ export const sendCoursePublishedEmail = async (params: {
       preheader: `${params.courseTitle} is now live`,
       greeting: `Hi ${params.recipientName},`,
       variant: 'success',
-      bodyHtml: `${emailParagraph(`Your course <strong>${course}</strong> is now live and open for bookings on Maritime Link.`)}${emailCallout('Manage sessions, capacity, and bookings from your provider dashboard.', 'success')}`,
+      bodyHtml: `${emailParagraph(`Your course <strong>${course}</strong> is now live and open for bookings on MaritimeLink.`)}${emailCallout('Manage sessions, capacity, and bookings from your provider dashboard.', 'success')}`,
       cta: { label: 'View course', url: params.dashboardUrl },
     }),
   );
@@ -826,7 +839,7 @@ export const sendPhoneOTPEmail = async (to: string, otp: string) => {
       preheader: `Your phone verification code is ${otp}`,
       greeting: 'Hello,',
       variant: 'brand',
-      bodyHtml: `${emailParagraph('Use this code to verify your phone number on Maritime Link.')}${emailOtpBlock(otp)}`,
+      bodyHtml: `${emailParagraph('Use this code to verify your phone number on MaritimeLink.')}${emailOtpBlock(otp)}`,
     }),
   );
 };
