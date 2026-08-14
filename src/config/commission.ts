@@ -7,7 +7,7 @@
  * another. Change it here only; the web app mirrors it in
  * `src/constants/commission.js` for its disclosure copy.
  */
-export const COURSE_COMMISSION_RATE_PERCENT = 13;
+export const COURSE_COMMISSION_RATE_PERCENT = 9.6;
 
 /** Commission as a multiplier, e.g. 0.13. */
 export const COURSE_COMMISSION_RATE = COURSE_COMMISSION_RATE_PERCENT / 100;

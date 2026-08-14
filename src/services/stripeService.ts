@@ -648,6 +648,7 @@ export const stripeService = {
         stripePriceId: params.stripePriceId,
       },
       subscription_data: {
+        trial_period_days: 90,
         metadata: {
           type: 'membership',
           professionalId: params.professionalId,
@@ -770,6 +771,7 @@ export const stripeService = {
         recruiterId: params.recruiterId,
       },
       subscription_data: {
+        trial_period_days: 90,
         metadata: {
           type: 'recruiter_membership',
           recruiterId: params.recruiterId,
