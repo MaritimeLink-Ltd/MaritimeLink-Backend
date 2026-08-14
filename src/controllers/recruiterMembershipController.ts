@@ -5,33 +5,43 @@ import { catchAsync } from '../utils/catchAsync.js';
 import { CustomRequest } from '../types/index.js';
 import { stripeService } from '../services/stripeService.js';
 
-const RECRUITER_PLANS = [
-  {
-    id: 'FREE',
-    planCode: 'FREE' as const,
-    name: 'Free Recruiter',
-    price: 0,
-    currency: 'GBP',
-    interval: 'month',
-  },
-  {
-    id: 'FLEX',
-    planCode: 'FLEX' as const,
-    name: 'Flex Recruiter',
-    description: 'Purchased per job listing from the job posting screen.',
-    price: 99.9,
-    currency: 'GBP',
-    interval: 'one_time',
-  },
-  {
-    id: 'PREMIUM',
-    planCode: 'PREMIUM' as const,
-    name: 'Premium Recruiter',
-    price: 199.9,
-    currency: 'GBP',
-    interval: 'month',
-  },
-];
+/**
+ * Plan cards shown to recruiters. Flex/Premium pricing is fetched live from
+ * Stripe (see `stripeService.getRecruiterPlanPricing`) so this never drifts
+ * from what checkout actually charges — it previously hardcoded £99.90/£199.90
+ * while the live Stripe prices were £49.99/£159.99.
+ */
+async function buildRecruiterPlans() {
+  const pricing = await stripeService.getRecruiterPlanPricing();
+
+  return [
+    {
+      id: 'FREE',
+      planCode: 'FREE' as const,
+      name: 'Free Recruiter',
+      price: 0,
+      currency: 'GBP',
+      interval: 'month',
+    },
+    {
+      id: 'FLEX',
+      planCode: 'FLEX' as const,
+      name: 'Flex Recruiter',
+      description: 'Purchased per job listing from the job posting screen.',
+      price: pricing.flex.price,
+      currency: pricing.flex.currency,
+      interval: pricing.flex.interval,
+    },
+    {
+      id: 'PREMIUM',
+      planCode: 'PREMIUM' as const,
+      name: 'Premium Recruiter',
+      price: pricing.premium.price,
+      currency: pricing.premium.currency,
+      interval: pricing.premium.interval,
+    },
+  ];
+}
 
 export const getRecruiterMembership = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
@@ -61,6 +71,8 @@ export const getRecruiterMembership = catchAsync(
       orderBy: { premiumListingExpiresAt: 'asc' },
     });
 
+    const plans = await buildRecruiterPlans();
+
     res.status(200).json({
       status: 'success',
       data: {
@@ -70,7 +82,7 @@ export const getRecruiterMembership = catchAsync(
           hasActiveFlexListing: Boolean(activeFlexListing),
           flexListingExpiresAt:
             activeFlexListing?.premiumListingExpiresAt ?? null,
-          plans: RECRUITER_PLANS,
+          plans,
         },
       },
     });

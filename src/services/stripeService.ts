@@ -750,6 +750,31 @@ export const stripeService = {
   },
 
   /**
+   * Live Flex/Premium recruiter pricing, read from Stripe rather than
+   * hardcoded — the recruiter plan cards previously showed stale numbers
+   * that didn't match what checkout actually charged.
+   */
+  async getRecruiterPlanPricing() {
+    const [flexPrice, premiumPrice] = await Promise.all([
+      stripe.prices.retrieve(env.STRIPE_RECRUITER_FLEX_PRICE_ID),
+      stripe.prices.retrieve(env.STRIPE_RECRUITER_PREMIUM_PRICE_ID),
+    ]);
+
+    return {
+      flex: {
+        price: (flexPrice.unit_amount ?? 0) / 100,
+        currency: flexPrice.currency.toUpperCase(),
+        interval: flexPrice.recurring?.interval || 'one_time',
+      },
+      premium: {
+        price: (premiumPrice.unit_amount ?? 0) / 100,
+        currency: premiumPrice.currency.toUpperCase(),
+        interval: premiumPrice.recurring?.interval || 'month',
+      },
+    };
+  },
+
+  /**
    * Stripe Checkout (subscription) for Premium Recruiter membership upgrade.
    */
   async createRecruiterMembershipCheckoutSession(params: {
