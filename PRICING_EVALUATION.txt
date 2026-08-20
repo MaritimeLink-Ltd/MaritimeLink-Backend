@@ -1,0 +1,406 @@
+MARITIMELINK — INFRASTRUCTURE PRICING EVALUATION
+Prepared: 2026-08-17
+Scope: Render, Vercel, Supabase, Twilio, Gemini API, Stripe, Namecheap
+Purpose: Confirm official current pricing for every service this codebase depends
+on, note what plan we're actually on where it could be verified, and project
+cost at 100 and 600 users over the next 6 months.
+
+HOW TO READ THIS DOCUMENT
+- [CONFIRMED] = pulled directly from the official pricing page/docs, or read
+  directly off a dashboard screenshot you shared, today.
+- [ASSUMPTION] = a usage estimate I made for the 100/600-user projection. Not
+  fact — replace with real numbers once you have a few weeks of production
+  traffic, especially email volume, OCR calls, and OTP sends.
+- [NEEDS VERIFICATION] = pricing that is public but I could not confirm which
+  plan/tier YOU are currently on (no dashboard access). Check and fill in.
+
+CHANGE LOG
+- 2026-08-17: Removed Resend — confirmed by grep that it is not used anywhere
+  in this codebase (RESEND_API_KEY isn't even in src/config/env.ts's schema;
+  every "resend" match in src/ is the word "resend" as in "Resend OTP", not
+  the Resend.com API). Actual email delivery is nodemailer over SMTP via the
+  Namecheap Private Email mailbox (SMTP_HOST=mail.privateemail.com) — see
+  Namecheap section below.
+- 2026-08-17: Re-derived the Gemini section from the actual call sites in
+  the code (previously used a flat "2 calls/user/month" placeholder, which
+  undercounted real usage — see the Gemini section for the corrected model,
+  including the Google Search grounding fee that company lookups trigger
+  and the original pricing section missed entirely).
+
+================================================================================
+1. CONFIRMED OFFICIAL PRICING, PER SERVICE
+================================================================================
+
+--- RENDER (backend hosting: web service + cron job) --------------------------
+Source: render.com/docs/new-workspace-plans, render.com/docs/compute-plans,
+and your Render dashboard screenshots (2026-08-17).
+
+Workspace plan (flat monthly fee, separate from compute):
+  Hobby   $0/mo   — 1 seat, 5 GB bandwidth, 2 custom domains, 500 build min/mo
+  Pro     $25/mo  — unlimited seats, 25 GB bandwidth, 15 custom domains,
+                    1,000 build min/mo, SOC2/ISO27001 reports, audit logs
+  Scale   $499/mo — unlimited seats, 1 TB bandwidth, 25 custom domains,
+                    5,000 build min/mo, SSO/SCIM, org-level management
+  Overage: bandwidth $0.15/GB beyond plan allowance; extra custom domain
+  $0.25/mo each.
+  Your dashboard shows a "You've been migrated to our new Pro plan" banner on
+  both the web service and cron job pages — workspace is on Pro ($25/mo flat).
+
+Compute instance pricing (confirmed directly from your dashboard, both
+always-on web-service $/month and usage-billed cron $/minute):
+  Instance    RAM     CPU    Web Service ($/mo)   Cron/Job ($/min)
+  Starter     512 MB  0.5    $7                    $0.00016
+  Standard    2 GB    1      $25                   $0.00058
+  Pro         4 GB    2      $85                    $0.00197
+  Pro Plus    8 GB    4      $175                   $0.00405
+  Pro Max     16 GB   4      $225                   (not shown, same family)
+  Pro Ultra   32 GB   8      $450                   (not shown, same family)
+  Cron jobs have a $1/month minimum charge regardless of actual runtime.
+
+Currently running: 1 Web Service (MaritimeLink-Backend, Starter) + 1 Cron Job
+(MaritimeLink-Backend Cron Job, Starter, runs once daily for
+job:expiry-reminders:prod).
+No Render Postgres in use — the app's database is Supabase, not Render's.
+
+Current baseline: $25 (Pro workspace) + $7 (Starter web service) + ~$1
+(Starter cron, min charge) = ~$33/month before any bandwidth overage.
+
+--- VERCEL (frontend hosting) --------------------------------------------------
+Source: vercel.com/pricing, and your Vercel dashboard screenshot (2026-08-17).
+
+  Hobby: $0/mo — 100 GB Fast Data Transfer, 1M Function invocations, 4 hrs
+  Active CPU, 1M Edge Requests. Vercel's terms explicitly restrict Hobby to
+  non-commercial / personal projects.
+  Pro: $20/seat/mo — includes a matching $20 usage credit per seat. 1 TB Fast
+  Data Transfer and 10M Edge Requests are free and don't consume the credit.
+  Overage (billed against credit, then pay-as-you-go): Fast Data Transfer
+  from $0.15/GB, Function invocations from $0.60/1M, Active CPU from
+  $0.128/hr, Edge Requests from $2/1M beyond the included 10M.
+
+Your dashboard confirms the project (maritme-link-web, domain
+www.maritimelink.co) is currently on the **Hobby** plan.
+
+  [FLAG] This is a live commercial product processing real Stripe payments.
+  Vercel's Hobby plan is for personal, non-commercial use only per their
+  terms — this should move to Pro ($20/mo minimum) regardless of traffic
+  volume, not just when you hit a usage ceiling.
+
+--- SUPABASE (Postgres database + storage) -------------------------------------
+Source: supabase.com/pricing.
+
+  Free:  $0/mo   — 500 MB DB, 1 GB storage, 5 GB egress, 50k MAU.
+                   Project auto-pauses after 7 days of inactivity.
+  Pro:   $25/mo  — 8 GB DB, 100 GB storage, 250 GB egress, 100k MAU.
+                   Includes $10/mo compute credit (covers one Micro instance).
+  Team:  $599/mo — same resource base as Pro + SOC2/ISO27001, SSO/SAML,
+                   14-day backups, HIPAA add-on.
+  Overage beyond plan allowance: DB $0.125/GB, file storage $0.0213/GB,
+  egress $0.09/GB, cached egress $0.03/GB, MAU $0.00325 each.
+
+  [CONFIRMED — you told me directly] Currently on the **Free** plan
+  (bgpmpizbochypyjpaqtq.supabase.co).
+
+  [FLAG] This is a live production app storing KYC documents, photos, and a
+  real Postgres DB (via DATABASE_URL/DIRECT_URL) that Render's cron job and
+  web service both depend on. The Free tier auto-pauses the project after 7
+  days with no activity — low risk today given daily traffic, but there is
+  no safety margin, and Free's limits (500 MB DB, 1 GB storage, 5 GB
+  egress/mo) leave very little room before hitting overage billing or a
+  hard cap. This should move to Pro ($25/mo) before any real user growth,
+  independent of the 100/600-user timeline — treat it as a now item, not a
+  scale-triggered one.
+
+--- TWILIO VERIFY (phone OTP — the only Twilio product this codebase uses) ----
+Source: twilio.com/en-us/verify/pricing. Confirmed in code
+(src/services/smsService.ts) that only Verify (phone OTP for
+registration/login) is used — the raw sendSMS() fallback has no
+TWILIO_PHONE_NUMBER configured in .env, so it's inactive (logs to console).
+
+  $0.05 per successful verification + a channel fee.
+  SMS channel (US): +$0.0083 → ~$0.0583 per US verification.
+  WhatsApp channel (US): +$0.0034 → cheaper than SMS.
+  Voice/Email channel: no extra channel fee beyond the $0.05 base.
+  International SMS channel fees vary significantly by country and are NOT
+  itemized on the public pricing page — Twilio requires checking their
+  per-country SMS rate sheet. This matters here: a maritime crewing platform
+  will likely verify professionals in the Philippines, India, Nigeria,
+  Indonesia, etc., where per-SMS channel fees run higher than the US $0.0083
+  figure. [NEEDS VERIFICATION: pull Twilio's country-specific Verify SMS
+  price list for your actual user geographies before trusting a blended
+  average.]
+  Volume discounts exist but require contacting Twilio sales — not published.
+
+--- GEMINI API (document OCR + company lookup) ---------------------------------
+Source: ai.google.dev/gemini-api/docs/pricing (fetched and re-verified
+2026-08-17), cross-checked against every call site in this codebase.
+
+  Model in use: "gemini-3-flash-preview" (hardcoded in both
+  src/services/geminiService.ts and src/services/companyService.ts).
+
+  [CONFIRMED] Token pricing, from the official rate card:
+    Paid tier, per 1M tokens:
+      Input:            $0.50  (text / image / video)
+      Input (audio):     $1.00
+      Output:            $3.00
+      Context caching:   $0.05 (text/image/video) / $0.10 (audio)
+                          + $1.00 per 1M tokens/hour storage
+    Free tier: input, output, and context caching are all free of charge
+    (rate-limited — fine for dev/staging, not a production floor).
+
+  This app uses Gemini in TWO structurally different ways, and they are
+  priced differently. The original version of this document only modeled
+  the first one:
+
+  (A) Document OCR — analyzeDocument() in geminiService.ts. Plain
+      generateContent call, no Google Search tool — pure token pricing.
+      Confirmed call sites, all hitting Gemini on every request:
+        - professionalKycController.ts: 3 call sites (ID front/back, selfie)
+          — one-time per professional at onboarding
+        - kycController.ts: 3 call sites (ID front/back, selfie) — one-time
+          per recruiter/trainer at onboarding
+        - professionalDocumentController.ts: 2 call sites — fires on EVERY
+          document-wallet upload AND every document replace. This is
+          ongoing, not one-time: a seafarer maintaining a wallet of
+          certificates (STCW, COC, medical fitness, passport, seaman's
+          book, etc.) triggers a fresh OCR call each time they add or
+          replace a document, for the life of the account.
+      Cost per call (image input, ~1,500 input tokens + ~500 output tokens
+      for structured JSON extraction):
+        (1,500/1,000,000 × $0.50) + (500/1,000,000 × $3.00) ≈ $0.0023/call
+
+  (B) Company lookup — fetchGeminiCompanyDetails() / getCompanyMetadata()
+      in companyService.ts, used only for recruiters/trainers (company
+      verification during registration, kycController.ts line ~320,
+      recruiterAuthController.ts lines ~352/486/551). This is NOT a plain
+      token call — the request body sets `tools: [{ google_search: {} }]`
+      (confirmed in companyService.ts), i.e. it uses Gemini's Google Search
+      grounding tool. That has its own separate fee on top of token cost.
+      [CONFIRMED — grounding pricing, same official page]
+        Gemini 3.x models (this app's model family): 5,000 free grounded
+        search requests per month, shared across ALL Gemini 3.x usage on
+        the account, then $14 per 1,000 requests.
+        (For reference only, not what this app uses: Gemini 2.5 models get
+        1,500 free requests/day, then $35/1,000.)
+      The $14/1,000 (or the free-tier consumption) is charged per search
+      query the grounding tool actually performs, which can be more than
+      one per API call depending on what the model decides to search for
+      — the exact multiplier isn't controllable from our code, so treat
+      "1 grounded request per company-lookup call" as a floor, not a cap.
+      Checked the frontend (MaritimeLink-Frontend) to see how often this
+      fires: RecruiterCompanyDetails.jsx calls it onBlur on both the
+      company-name and website fields, plus once more at submit — so a
+      single recruiter registration can trigger 3-4+ lookup calls, not 1.
+      There is no caching by domain anywhere in companyService.ts, so two
+      recruiters from the same shipping company each cost a fresh lookup.
+      Token cost per call (~600 input + ~400 output tokens for the
+      structured company JSON):
+        (600/1,000,000 × $0.50) + (400/1,000,000 × $3.00) ≈ $0.0015/call
+        (+ grounding fee once the 5,000/month free pool is exhausted)
+
+  For comparison, the closest stable (non-preview) Flash model is Gemini
+  2.5 Flash at $0.30/1M input, $2.50/1M output — cheaper than the preview
+  model on token cost alone. Worth keeping as a fallback if Google reprices
+  or deprecates the preview model, since OCR doesn't need agentic features.
+
+--- STRIPE (payments — now live) ----------------------------------------------
+Source: stripe.com/gb/pricing (UK account, matches your live_ keys in .env).
+
+  Standard UK cards:      1.5% + 20p
+  Premium UK cards:       2.8% + 20p
+  EEA cards:               2.5% + 20p (+2% if currency conversion needed)
+  Other international:    3.15% + 20p (+2% if currency conversion needed)
+  No monthly base fee for standard payments processing.
+  Stripe Connect: included at no extra charge on standard payments pricing.
+  [NEEDS VERIFICATION] Your app uses Connect (stripeService.createTransfer,
+  82% trainer payout split) — cross-border payout/transfer fees between your
+  platform account and connected trainer accounts depend on the connected
+  account's country and type (Standard vs Express) and are NOT part of the
+  generic card-processing rate above. Pull the exact Connect fee schedule
+  from Stripe Dashboard → Balance → your Connect settings.
+
+--- NAMECHEAP (domain + SMTP mailbox) ------------------------------------------
+Source: Namecheap knowledgebase (official pricing docs; the live pricing page
+returned a 403 to automated fetch, so treat the domain renewal figure as
+unconfirmed).
+
+  Private Email (mailbox notifications@maritimelink.co, used as SMTP_USER
+  for all transactional email — see emailService.ts, which uses nodemailer
+  over SMTP, not Resend or any third-party email API):
+    Starter: 5 GB storage — $0.99/mo per mailbox first year, renews $1.99/mo.
+    Plus:    50 GB storage — $2.99/mo per mailbox first year, renews $4.99/mo.
+    Billed annually only, no monthly billing option.
+  [NEEDS VERIFICATION — domain renewal] Could not pull the current .co
+  registration/renewal price directly (blocked). Typical market rate for
+  .co is roughly $25–32/year, but this must be confirmed from your actual
+  Namecheap account/invoice, not estimated — .co pricing changes and
+  promotional first-year rates differ from renewal rates.
+  [NEEDS VERIFICATION — sending limits] Namecheap Private Email is a
+  shared/business mailbox product, not a transactional email API — it very
+  likely has an hourly/daily outbound sending cap to prevent spam abuse
+  (typical for this class of product), which I could not confirm publicly.
+  At 600 users × ~8 emails/user/month (see projection below), that's ~160
+  emails/day at peak — worth confirming Namecheap's actual limit before
+  relying on this mailbox as the sole transactional email path at scale.
+
+================================================================================
+2. CURRENT MONTHLY BASELINE (confirmed pieces only)
+================================================================================
+  Render (Pro workspace $25 + Starter web $7 + Starter cron ~$1)   ~$33/mo
+  Vercel (Hobby)                                                     $0/mo   [should be Pro — see flag above]
+  Supabase (Free)                                                    $0/mo   [should be Pro — see flag above]
+  Namecheap Private Email (1 mailbox, Starter tier assumed)        ~$2/mo
+  Namecheap domain (.co)                                          [NEEDS VERIFICATION, ~$25-32/yr]
+  Twilio Verify                                                    usage-based, ~$0 at zero volume
+  Gemini API (gemini-3-flash-preview, confirmed rates)              usage-based, ~$0.0015-0.0023/call
+  Stripe                                                           usage-based (% of transactions)
+
+  Confirmed fixed floor today: ~$35/month (Render + email mailbox) — but this
+  understates real exposure, since both Vercel and Supabase are on plans not
+  meant for a live commercial/production app. Treat $35 as "what you're
+  billed today," not "what this setup should safely cost."
+
+================================================================================
+3. PROJECTION: 100 USERS vs 600 USERS OVER 6 MONTHS
+================================================================================
+Everything below this line is [ASSUMPTION]-driven, built on top of the
+[CONFIRMED] rates above. "Users" here means combined professionals +
+recruiters/trainers actively using the platform. I've split the two roles
+out for Gemini specifically, since they drive very different call patterns
+(professionals: OCR only; recruiters/trainers: OCR + grounded company
+lookup). Assumed mix: 90% professionals, 10% recruiters/trainers — typical
+for a crewing platform where seafarers vastly outnumber recruiting orgs;
+adjust if your actual signup mix differs.
+
+Per-user monthly usage assumptions (replace with real numbers once you have
+production data):
+  - Phone OTP (Twilio Verify): ~1.5 verifications/user/month (registration +
+    occasional re-verification), blended ~$0.06/verification (mostly SMS,
+    mixed geography) → ~$0.09/user/month
+  - Transactional email (via Namecheap SMTP mailbox, not a metered API):
+    ~8 emails/user/month (welcome, OTP-adjacent notifications, booking
+    confirmations, status updates) — no per-email cost, but see the sending
+    limit flag above
+  - Gemini, per professional over 6 months: 3 KYC OCR calls (one-time,
+    onboarding) + ~5 document-wallet OCR calls (initial certificates) + ~1
+    replace/renewal ≈ 9 OCR calls total ≈ $0.021/professional over 6mo
+  - Gemini, per recruiter/trainer over 6 months: 3 KYC OCR calls (one-time)
+    + ~4 grounded company-lookup calls (2 field-blur previews + submit +
+    one re-edit) ≈ 3×$0.0023 + 4×$0.0015 ≈ $0.0129/recruiter over 6mo
+    (grounding fee itself stays $0 at this volume — see below)
+  - Supabase storage: ~5 MB/user (KYC docs, selfies, profile photos)
+  - Database growth: modest — a few KB per user record plus bookings; not a
+    driver at this scale
+
+--- AT 100 USERS (90 professionals, 10 recruiters/trainers) --------------------
+  Twilio Verify:    100 × 1.5 × $0.06                          ≈ $9/mo
+  Gemini, 6mo total: 90 × $0.021 + 10 × $0.0129                ≈ $2.02 total
+                     → averaged ~$0.34/mo (front-loaded into months 1-2
+                     during the onboarding wave, not flat across 6 months)
+  Grounded company-lookup calls: 10 recruiters × 4 ≈ 40/month at peak — well
+                     inside the 5,000/month free grounding pool, so $0
+                     grounding fee at this scale (token cost only, included
+                     above)
+  Supabase:          already confirmed on Free — 500 MB storage/DB is close
+                     to the Free tier's 500 MB DB cap even at 100 users, and
+                     the 7-day auto-pause makes it unsuitable for production
+                     regardless of size — Pro ($25) recommended before, not
+                     at, 100 users
+  Render:            current Starter web service (512 MB) likely sufficient
+                     for 100 users' request volume; keep Pro workspace ($25)
+  Vercel:             must be Pro ($20) — commercial ToS, not a volume call
+  Namecheap:          ~$2/mo mailbox + amortized ~$2-3/mo domain
+  Stripe fees:        pure % of GMV, not a fixed cost — depends on course/
+                      booking volume and prices, not user count directly
+
+  Estimated fixed+usage floor at 100 users: roughly $91/month
+  (Render ~$33 + Vercel Pro $20 + Supabase Pro $25 + Namecheap ~$4 +
+  Twilio ~$9 + Gemini ~$0.34 + Stripe % of GMV)
+
+--- AT 600 USERS (540 professionals, 60 recruiters/trainers) -------------------
+  Twilio Verify:    600 × 1.5 × $0.06                          ≈ $54/mo
+  Gemini, 6mo total: 540 × $0.021 + 60 × $0.0129                ≈ $12.11 total
+                     → averaged ~$2/mo (again front-loaded)
+  Grounded company-lookup calls: 60 recruiters × 4 ≈ 240/month at peak —
+                     still comfortably inside the 5,000/month free pool
+                     (this pool is shared across all Gemini 3.x usage on
+                     the account — re-check if other products/models share
+                     the same Google Cloud project)
+  Supabase:          must be on Pro well before this point — 600 users'
+                     worth of KYC docs/photos (~3 GB) blows past Free's
+                     500 MB DB and 1 GB storage caps outright, not just the
+                     7-day-pause risk; Pro ($25) covers 8 GB DB / 100 GB
+                     storage / 250 GB egress comfortably at this scale
+  Render:            600 concurrent-ish users may start pushing a single
+                     Starter (512 MB/0.5 CPU) instance under load, especially
+                     with Gemini OCR calls blocking request threads — budget
+                     for Standard ($25/mo, 2 GB/1 CPU) as a likely upgrade
+  Vercel:            Pro $20/mo base likely still covers Fast Data Transfer
+                     (1 TB included) at this scale; monitor Function
+                     invocations if the frontend uses serverless API routes
+  Namecheap:          same ~$4/mo (flat, doesn't scale with users) — but see
+                     the sending-limit flag above; ~160 emails/day at peak
+                     may need a real transactional email provider by this
+                     point if the mailbox throttles
+  Stripe fees:        scales with GMV, not user count — model separately
+                      based on expected course price × booking rate
+
+  Estimated fixed+usage floor at 600 users: roughly $155/month
+  (Render Standard-tier ~$50 + Vercel Pro $20 + Supabase Pro $25 +
+  Namecheap ~$4 + Twilio ~$54 + Gemini ~$2 + Stripe % of GMV)
+
+--- WHAT ACTUALLY DRIVES COST AT THIS SCALE ------------------------------------
+  1. Twilio Verify is the single line item that scales most predictably and
+     linearly with users — and geography matters a lot (confirm real
+     per-country SMS channel fees for your actual user base, not the US
+     figure used above).
+  2. Stripe fees are excluded from the fixed-cost totals above on purpose —
+     they're a % of transaction volume (course prices × bookings), not user
+     count, and need a separate GMV-based model once you know expected
+     course pricing and booking frequency.
+  3. Vercel Hobby and Supabase Free are confirmed compliance/reliability
+     risks right now, independent of the 100/600 user question. Supabase
+     Free's 500 MB DB / 1 GB storage caps will be hit well before you reach
+     600 users if KYC document volume follows the assumptions above —
+     budget the $25/mo Pro upgrade as a near-term cost, not a "maybe."
+  4. Gemini stays cheap in dollar terms even under the corrected, higher
+     call-volume model (~$2/mo at 600 users) — but the call PATTERN matters
+     more than the cost: document-wallet OCR is ongoing/unbounded per user
+     (not a one-time onboarding cost), and company lookups have no caching,
+     so both will keep growing linearly with usage in a way the original
+     "2 calls/user/month" placeholder didn't capture. Watch the 5,000/month
+     free grounding pool once recruiter signups pick up meaningfully past
+     this projection's 6-month/600-user horizon.
+  5. Email has no per-message pricing to model here anymore (Namecheap
+     mailbox, not a metered API) — but that also means there's no visible
+     cost signal if it silently starts throttling at volume. Worth a real
+     transactional email provider (Resend, SES, Postmark, etc.) before 600
+     users if the mailbox's sending limits turn out to be tight — a
+     decision this document flags but doesn't make, since no such provider
+     is wired into the code today.
+
+================================================================================
+4. OPEN ITEMS BEFORE THIS CAN BE TREATED AS A FINAL BUDGET
+================================================================================
+  [x] Confirm current Supabase plan — Free, confirmed directly by Umair (2026-08-17)
+  [x] Confirm gemini-3-flash-preview pricing — confirmed from ai.google.dev
+      official pricing table (2026-08-17): $0.50/1M input, $3.00/1M output,
+      plus the Google Search grounding fee for company lookups
+  [x] Remove Resend — confirmed unused in codebase (2026-08-17)
+  [ ] Confirm current Namecheap .co renewal price from account/invoice
+  [ ] Confirm Namecheap Private Email's outbound sending limits (hourly/
+      daily cap) before relying on it as the sole email path at 600 users
+  [ ] Pull real Twilio Verify per-country SMS channel fees for actual target
+      geographies (not just US)
+  [ ] Confirm Stripe Connect payout/transfer fee schedule for your specific
+      connected-account setup
+  [ ] Replace all [ASSUMPTION] usage figures (emails/user, OTP/user, OCR
+      calls/user, professional-vs-recruiter mix) with real numbers after a
+      few weeks of production traffic
+  [ ] Decide on Vercel Hobby → Pro migration timing (recommend: immediately,
+      independent of user count, due to commercial ToS)
+  [ ] Decide on Supabase Free → Pro migration timing (recommend: immediately
+      — Free's 500 MB DB/1 GB storage caps are within reach even at 100
+      users of real KYC document volume, not just a scale-later concern)
+  [ ] Consider caching company-lookup results by domain in companyService.ts
+      — today two recruiters from the same company each pay for a fresh
+      grounded Gemini lookup with no reuse

@@ -30,3 +30,47 @@ describe('jobMatching stop word filtering', () => {
     expect(score.criteria).toEqual([]);
   });
 });
+
+describe('jobMatching category matching', () => {
+  const candidate = {
+    fullname: 'Ada Mariner',
+    email: 'ada@example.com',
+    profession: null,
+    isVerified: false,
+    status: 'PENDING',
+    resume: {
+      category: null,
+      subcategory: null,
+      summary: null,
+      skills: [],
+      seaService: [],
+    },
+  };
+
+  // Externally-sourced listings can arrive with no category. Without a guard,
+  // "" === "" counted as an exact category match and handed out 40 points.
+  it('does not treat two missing categories as a category match', () => {
+    const result = scoreProfessionalForJob(
+      { title: 'Able Seaman', description: '', location: '', category: null },
+      candidate,
+    );
+
+    expect(result.exactCategoryMatch).toBe(false);
+    expect(result.criteria).not.toContain('Category match');
+  });
+
+  it('still scores a real category match', () => {
+    const result = scoreProfessionalForJob(
+      {
+        title: 'Able Seaman',
+        description: '',
+        location: '',
+        category: 'OFFICER',
+      },
+      { ...candidate, profession: 'OFFICER' },
+    );
+
+    expect(result.exactCategoryMatch).toBe(true);
+    expect(result.criteria).toContain('Category match');
+  });
+});

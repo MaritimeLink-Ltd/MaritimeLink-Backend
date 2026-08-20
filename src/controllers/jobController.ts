@@ -25,6 +25,10 @@ import {
   RECRUITER_FREE_ACTIVE_JOB_LIMIT,
   isJobPremiumActive,
 } from '../utils/recruiterCapabilities.js';
+import {
+  getExternalJobsForProfessional,
+  professionalMatchInclude,
+} from '../services/externalJobs/index.js';
 
 const normalizeFieldValue = (value: unknown) => {
   if (value instanceof Date) return value.toISOString();
@@ -183,6 +187,36 @@ export const createJob = catchAsync(
 /**
  * Get all job posts (Public with Filters)
  */
+/**
+ * Externally-sourced maritime jobs (SerpApi + syndicated job-board feeds),
+ * ranked against the signed-in professional's rank, sea service and skills.
+ * The pool itself is refreshed once a day by a scheduled job, not by this
+ * request — this only reads and ranks it, so it's always fast.
+ */
+export const getExternalJobs = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const professional = await prisma.professional.findUnique({
+      where: { id: req.user!.id },
+      include: professionalMatchInclude,
+    });
+
+    if (!professional) {
+      return next(new AppError('Professional profile not found', 404));
+    }
+
+    const { jobs, matchedCount, personalized } =
+      await getExternalJobsForProfessional(professional);
+
+    res.status(200).json({
+      status: 'success',
+      results: jobs.length,
+      matchedCount,
+      personalized,
+      data: { jobs },
+    });
+  },
+);
+
 export const getJobs = catchAsync(async (req: CustomRequest, res: Response) => {
   const page = parseInt(req.query.page as string) || 1;
   const limit = parseInt(req.query.limit as string) || 10;

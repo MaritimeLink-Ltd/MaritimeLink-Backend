@@ -460,6 +460,36 @@ model Job {
   @@map("jobs")
 }
 
+/// One row per externally-sourced job (SerpApi Google Jobs + syndicated
+/// maritime feeds). Populated once a day by a scheduled refresh job, not by
+/// user requests — the "External Jobs" tab reads and ranks this table.
+/// `id` is the source-prefixed id (e.g. "serpapi:...", "feed:...") so a
+/// re-fetch naturally upserts instead of duplicating.
+model ExternalJobListing {
+  id             String   @id
+  title          String
+  company        String?
+  location       String?
+  description    String
+  salary         String?
+  postedAt       String?
+  applyLink      String?
+  via            String?
+  thumbnail      String?
+  category       String?
+  employmentType String?
+  provider       String
+  /// Start time of the refresh run that last saw this listing. Rows not
+  /// touched by the most recent run (i.e. no longer returned by any source)
+  /// are deleted, so this table always reflects the current market.
+  fetchedAt      DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([fetchedAt])
+  @@map("external_job_listings")
+}
+
 model JobApplication {
   id                String                 @id @default(uuid())
   jobId             String

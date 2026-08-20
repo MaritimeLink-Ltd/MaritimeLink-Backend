@@ -139,10 +139,15 @@ export const scoreProfessionalForJob = (
   let score = 0;
   const criteria: string[] = [];
 
+  // Guard on a non-empty category: a job with no category must not "match" a
+  // professional with no profession just because both normalize to "".
+  // Platform jobs always carry a category (required in schema), so this only
+  // affects externally-sourced listings, which may have none.
+  const jobCategory = normalizeText(job.category);
   const exactCategoryMatch =
-    normalizeText(professional.profession) === normalizeText(job.category) ||
-    normalizeText(professional.resume?.category) ===
-      normalizeText(job.category);
+    Boolean(jobCategory) &&
+    (normalizeText(professional.profession) === jobCategory ||
+      normalizeText(professional.resume?.category) === jobCategory);
 
   if (exactCategoryMatch) {
     score += 40;

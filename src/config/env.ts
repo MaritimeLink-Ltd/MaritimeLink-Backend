@@ -47,6 +47,10 @@ const envSchema = z.object({
   STRIPE_RECRUITER_FLEX_PRICE_ID: z.string().min(1),
   STRIPE_RECRUITER_PREMIUM_PRICE_ID: z.string().min(1),
   GEMINI_API_KEY: z.string().optional(),
+  /** SerpApi key used to pull external maritime job listings (Google Jobs engine). */
+  SERPAPI_KEY: z.string().optional(),
+  /** Comma-separated RSS/Atom job feed URLs; falls back to built-in defaults. */
+  EXTERNAL_JOB_FEEDS: z.string().optional(),
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),
   /** Only needed for plain SMS sends; phone OTP uses Verify instead. */

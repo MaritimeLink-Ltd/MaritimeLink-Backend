@@ -17,6 +17,10 @@
     "stripe:setup-membership": "tsx src/scripts/setup-stripe-membership-prices.ts",
     "job:expiry-reminders": "tsx src/scripts/send-expiry-reminders.ts",
     "job:expiry-reminders:prod": "node dist/scripts/send-expiry-reminders.js",
+    "job:refresh-external-jobs": "tsx src/scripts/refresh-external-jobs.ts",
+    "job:refresh-external-jobs:prod": "node dist/scripts/refresh-external-jobs.js",
+    "job:daily": "tsx src/scripts/run-daily-jobs.ts",
+    "job:daily:prod": "node dist/scripts/run-daily-jobs.js",
     "prepare": "if [ \"$NODE_ENV\" != \"production\" ]; then husky; fi"
   },
   "keywords": [],
@@ -72,6 +76,7 @@
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "express-rate-limit": "^8.2.1",
+    "fast-xml-parser": "^5.11.0",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.0.2",

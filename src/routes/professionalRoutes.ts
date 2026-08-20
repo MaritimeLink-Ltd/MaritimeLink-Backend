@@ -1249,6 +1249,61 @@ router.get('/jobs/saved', protect, professionalJobController.getSavedJobs);
 
 /**
  * @swagger
+ * /api/professional/jobs/external:
+ *   get:
+ *     summary: Browse external maritime jobs matched to my profile
+ *     description: >
+ *       Jobs aggregated from outside the platform (SerpApi Google Jobs and
+ *       syndicated maritime job-board feeds), ranked against my rank, sea
+ *       service and skills. The pool is refreshed once a day by a scheduled
+ *       job, not by this request, so this only reads and ranks it. Matched
+ *       jobs come first (best match first), then the wider maritime market.
+ *       Every listing links out to the employer's own application page.
+ *     tags: [Professional Jobs]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of matched external jobs
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: success }
+ *                 results: { type: integer }
+ *                 matchedCount:
+ *                   type: integer
+ *                   description: Leading entries of data.jobs that matched the profile
+ *                 personalized:
+ *                   type: boolean
+ *                   description: False when the profile was too sparse to rank on
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     jobs:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           id: { type: string }
+ *                           title: { type: string }
+ *                           company: { type: string, nullable: true }
+ *                           location: { type: string, nullable: true }
+ *                           description: { type: string }
+ *                           salary: { type: string, nullable: true }
+ *                           postedAt: { type: string, nullable: true }
+ *                           applyLink: { type: string, nullable: true }
+ *                           via: { type: string, nullable: true }
+ *                           provider: { type: string, enum: [serpapi, feed] }
+ *                           matchScore: { type: integer }
+ *       401:
+ *         $ref: '#/components/responses/UnauthorizedError'
+ */
+router.get('/jobs/external', protect, jobController.getExternalJobs);
+
+/**
+ * @swagger
  * /api/professional/jobs/{id}:
  *   get:
  *     summary: View job details
