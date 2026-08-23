@@ -28,3 +28,9 @@ export const completeProfileSchema = z.object({
 export const updateProfessionalSchema = completeProfileSchema
   .partial()
   .omit({ professionalId: true });
+
+/** Admin request to a pending professional to finish their profile before approval. Works for one id or many. */
+export const requestProfileCompletionSchema = z.object({
+  professionalIds: z.array(z.string().uuid()).min(1).max(200),
+  message: z.string().trim().min(3).max(2000),
+});

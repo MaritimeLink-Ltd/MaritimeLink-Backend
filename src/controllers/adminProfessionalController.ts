@@ -4,6 +4,7 @@ import { catchAsync } from '../utils/catchAsync.js';
 import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
 import {
+  ActorType,
   DocumentCategory,
   ProfessionalStatus,
   VerificationStatus,
@@ -13,10 +14,14 @@ import {
   notifyAccountReinstated,
   notifyAccountStage1Decision,
   notifyAccountSuspended,
+  notifyCompleteProfileRequest,
   notifyKycResubmissionRequested,
   notifyKycStatusChange,
   safeNotify,
 } from '../services/eventNotificationService.js';
+import { requestProfileCompletionSchema } from '../validations/professionalValidation.js';
+import { logActivity } from '../services/activityLogger.js';
+import { getClientIp } from '../utils/requestMetadata.js';
 
 /** Matches admin dashboard expiring-compliance card (past expired + forward window). */
 const ADMIN_COMPLIANCE_EXPIRED_LOOKBACK_DAYS = 365;
@@ -388,6 +393,65 @@ export const updateKYCStatus = catchAsync(
       data: {
         kyc,
       },
+    });
+  },
+);
+
+/**
+ * Nudge one or more pending professionals to finish their profile before
+ * approval — an in-app alert plus an email, so admin isn't stuck choosing
+ * between rejecting an incomplete signup or leaving it pending indefinitely.
+ * Scoped to PENDING accounts only; any other id passed in is skipped, not
+ * messaged, since this action only makes sense pre-approval.
+ */
+export const requestProfileCompletion = catchAsync(
+  async (req: CustomRequest, res: Response) => {
+    const { professionalIds, message } = requestProfileCompletionSchema.parse(
+      req.body,
+    );
+
+    const pending = await prisma.professional.findMany({
+      where: { id: { in: professionalIds }, status: 'PENDING' },
+      select: { id: true },
+    });
+
+    const io = req.app.get('io');
+    let notified = 0;
+    let failed = 0;
+
+    for (const professional of pending) {
+      try {
+        await notifyCompleteProfileRequest({
+          professionalId: professional.id,
+          message,
+          io,
+        });
+        notified += 1;
+      } catch (error) {
+        failed += 1;
+        console.error(
+          `Failed to send profile-completion request to ${professional.id}:`,
+          error,
+        );
+      }
+    }
+
+    const skipped = professionalIds.length - pending.length;
+
+    await logActivity({
+      action: 'PROFESSIONAL_PROFILE_COMPLETION_REQUESTED',
+      actorId: req.user!.id,
+      actorType: ActorType.ADMIN,
+      targetType: 'Professional',
+      ipAddress: getClientIp(req),
+      userAgent: req.headers['user-agent'],
+      metadata: { professionalIds, notified, failed, skipped },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: `Profile completion request sent to ${notified} of ${professionalIds.length} professional(s)`,
+      data: { notified, failed, skipped },
     });
   },
 );

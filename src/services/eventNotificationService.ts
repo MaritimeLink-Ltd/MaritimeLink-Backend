@@ -15,6 +15,7 @@ import {
   sendJobApplicationEmails,
   sendJobInvitationEmail,
   sendJobPublishedEmail,
+  sendCompleteProfileRequestEmail,
   sendKycResubmissionEmail,
   sendKycStatusEmail,
   sendKycSubmittedEmail,
@@ -197,6 +198,51 @@ export async function notifyKycStatusChange(params: {
     status,
     dashboardUrl: dashboardUrl('RECRUITER', recruiter.role),
     rejectionReason,
+  });
+}
+
+/**
+ * Admin nudge to a professional whose account is stuck in PENDING because
+ * their profile is incomplete — creates the in-app alert, emits it live if
+ * the professional is connected, and emails them what's missing.
+ */
+export async function notifyCompleteProfileRequest(params: {
+  professionalId: string;
+  message: string;
+  io?: SocketServer;
+}): Promise<void> {
+  const { professionalId, message, io } = params;
+
+  const professional = await prisma.professional.findUnique({
+    where: { id: professionalId },
+    select: {
+      id: true,
+      email: true,
+      fullname: true,
+      firstName: true,
+      lastName: true,
+    },
+  });
+  if (!professional?.email) return;
+
+  const alert = await prisma.alert.create({
+    data: {
+      professionalId: professional.id,
+      type: 'PROFILE_COMPLETION_REQUEST',
+      title: 'Complete your profile',
+      message,
+    },
+  });
+
+  if (io) {
+    io.to(professional.id).emit('professional_alert', { alert });
+  }
+
+  await sendCompleteProfileRequestEmail({
+    to: professional.email,
+    recipientName: displayName(professional),
+    message,
+    profileUrl: appUrl('/personal/profile'),
   });
 }
 

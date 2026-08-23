@@ -54,6 +54,47 @@ const normalize = (job: SerpApiJobResult): ExternalJob => ({
 
 export const isSerpApiConfigured = () => Boolean(env.SERPAPI_KEY);
 
+type SerpApiAccountResponse = {
+  plan_id?: string;
+  searches_per_month?: number;
+  total_searches_left?: number;
+  this_month_usage?: number;
+};
+
+export type SerpApiQuota = {
+  planId: string | null;
+  searchesLeft: number;
+  monthlyLimit: number | null;
+};
+
+/**
+ * Checks the account's actual remaining quota before spending it — this is a
+ * free/unmetered endpoint on SerpApi's side, not a search. Returns null if the
+ * check itself fails, so the caller can fall back to a configured guess rather
+ * than blocking the refresh on a transient network error.
+ */
+export const getSerpApiQuota = async (): Promise<SerpApiQuota | null> => {
+  if (!env.SERPAPI_KEY) return null;
+
+  try {
+    const response = await axios.get<SerpApiAccountResponse>(
+      'https://serpapi.com/account.json',
+      { timeout: REQUEST_TIMEOUT_MS, params: { api_key: env.SERPAPI_KEY } },
+    );
+    return {
+      planId: response.data.plan_id ?? null,
+      searchesLeft: response.data.total_searches_left ?? 0,
+      monthlyLimit: response.data.searches_per_month ?? null,
+    };
+  } catch (error) {
+    console.error(
+      '[external-jobs] Failed to check SerpApi quota:',
+      error instanceof Error ? error.message : error,
+    );
+    return null;
+  }
+};
+
 /** Runs one search. Throws on transport or API error; the caller decides. */
 export const fetchSerpApiJobs = async (
   query: ExternalJobQuery,
@@ -68,6 +109,10 @@ export const fetchSerpApiJobs = async (
         engine: 'google_jobs',
         q: query.q,
         ...(query.location ? { location: query.location } : {}),
+        // Without this, Google localizes titles/locations into the target
+        // country's language (e.g. Russian for `location: Russia`) — pin to
+        // English since that's what the matcher and the UI expect.
+        hl: 'en',
         api_key: env.SERPAPI_KEY,
       },
     },

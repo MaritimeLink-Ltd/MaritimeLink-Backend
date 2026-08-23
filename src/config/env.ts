@@ -49,6 +49,12 @@ const envSchema = z.object({
   GEMINI_API_KEY: z.string().optional(),
   /** SerpApi key used to pull external maritime job listings (Google Jobs engine). */
   SERPAPI_KEY: z.string().optional(),
+  /**
+   * Ceiling on SerpApi searches per daily refresh. Actual usage is also
+   * clamped to whatever the account has left this month, so this is a safe
+   * default to raise if you're on a bigger plan — no code change needed.
+   */
+  SERPAPI_MAX_QUERIES_PER_DAY: z.string().optional(),
   /** Comma-separated RSS/Atom job feed URLs; falls back to built-in defaults. */
   EXTERNAL_JOB_FEEDS: z.string().optional(),
   TWILIO_ACCOUNT_SID: z.string().optional(),

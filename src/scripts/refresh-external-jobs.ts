@@ -18,7 +18,7 @@ async function main() {
   const summary = await refreshExternalJobs();
 
   console.log(
-    `[external-jobs] ran ${summary.queriesRun} search(es); ` +
+    `[external-jobs] ran ${summary.queriesRun} search(es) (${summary.quotaNote}); ` +
       `stored ${summary.jobsStored} listing(s); ` +
       `removed ${summary.staleRemoved} stale listing(s); ` +
       `took ${Date.now() - startedAt}ms`,

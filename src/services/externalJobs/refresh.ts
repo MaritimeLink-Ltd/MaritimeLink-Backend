@@ -1,10 +1,14 @@
-import { prisma } from '../../config/prisma.js';
-import { dedupeJobs } from './dedupe.js';
 import { fetchFeedJobs } from './feedSource.js';
-import { CATEGORY_SEARCH_TERMS, scopeToMaritime } from './profileQuery.js';
-import { fetchSerpApiJobs, isSerpApiConfigured } from './serpApiSource.js';
+import { dedupeJobs } from './dedupe.js';
+import {
+  fetchSerpApiJobs,
+  getSerpApiQuota,
+  isSerpApiConfigured,
+} from './serpApiSource.js';
 import { isInMaritimeScope } from './scope.js';
 import { ExternalJob, ExternalJobQuery } from './types.js';
+import { prisma } from '../../config/prisma.js';
+import { env } from '../../config/env.js';
 
 /**
  * Daily refresh: the only place that calls out to SerpApi or the syndicated
@@ -12,134 +16,152 @@ import { ExternalJob, ExternalJobQuery } from './types.js';
  * never by a user request — `getExternalJobsForProfessional` only reads what
  * this writes to `external_job_listings`.
  *
- * Because the shared pool has no per-professional location or exact rank
- * string to search with, coverage comes from casting a bounded net instead:
- * generic maritime searches, one search per platform category, the most
- * common ranks on the platform, and the most common countries. Every
- * professional is then ranked against the whole pool at request time — a
- * rank that wasn't searched for directly can still surface through keyword,
- * skill and sea-service matching in `scoreProfessionalForJob`.
+ * SerpApi's Google Jobs engine has no "worldwide" mode: a query with no
+ * `location` silently defaults to US results, so every query below carries an
+ * explicit location. SerpApi's free tier is only 250 searches total per
+ * *month*, not per day, so this cannot afford to run the full search-term ×
+ * country grid every day — instead it rotates a small daily slice through the
+ * grid (see `buildQueryPlan`), checks the account's actual remaining quota
+ * before spending any of it, and falls back to the free RSS feed alone when
+ * the quota is exhausted rather than erroring.
  */
 
-/** Identical for everyone; keeps the pool populated even with no rank data. */
-const BASELINE_QUERIES: ExternalJobQuery[] = [
-  { q: 'maritime seafarer jobs' },
-  { q: 'ship crew vessel jobs' },
+/**
+ * Broad, maritime-scoped search terms. Kept general on purpose — specificity
+ * comes from crossing these with MARITIME_COUNTRIES below, not from more terms.
+ */
+const SEARCH_TERMS = [
+  'maritime seafarer jobs',
+  'deck officer marine engineer jobs',
+  'seafarer ratings crew catering jobs',
 ];
 
-/** How many distinct professional ranks to search for by name. */
-const MAX_RANK_QUERIES = 20;
-
-/** How many professional countries to add a location-scoped baseline search for. */
-const MAX_COUNTRY_QUERIES = 5;
+/**
+ * Countries to search, in rough order of maritime labour market size. The US
+ * and Canada are included but kept to two entries out of ~20 deliberately —
+ * without an explicit location every query defaulted there. Add/remove
+ * countries here to retune coverage; SerpApi resolves these as free-text
+ * place names, not ISO codes.
+ */
+const MARITIME_COUNTRIES = [
+  // Priority: UK first, then broad reach — the rotation below walks this
+  // list in order, so earlier entries get queried on earlier days.
+  'United Kingdom',
+  'Philippines',
+  'India',
+  'China',
+  'Indonesia',
+  'Ukraine',
+  'Russia',
+  'Poland',
+  'Croatia',
+  'Greece',
+  'Turkey',
+  'Nigeria',
+  'Ghana',
+  'Bangladesh',
+  'Vietnam',
+  'Romania',
+  'United Arab Emirates',
+  'Singapore',
+  'United States',
+  'Canada',
+];
 
 /**
- * Hard ceiling on SerpApi calls per run, bounding daily spend regardless of
- * how many distinct ranks/countries exist on the platform.
+ * Every (term, country) combination — the full grid, not what runs in one
+ * day. Term-major order (all countries under the first, most general term
+ * before moving to narrower terms) means the rotation covers broad
+ * geographic reach first and fills in category-specific searches later.
  */
-const MAX_SERPAPI_QUERIES = 40;
+const QUERY_GRID: ExternalJobQuery[] = SEARCH_TERMS.flatMap((q) =>
+  MARITIME_COUNTRIES.map((location) => ({ q, location })),
+);
 
-const clean = (value: unknown) => String(value ?? '').trim();
+/**
+ * Default daily ceiling if SERPAPI_MAX_QUERIES_PER_DAY isn't set. Sized for a
+ * 250-searches/*month* free-tier account (8/day ≈ 240/month, leaving headroom
+ * for occasional manual testing). Raise via the env var on a bigger plan —
+ * the rotation below automatically cycles the full grid faster as the budget
+ * grows, no code change needed.
+ */
+const DEFAULT_DAILY_BUDGET = 8;
 
-/** Counts non-empty values case-insensitively, keeping the first-seen casing. */
-const rankByFrequency = (values: Array<string | null | undefined>) => {
-  const counts = new Map<string, { term: string; count: number }>();
-  for (const raw of values) {
-    const term = clean(raw);
-    if (!term) continue;
-    const key = term.toLowerCase();
-    const entry = counts.get(key);
-    if (entry) entry.count += 1;
-    else counts.set(key, { term, count: 1 });
+/**
+ * A listing survives this many days without being re-seen before it's
+ * considered stale. Must be generous relative to how long the daily budget
+ * takes to cycle the full QUERY_GRID once (at 8/day across 60 combinations,
+ * that's ~7.5 days) — otherwise rotation would delete a country's jobs the
+ * moment today's slice moves on to different countries.
+ */
+const SERPAPI_STALE_AFTER_DAYS = 14;
+
+/** Rotation day 0 — do not change casually, it re-shuffles which slice runs on which day. */
+const ROTATION_START = new Date('2026-08-22T00:00:00Z');
+
+const configuredDailyBudget = () => {
+  const parsed = Number(env.SERPAPI_MAX_QUERIES_PER_DAY);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_DAILY_BUDGET;
+};
+
+/**
+ * Picks today's slice of the query grid, deterministically rotating so a
+ * different slice runs each day with no state to persist — just today's date.
+ * Never spends more than the account actually has left this month.
+ */
+const buildQueryPlan = async (): Promise<{
+  queries: ExternalJobQuery[];
+  quotaNote: string;
+}> => {
+  if (!isSerpApiConfigured()) {
+    return { queries: [], quotaNote: 'SERPAPI_KEY not set' };
   }
-  return [...counts.values()].sort((a, b) => b.count - a.count);
-};
 
-/** The N most common ranks on the platform, each turned into a maritime-scoped search. */
-const collectRankQueries = async (): Promise<ExternalJobQuery[]> => {
-  const professionals = await prisma.professional.findMany({
-    select: { subcategory: true, resume: { select: { subcategory: true } } },
-  });
-
-  const ranks = rankByFrequency(
-    professionals.map((p) => p.subcategory || p.resume?.subcategory),
-  ).slice(0, MAX_RANK_QUERIES);
-
-  return ranks.map(({ term }) => ({ q: scopeToMaritime(term) }));
-};
-
-/** The generic baseline search, scoped to each of the M most common professional countries. */
-const collectCountryQueries = async (): Promise<ExternalJobQuery[]> => {
-  const resumes = await prisma.professionalResume.findMany({
-    select: { country: true },
-  });
-
-  const countries = rankByFrequency(resumes.map((r) => r.country)).slice(
-    0,
-    MAX_COUNTRY_QUERIES,
+  const quota = await getSerpApiQuota();
+  const budget = Math.min(
+    configuredDailyBudget(),
+    quota ? quota.searchesLeft : configuredDailyBudget(),
   );
 
-  return countries.map(({ term }) => ({
-    q: BASELINE_QUERIES[0].q,
-    location: term,
-  }));
-};
+  const quotaNote = quota
+    ? `${quota.searchesLeft}/${quota.monthlyLimit ?? '?'} searches left this month (${quota.planId ?? 'unknown plan'})`
+    : 'quota check failed — using configured default only';
 
-const queryKey = (query: ExternalJobQuery) =>
-  `${query.q.toLowerCase()}|${(query.location ?? '').toLowerCase()}`;
-
-const buildQueryPlan = async (): Promise<ExternalJobQuery[]> => {
-  const categoryQueries = Object.values(CATEGORY_SEARCH_TERMS).map((term) => ({
-    q: term,
-  }));
-
-  const [rankQueries, countryQueries] = await Promise.all([
-    collectRankQueries(),
-    collectCountryQueries(),
-  ]);
-
-  const all = [
-    ...BASELINE_QUERIES,
-    ...categoryQueries,
-    ...rankQueries,
-    ...countryQueries,
-  ];
-
-  const seen = new Set<string>();
-  const deduped: ExternalJobQuery[] = [];
-  for (const query of all) {
-    const key = queryKey(query);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    deduped.push(query);
+  if (budget <= 0) {
+    return { queries: [], quotaNote: `${quotaNote} — skipping SerpApi today` };
   }
 
-  return deduped.slice(0, MAX_SERPAPI_QUERIES);
+  // Anchored to a fixed date (not the Unix epoch) so day 0 of the rotation
+  // lands on the front of QUERY_GRID — i.e. the priority countries actually
+  // get queried first, rather than wherever an epoch-relative offset happens
+  // to fall on a given day.
+  const dayIndex = Math.max(
+    0,
+    Math.floor((Date.now() - ROTATION_START.getTime()) / (24 * 60 * 60 * 1000)),
+  );
+  const offset = (dayIndex * budget) % QUERY_GRID.length;
+  const queries = Array.from(
+    { length: Math.min(budget, QUERY_GRID.length) },
+    (_, i) => QUERY_GRID[(offset + i) % QUERY_GRID.length],
+  );
+
+  return { queries, quotaNote };
 };
 
-/**
- * This only runs once a day, so a single transient timeout otherwise costs
- * that search the whole day rather than a few extra seconds — worth one retry.
- */
 const runSerpApiQuery = async (
   query: ExternalJobQuery,
 ): Promise<ExternalJob[]> => {
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    try {
-      return await fetchSerpApiJobs(query);
-    } catch (error) {
-      const label = `"${query.q}"${query.location ? ` @ ${query.location}` : ''}`;
-      if (attempt === 2) {
-        console.error(
-          `[external-jobs] SerpApi query failed after retry (${label}):`,
-          error instanceof Error ? error.message : error,
-        );
-        return [];
-      }
-      console.warn(`[external-jobs] SerpApi query failed, retrying (${label})`);
-    }
+  try {
+    return await fetchSerpApiJobs(query);
+  } catch (error) {
+    // No retry: the quota is too scarce to spend twice on one query. A
+    // failed search just waits for its next turn in the rotation.
+    console.error(
+      `[external-jobs] SerpApi query failed ("${query.q}"${query.location ? ` @ ${query.location}` : ''}):`,
+      error instanceof Error ? error.message : error,
+    );
+    return [];
   }
-  return [];
 };
 
 /** Conservative — SerpApi calls compete for outbound bandwidth/rate limit; a wide burst risks timeouts. */
@@ -200,31 +222,29 @@ const upsertListing = (job: ExternalJob, fetchedAt: Date) =>
 
 export type RefreshSummary = {
   queriesRun: number;
+  quotaNote: string;
   jobsFound: number;
   jobsStored: number;
   staleRemoved: number;
 };
 
 /**
- * Fetches every source, stores the result, and removes listings no source
- * returned any more. Safe to run repeatedly — it's a full resync, not an
- * append.
+ * Fetches every source, stores the result, and removes listings no longer
+ * current. Safe to run repeatedly — it's a resync, not an append.
+ *
+ * Feed jobs are refetched in full every run (free, so no rotation needed) and
+ * pruned if missing from this run. SerpApi jobs only get touched by today's
+ * rotated slice, so they're pruned on a longer TTL instead — see
+ * SERPAPI_STALE_AFTER_DAYS.
  */
 export const refreshExternalJobs = async (): Promise<RefreshSummary> => {
   const runStartedAt = new Date();
 
-  if (!isSerpApiConfigured()) {
-    console.warn(
-      '[external-jobs] SERPAPI_KEY not set — refreshing feeds only.',
-    );
-  }
-
-  const queries = await buildQueryPlan();
+  const { queries, quotaNote } = await buildQueryPlan();
+  console.log(`[external-jobs] SerpApi quota: ${quotaNote}`);
 
   const [serpApiResults, feedJobs] = await Promise.all([
-    isSerpApiConfigured()
-      ? inChunks(queries, SERPAPI_CONCURRENCY, runSerpApiQuery)
-      : Promise.resolve([] as ExternalJob[][]),
+    inChunks(queries, SERPAPI_CONCURRENCY, runSerpApiQuery),
     fetchFeedJobs().catch((error) => {
       console.error('[external-jobs] Feed fetch failed:', error);
       return [] as ExternalJob[];
@@ -239,15 +259,26 @@ export const refreshExternalJobs = async (): Promise<RefreshSummary> => {
     upsertListing(job, runStartedAt),
   );
 
-  const { count: staleRemoved } = await prisma.externalJobListing.deleteMany({
-    where: { fetchedAt: { lt: runStartedAt } },
-  });
+  const serpApiStaleCutoff = new Date(
+    runStartedAt.getTime() - SERPAPI_STALE_AFTER_DAYS * 24 * 60 * 60 * 1000,
+  );
+
+  const [{ count: staleFeedRemoved }, { count: staleSerpApiRemoved }] =
+    await Promise.all([
+      prisma.externalJobListing.deleteMany({
+        where: { provider: 'feed', fetchedAt: { lt: runStartedAt } },
+      }),
+      prisma.externalJobListing.deleteMany({
+        where: { provider: 'serpapi', fetchedAt: { lt: serpApiStaleCutoff } },
+      }),
+    ]);
 
   const summary: RefreshSummary = {
     queriesRun: queries.length,
+    quotaNote,
     jobsFound: inScope.length,
     jobsStored: inScope.length,
-    staleRemoved,
+    staleRemoved: staleFeedRemoved + staleSerpApiRemoved,
   };
 
   console.log('[external-jobs] refresh complete:', summary);

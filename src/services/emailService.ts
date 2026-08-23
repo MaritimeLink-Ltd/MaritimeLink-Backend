@@ -502,6 +502,26 @@ export const sendMessageReceivedEmail = async (params: {
   );
 };
 
+export const sendCompleteProfileRequestEmail = async (params: {
+  to: string;
+  recipientName: string;
+  message: string;
+  profileUrl: string;
+}) => {
+  await deliver(
+    params.to,
+    'Action needed: complete your profile to get approved',
+    buildEmailHtml({
+      headline: 'Complete your profile',
+      preheader: 'A few more details and your account can be approved',
+      greeting: `Hi ${params.recipientName},`,
+      variant: 'warning',
+      bodyHtml: `${emailParagraph("We're reviewing your MaritimeLink profile and it's almost ready for approval — a few things still need your attention:")}${emailCallout(escapeHtml(params.message).replace(/\n/g, '<br />'), 'warning')}${emailParagraph(`Once you've updated your profile, our team will review it again. Contact us at ${supportEmailLink()} if you have questions.`)}`,
+      cta: { label: 'Complete my profile', url: params.profileUrl },
+    }),
+  );
+};
+
 export const sendCourseBookingEmails = async (params: {
   professional: {
     to: string;

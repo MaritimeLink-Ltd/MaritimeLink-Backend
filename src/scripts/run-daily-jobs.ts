@@ -41,7 +41,7 @@ async function main() {
     console.log('[daily-jobs] running external-jobs refresh...');
     const summary = await refreshExternalJobs();
     console.log(
-      `[daily-jobs] external-jobs refresh: ran ${summary.queriesRun} search(es); ` +
+      `[daily-jobs] external-jobs refresh: ran ${summary.queriesRun} search(es) (${summary.quotaNote}); ` +
         `stored ${summary.jobsStored} listing(s); removed ${summary.staleRemoved} stale`,
     );
   } catch (error) {

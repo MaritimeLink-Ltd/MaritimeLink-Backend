@@ -302,6 +302,42 @@ router.get(
 
 /**
  * @swagger
+ * /api/admin/professionals/request-profile-completion:
+ *   post:
+ *     summary: Nudge one or more pending professionals to complete their profile before approval
+ *     description: >
+ *       Sends an in-app alert plus an email to each PENDING professional in
+ *       professionalIds. Any id that isn't currently PENDING is silently
+ *       skipped and counted in `skipped`. Works for a single id or many.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [professionalIds, message]
+ *             properties:
+ *               professionalIds:
+ *                 type: array
+ *                 items: { type: string }
+ *                 minItems: 1
+ *               message:
+ *                 type: string
+ *                 description: What the professional needs to complete, shown in the alert and email
+ *     responses:
+ *       200:
+ *         description: Summary of how many were notified/failed/skipped
+ */
+router.post(
+  '/professionals/request-profile-completion',
+  adminProfessionalController.requestProfileCompletion,
+);
+
+/**
+ * @swagger
  * /api/admin/professionals/{id}:
  *   get:
  *     summary: Get detailed professional by ID
