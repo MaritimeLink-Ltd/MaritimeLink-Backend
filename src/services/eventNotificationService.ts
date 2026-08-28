@@ -15,6 +15,7 @@ import {
   sendJobApplicationEmails,
   sendJobInvitationEmail,
   sendJobPublishedEmail,
+  sendAnnouncementEmail,
   sendCompleteProfileRequestEmail,
   sendKycResubmissionEmail,
   sendKycStatusEmail,
@@ -243,6 +244,79 @@ export async function notifyCompleteProfileRequest(params: {
     recipientName: displayName(professional),
     message,
     profileUrl: appUrl('/personal/profile'),
+  });
+}
+
+/**
+ * Admin-composed announcement (marketing, greetings, general notices) to one
+ * recipient — the Announcements feature calls this once per selected user.
+ * Professionals get the same Alert + email treatment as every other
+ * professional notification; recruiters and training providers (both are
+ * `Recruiter` rows) have no in-app alert model, so they only ever get emailed
+ * — this is unrelated to whether the account is verified or still pending,
+ * unlike `notifyCompleteProfileRequest` which only ever targets PENDING
+ * professionals.
+ */
+export async function notifyAnnouncement(params: {
+  audience: 'PROFESSIONAL' | 'RECRUITER';
+  userId: string;
+  subject: string;
+  message: string;
+  io?: SocketServer;
+}): Promise<void> {
+  const { audience, userId, subject, message, io } = params;
+
+  if (audience === 'PROFESSIONAL') {
+    const professional = await prisma.professional.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        fullname: true,
+        firstName: true,
+        lastName: true,
+      },
+    });
+    if (!professional?.email) return;
+
+    const alert = await prisma.alert.create({
+      data: {
+        professionalId: professional.id,
+        type: 'ANNOUNCEMENT',
+        title: subject,
+        message,
+      },
+    });
+
+    if (io) {
+      io.to(professional.id).emit('professional_alert', { alert });
+    }
+
+    await sendAnnouncementEmail({
+      to: professional.email,
+      recipientName: displayName(professional),
+      subject,
+      message,
+    });
+    return;
+  }
+
+  const recruiter = await prisma.recruiter.findUnique({
+    where: { id: userId },
+    select: {
+      email: true,
+      firstName: true,
+      lastName: true,
+      organizationName: true,
+    },
+  });
+  if (!recruiter?.email) return;
+
+  await sendAnnouncementEmail({
+    to: recruiter.email,
+    recipientName: displayName(recruiter),
+    subject,
+    message,
   });
 }
 

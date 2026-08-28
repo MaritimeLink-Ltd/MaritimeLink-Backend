@@ -522,6 +522,33 @@ export const sendCompleteProfileRequestEmail = async (params: {
   );
 };
 
+/**
+ * Free-form email an admin composes for the Announcements feature — marketing,
+ * greetings, general notices. Unlike every other sender above, subject and
+ * body are not fixed copy: the admin writes both, so this is the one generic
+ * wrapper around `deliver`/`buildEmailHtml` rather than a purpose-built template.
+ */
+export const sendAnnouncementEmail = async (params: {
+  to: string;
+  recipientName: string;
+  subject: string;
+  message: string;
+}) => {
+  await deliver(
+    params.to,
+    params.subject,
+    buildEmailHtml({
+      headline: params.subject,
+      preheader: params.subject,
+      greeting: `Hi ${params.recipientName},`,
+      variant: 'brand',
+      bodyHtml: emailParagraph(
+        escapeHtml(params.message).replace(/\n/g, '<br />'),
+      ),
+    }),
+  );
+};
+
 export const sendCourseBookingEmails = async (params: {
   professional: {
     to: string;

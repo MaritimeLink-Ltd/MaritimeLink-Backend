@@ -13,6 +13,7 @@ import * as candidateController from '../controllers/recruiterCandidateControlle
 import * as adminTrainerController from '../controllers/adminTrainerController.js';
 import * as adminModerationController from '../controllers/adminModerationController.js';
 import * as adminReportController from '../controllers/adminReportController.js';
+import * as adminAnnouncementController from '../controllers/adminAnnouncementController.js';
 import { protectAdmin } from '../middlewares/adminAuthMiddleware.js';
 
 const router = Router();
@@ -136,6 +137,49 @@ router.use(protectAdmin);
 router.get('/settings', adminSettingsController.getAdminSettings);
 router.patch('/settings/profile', adminSettingsController.updateAdminProfile);
 router.patch('/settings/password', adminSettingsController.updateAdminPassword);
+
+/**
+ * @swagger
+ * /api/admin/announcements/send:
+ *   post:
+ *     summary: Send a bulk announcement (marketing/greeting/general notice) to selected professionals and/or recruiters/training providers
+ *     description: >
+ *       Sends an admin-composed email to every id in professionalIds and
+ *       recruiterIds — verified or pending, any mix. Professionals additionally
+ *       get an in-app alert; recruiters/training providers have no in-app alert
+ *       model, so they only receive the email. recruiterIds covers both the
+ *       Recruiters and Training Providers tabs (same underlying table).
+ *       Sends run in the background after this responds, so the recipient
+ *       count is a "started sending to N" confirmation, not a delivery report.
+ *       Independent of, and does not affect, the PENDING-only
+ *       request-profile-completion feature.
+ *     tags: [Admin]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [subject, message]
+ *             properties:
+ *               subject: { type: string }
+ *               message: { type: string }
+ *               professionalIds:
+ *                 type: array
+ *                 items: { type: string }
+ *               recruiterIds:
+ *                 type: array
+ *                 items: { type: string }
+ *     responses:
+ *       200:
+ *         description: Send started; returns the recipient counts
+ */
+router.post(
+  '/announcements/send',
+  adminAnnouncementController.sendAnnouncement,
+);
 
 /**
  * @swagger
