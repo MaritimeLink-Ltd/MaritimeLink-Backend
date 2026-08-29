@@ -31,4 +31,6 @@ export const createEmailServiceMock = () => ({
   sendDocumentExpiryEmail: noop,
   sendDocumentExpiryDigestEmail: noop,
   sendSecureDocumentLinkEmail: noop,
+  sendCompleteProfileRequestEmail: noop,
+  sendAnnouncementEmail: noop,
 });

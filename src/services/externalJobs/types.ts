@@ -18,7 +18,7 @@ export type ExternalJob = {
   employmentType: string | null;
   source: 'external';
   /** Which adapter produced this row. */
-  provider: 'serpapi' | 'feed';
+  provider: 'serpapi' | 'jsearch' | 'feed';
   /** Relevance against the requesting professional; absent when unranked. */
   matchScore?: number;
   matchReasons?: string[];

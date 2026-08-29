@@ -55,6 +55,15 @@ const envSchema = z.object({
    * default to raise if you're on a bigger plan — no code change needed.
    */
   SERPAPI_MAX_QUERIES_PER_DAY: z.string().optional(),
+  /** RapidAPI key for JSearch, a second external maritime job source (independent quota from SerpApi). */
+  JSEARCH_API_KEY: z.string().optional(),
+  /**
+   * Ceiling on JSearch searches per daily refresh. JSearch has no free
+   * account-quota-check endpoint (unlike SerpApi's account.json), so this is
+   * the only pre-flight budget signal — actual remaining quota is only known
+   * from the `x-ratelimit-requests-remaining` header on each real response.
+   */
+  JSEARCH_MAX_QUERIES_PER_DAY: z.string().optional(),
   /** Comma-separated RSS/Atom job feed URLs; falls back to built-in defaults. */
   EXTERNAL_JOB_FEEDS: z.string().optional(),
   TWILIO_ACCOUNT_SID: z.string().optional(),

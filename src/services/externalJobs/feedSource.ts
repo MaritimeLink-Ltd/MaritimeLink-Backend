@@ -21,6 +21,13 @@ const DEFAULT_FEEDS: FeedConfig[] = [
     url: 'https://www.maritimejobs.com/rss/?take=100&types=6003,6004,6005&Description=600',
     label: 'MaritimeJobs',
   },
+  {
+    // RDF format (rdf:RDF/item) — parseFeed already handles this shape.
+    // robots.txt has no AI-crawler-specific restrictions and its wildcard
+    // group doesn't block /rss or /job/*.
+    url: 'https://maritime-union.com/rss/all',
+    label: 'MaritimeUnion',
+  },
 ];
 
 const hostLabel = (url: string) => {
