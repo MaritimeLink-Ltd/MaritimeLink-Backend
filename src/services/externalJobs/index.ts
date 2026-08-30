@@ -37,7 +37,10 @@ const toExternalJob = (
   category: row.category,
   employmentType: row.employmentType,
   source: 'external',
-  provider: row.provider === 'feed' ? 'feed' : 'serpapi',
+  provider:
+    row.provider === 'feed' || row.provider === 'jsearch'
+      ? row.provider
+      : 'serpapi',
 });
 
 /**
@@ -96,7 +99,9 @@ export type ExternalJobsResult = {
 export const getExternalJobsForProfessional = async (
   professional: ProfessionalWithResume,
 ): Promise<ExternalJobsResult> => {
-  const rows = await prisma.externalJobListing.findMany();
+  const rows = await prisma.externalJobListing.findMany({
+    where: { hiddenByAdmin: false },
+  });
   const pool = rows.map(toExternalJob);
 
   if (!hasMatchableProfile(professional)) {

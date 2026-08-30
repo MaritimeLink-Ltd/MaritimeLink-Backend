@@ -483,10 +483,22 @@ model ExternalJobListing {
   /// touched by the most recent run (i.e. no longer returned by any source)
   /// are deleted, so this table always reflects the current market.
   fetchedAt      DateTime
+  /// Admin review/removal — set when an admin judges a scraped listing bad,
+  /// suspicious, or a scam. Deliberately NOT included in refresh.ts's upsert
+  /// `update` payload, so a daily re-fetch of the same source id (the API/AI
+  /// re-listing something an admin already rejected) can never silently
+  /// resurrect it. Excluded from the professional-facing pool and from the
+  /// admin's own "Scraped Listings" view once set — this is what "delete"
+  /// means from both of their perspectives, even though the row survives for
+  /// audit purposes rather than being hard-deleted.
+  hiddenByAdmin   Boolean   @default(false)
+  hiddenAt        DateTime?
+  hiddenByAdminId String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
   @@index([fetchedAt])
+  @@index([hiddenByAdmin])
   @@map("external_job_listings")
 }
 

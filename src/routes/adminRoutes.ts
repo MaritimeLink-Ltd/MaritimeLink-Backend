@@ -14,6 +14,7 @@ import * as adminTrainerController from '../controllers/adminTrainerController.j
 import * as adminModerationController from '../controllers/adminModerationController.js';
 import * as adminReportController from '../controllers/adminReportController.js';
 import * as adminAnnouncementController from '../controllers/adminAnnouncementController.js';
+import * as adminExternalJobsController from '../controllers/adminExternalJobsController.js';
 import { protectAdmin } from '../middlewares/adminAuthMiddleware.js';
 
 const router = Router();
@@ -721,6 +722,69 @@ router.get(
 router.get(
   '/marketplace/listings',
   adminMarketplaceController.getMaritimeLinkListings,
+);
+
+/**
+ * @swagger
+ * /api/admin/external-jobs:
+ *   get:
+ *     summary: Get scraped/external job listings (SerpApi, JSearch, RSS feeds) for admin review
+ *     description: >
+ *       These are surfaced to professionals as part of MaritimeLink's own job
+ *       listings, so this is admin's review/removal surface for them —
+ *       parallel to /marketplace/listings for admin-created native jobs.
+ *       Already-removed listings (hiddenByAdmin) are excluded.
+ *     tags: [Admin Marketplace]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 10 }
+ *       - in: query
+ *         name: search
+ *         schema: { type: string }
+ *       - in: query
+ *         name: provider
+ *         schema: { type: string, enum: [serpapi, jsearch, feed] }
+ *     responses:
+ *       200:
+ *         description: List of scraped listings
+ */
+router.get(
+  '/external-jobs',
+  adminExternalJobsController.getExternalJobListingsForAdmin,
+);
+
+/**
+ * @swagger
+ * /api/admin/external-jobs/{id}:
+ *   delete:
+ *     summary: Remove a scraped/external job listing (bad, suspicious, or a scam)
+ *     description: >
+ *       Soft-hide, not a hard delete — the row is excluded from professionals'
+ *       view and this admin list, but survives (hiddenByAdmin) so tomorrow's
+ *       automatic refresh can't silently re-list the same source id.
+ *     tags: [Admin Marketplace]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Listing removed
+ *       404:
+ *         description: Listing not found
+ */
+router.delete(
+  '/external-jobs/:id',
+  adminExternalJobsController.deleteExternalJobListing,
 );
 
 /**
