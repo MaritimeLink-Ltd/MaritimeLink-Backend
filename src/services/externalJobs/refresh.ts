@@ -25,9 +25,10 @@ import { env } from '../../config/env.js';
  * whatever plan is configured) are metered on tight free tiers, so this
  * cannot afford to run the full search-term × country grid every day —
  * instead each provider rotates its own daily slice through the grid (see
- * `buildSerpApiPlan` / `buildJSearchPlan`), and falls back to the free RSS
- * feed alone when a provider is unconfigured or exhausted rather than
- * erroring.
+ * `buildSerpApiPlan` / `buildJSearchPlan`), skipping itself for the day
+ * rather than erroring when unconfigured or exhausted. RSS feeds
+ * (fetchFeedJobs) are a third, unmetered source, but no default feeds are
+ * configured — see feedSource.ts for why.
  */
 
 /**

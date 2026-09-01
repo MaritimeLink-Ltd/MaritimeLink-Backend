@@ -10,25 +10,22 @@ import { ExternalJob } from './types.js';
  *
  * Feeds are the sanctioned machine-readable surface of these sites — no HTML
  * scraping, and every request goes through `politeGet` (robots.txt, throttling,
- * identifying user-agent). Add or replace feeds with EXTERNAL_JOB_FEEDS.
+ * identifying user-agent). Add feeds via EXTERNAL_JOB_FEEDS.
+ *
+ * No defaults are configured (empty on purpose): the two feeds previously
+ * here (maritimejobs.com — a US board, maritime-union.com — unscoped/generic)
+ * had no country/region filtering at all, so together they made up ~83% of
+ * the pool and were the actual source of USA and other out-of-scope jobs
+ * leaking through, even though the SerpApi/JSearch searches were correctly
+ * locked to MARITIME_COUNTRIES the whole time. Client feedback confirmed
+ * both were low-value. A feed is only worth adding back if it's genuinely
+ * scoped to the target regions (Europe/Africa/Asia) and from a verified
+ * company/board — not a blanket global aggregator.
  */
 
 type FeedConfig = { url: string; label: string };
 
-const DEFAULT_FEEDS: FeedConfig[] = [
-  {
-    // Documented query params: take (count), types 6003/6004/6005, Description (chars).
-    url: 'https://www.maritimejobs.com/rss/?take=100&types=6003,6004,6005&Description=600',
-    label: 'MaritimeJobs',
-  },
-  {
-    // RDF format (rdf:RDF/item) — parseFeed already handles this shape.
-    // robots.txt has no AI-crawler-specific restrictions and its wildcard
-    // group doesn't block /rss or /job/*.
-    url: 'https://maritime-union.com/rss/all',
-    label: 'MaritimeUnion',
-  },
-];
+const DEFAULT_FEEDS: FeedConfig[] = [];
 
 const hostLabel = (url: string) => {
   try {
