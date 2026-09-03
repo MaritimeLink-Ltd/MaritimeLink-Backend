@@ -400,6 +400,12 @@ router.post(
   protect,
   authController.confirmMembershipCheckout,
 );
+// iOS app only — no effect on the website/Stripe flow above.
+router.post(
+  '/membership/apple/confirm',
+  protect,
+  authController.confirmAppleMembership,
+);
 router.patch('/membership', protect, authController.updateMembership);
 router.patch(
   '/profile-photo',

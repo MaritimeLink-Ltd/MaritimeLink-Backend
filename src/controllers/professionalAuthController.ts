@@ -33,6 +33,10 @@ import {
 } from '../utils/signupProgress.js';
 import { stripeService } from '../services/stripeService.js';
 import {
+  verifyAppleTransaction,
+  activateAppleMembership,
+} from '../services/appleIapService.js';
+import {
   describeRestriction,
   liftExpiredProfessionalSuspension,
 } from '../services/accountModerationService.js';
@@ -479,6 +483,46 @@ export const confirmMembershipCheckout = catchAsync(
         ),
       );
     }
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Membership activated successfully.',
+      data: { membership },
+    });
+  },
+);
+
+/**
+ * iOS app only — no effect on the website/Stripe flow above. Verifies the
+ * StoreKit 2 signed transaction the app submits directly against Apple's
+ * certificate chain (see appleIapService.ts) rather than trusting the
+ * client's claim of entitlement.
+ */
+export const confirmAppleMembership = catchAsync(
+  async (req: CustomRequest, res: Response, next: NextFunction) => {
+    const professionalId = req.user?.id;
+    if (!professionalId) {
+      return next(new AppError('Unauthorized', 401));
+    }
+
+    const signedTransactionInfo = req.body.signedTransactionInfo as string;
+    if (!signedTransactionInfo) {
+      return next(new AppError('signedTransactionInfo is required', 400));
+    }
+
+    let transaction;
+    try {
+      transaction = await verifyAppleTransaction(signedTransactionInfo);
+    } catch {
+      return next(
+        new AppError('Could not verify this purchase with Apple', 400),
+      );
+    }
+
+    const membership = await activateAppleMembership(
+      professionalId,
+      transaction,
+    );
 
     res.status(200).json({
       status: 'success',

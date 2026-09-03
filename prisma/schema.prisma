@@ -36,6 +36,11 @@ model Professional {
   availableForWork       Boolean                @default(false)
   publicProfileEnabled   Boolean                @default(false)
   membershipUpdatedAt    DateTime?
+  /// Apple's stable per-subscription id (survives renewals). Set on first
+  /// successful /membership/apple/confirm; lets the App Store Server
+  /// Notifications webhook (which carries no auth/session) map an incoming
+  /// renew/expire/refund/revoke event back to this professional.
+  appleOriginalTransactionId String?             @unique
   suspendedAt            DateTime?
   suspendedUntil         DateTime?
   suspensionReason       String?

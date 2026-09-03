@@ -6,7 +6,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "tsx watch --include .env src/server.ts",
-    "build": "npm run prisma:generate && rm -rf dist && tsc && npx prisma db push && mkdir -p dist/generated && cp -r src/generated/client dist/generated/ && cp -r src/assets dist/assets",
+    "build": "npm run prisma:generate && rm -rf dist && tsc && npx prisma db push && mkdir -p dist/generated && cp -r src/generated/client dist/generated/ && cp -r src/assets dist/assets && mkdir -p dist/config && cp -r src/config/certs dist/config/",
     "start": "node dist/server.js",
     "lint": "eslint src",
     "format": "prettier --write src",
@@ -52,6 +52,7 @@
     ]
   },
   "dependencies": {
+    "@apple/app-store-server-library": "^3.1.0",
     "@google/generative-ai": "^0.24.1",
     "@prisma/adapter-pg": "^7.2.0",
     "@prisma/client": "^7.2.0",

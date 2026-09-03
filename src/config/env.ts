@@ -66,6 +66,17 @@ const envSchema = z.object({
   JSEARCH_MAX_QUERIES_PER_DAY: z.string().optional(),
   /** Comma-separated RSS/Atom job feed URLs; falls back to built-in defaults. */
   EXTERNAL_JOB_FEEDS: z.string().optional(),
+  /**
+   * Apple In-App Purchase (iOS app only — no effect on the website/Stripe
+   * flow). Without APPLE_BUNDLE_ID set, the apple/confirm endpoint and the
+   * apple webhook both reject every request rather than silently no-op,
+   * since accepting an unverifiable transaction would be worse than an error.
+   */
+  APPLE_BUNDLE_ID: z.string().optional(),
+  /** The subscription's App Store Connect product id — only this productId grants PRO. */
+  APPLE_IAP_PRODUCT_ID: z.string().optional(),
+  /** The app's numeric Apple ID from App Information (NOT the IAP product id) — required by Apple's verifier for the Production environment. */
+  APPLE_APP_APPLE_ID: z.string().optional(),
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),
   /** Only needed for plain SMS sends; phone OTP uses Verify instead. */
