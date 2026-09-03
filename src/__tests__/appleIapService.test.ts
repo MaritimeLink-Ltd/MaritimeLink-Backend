@@ -87,8 +87,39 @@ describe('activateAppleMembership (real DB)', () => {
     ).rejects.toThrow('not currently active');
   });
 
-  it('grants PRO and stores the originalTransactionId for a valid, active, correct-product transaction', async () => {
-    const membership = await activateAppleMembership(professionalId, decoded());
+  it('rejects a transaction with no appAccountToken, without touching the account', async () => {
+    await expect(
+      activateAppleMembership(
+        professionalId,
+        decoded({ appAccountToken: undefined }),
+      ),
+    ).rejects.toThrow('does not belong to your account');
+
+    const professional = await prisma.professional.findUnique({
+      where: { id: professionalId },
+    });
+    expect(professional?.tier).toBe('FREE');
+  });
+
+  it('rejects a genuine, active, correct-product transaction paid for by a different professional', async () => {
+    await expect(
+      activateAppleMembership(
+        professionalId,
+        decoded({ appAccountToken: 'some-other-professional-id' }),
+      ),
+    ).rejects.toThrow('does not belong to your account');
+
+    const professional = await prisma.professional.findUnique({
+      where: { id: professionalId },
+    });
+    expect(professional?.tier).toBe('FREE');
+  });
+
+  it('grants PRO and stores the originalTransactionId for a valid, active, correct-product transaction whose appAccountToken matches the caller', async () => {
+    const membership = await activateAppleMembership(
+      professionalId,
+      decoded({ appAccountToken: professionalId }),
+    );
 
     expect(membership.tier).toBe('PRO');
     expect(membership.membershipUpdatedAt).toBeInstanceOf(Date);

@@ -149,6 +149,15 @@ export type AppleMembership = {
  * Grants PRO from a verified, active transaction for the configured
  * productId. Stores the transaction's originalTransactionId so the webhook
  * (which carries no auth) can find this professional again on renew/expire.
+ *
+ * The mobile app passes the authenticated professional's id as StoreKit's
+ * `applicationUserName` at purchase time, which Apple carries through to the
+ * transaction as `appAccountToken`. Requiring it to match the caller here is
+ * what stops one professional's genuine paid transaction from granting PRO
+ * to a *different* authenticated account that happens to submit it — e.g. an
+ * unfinished transaction redelivered on a shared device after a different
+ * professional has since logged in. Without this, only productId + active
+ * status gate entitlement, and neither is caller-specific.
  */
 export const activateAppleMembership = async (
   professionalId: string,
@@ -162,6 +171,9 @@ export const activateAppleMembership = async (
   }
   if (!transaction.originalTransactionId) {
     throw new AppError('Apple transaction is missing an identifier', 400);
+  }
+  if (transaction.appAccountToken !== professionalId) {
+    throw new AppError('This purchase does not belong to your account', 403);
   }
 
   const professional = await prisma.professional.update({
