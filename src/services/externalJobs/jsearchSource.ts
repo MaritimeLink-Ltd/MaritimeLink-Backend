@@ -2,6 +2,7 @@ import axios from 'axios';
 import { env } from '../../config/env.js';
 import { ExternalJob, ExternalJobQuery } from './types.js';
 import { toAlpha2CountryCode } from './countryCodes.js';
+import { resolveApiKeys } from './apiKeyPool.js';
 
 /**
  * JSearch (RapidAPI), a second live job source independent of SerpApi —
@@ -13,12 +14,32 @@ import { toAlpha2CountryCode } from './countryCodes.js';
  * RapidAPI only reports usage via `x-ratelimit-requests-remaining` on real
  * (billable) responses. So there's no pre-flight budget check here; instead
  * `fetchJSearchJobs` surfaces that header on every call, and the caller
- * (refresh.ts) stops issuing further JSearch queries for the rest of that
- * run once it reports the account is out.
+ * (refresh.ts) retires that key for the rest of the run once it reports the
+ * account is out.
+ *
+ * Quota is metered per RapidAPI key, so calls take an explicit `apiKey` and
+ * the caller pools several of them — see apiKeyPool.ts.
  */
 
 const JSEARCH_HOST = 'jsearch.p.rapidapi.com';
 const REQUEST_TIMEOUT_MS = 20000;
+
+/**
+ * Restricts every search to jobs posted within the last month.
+ *
+ * Unlike Google's dead `chips` parameter (see serpApiSource.ts), this is a
+ * real, working JSearch parameter — measured live on the same query, with
+ * pacing between calls so throttling couldn't skew it:
+ *   date_posted=none  -> 10 results, half of them with no date at all
+ *   date_posted=month -> 10 results, every one carrying a real date
+ *   date_posted=week  -> 0 results
+ *   date_posted=today -> 0 results
+ * So `month` costs nothing in volume and strictly improves data quality by
+ * dropping the undated stragglers. `week` is not viable: JSearch's index for
+ * this vertical lags — on that run the freshest listing in the whole result
+ * set was 12 days old, so nothing exists for a 7-day window to return.
+ */
+const DATE_POSTED_WINDOW = 'month';
 
 type JSearchJobResult = {
   job_id?: string;
@@ -44,7 +65,28 @@ type JSearchResponse = {
   error?: { message?: string };
 };
 
-export const isJSearchConfigured = () => Boolean(env.JSEARCH_API_KEY);
+/** Every configured JSearch key, in slot order. Each has its own monthly quota. */
+export const resolveJSearchKeys = (): string[] =>
+  resolveApiKeys([
+    env.JSEARCH_API_KEY,
+    env.JSEARCH_API_KEY_2,
+    env.JSEARCH_API_KEY_3,
+  ]);
+
+export const isJSearchConfigured = () => resolveJSearchKeys().length > 0;
+
+/**
+ * True when an error means "this key is spent" rather than a transient fault.
+ * RapidAPI answers an overrun monthly plan with 429, so that's the signal to
+ * retire the key and retry the query on another one.
+ */
+export const isJSearchQuotaError = (error: unknown): boolean => {
+  if (axios.isAxiosError(error) && error.response?.status === 429) return true;
+  const message = error instanceof Error ? error.message : String(error);
+  return /exceeded the (monthly|daily) quota|too many requests|rate limit/i.test(
+    message,
+  );
+};
 
 const buildLocation = (job: JSearchJobResult): string | null => {
   const parts = [job.job_city, job.job_country].filter((part): part is string =>
@@ -96,8 +138,9 @@ export type JSearchQueryResult = {
 /** Runs one search. Throws on transport or API error; the caller decides. */
 export const fetchJSearchJobs = async (
   query: ExternalJobQuery,
+  apiKey: string,
 ): Promise<JSearchQueryResult> => {
-  if (!env.JSEARCH_API_KEY) return { jobs: [], quotaRemaining: null };
+  if (!apiKey) return { jobs: [], quotaRemaining: null };
 
   const countryCode = query.location
     ? toAlpha2CountryCode(query.location)
@@ -110,13 +153,14 @@ export const fetchJSearchJobs = async (
     {
       timeout: REQUEST_TIMEOUT_MS,
       headers: {
-        'X-RapidAPI-Key': env.JSEARCH_API_KEY,
+        'X-RapidAPI-Key': apiKey,
         'X-RapidAPI-Host': JSEARCH_HOST,
       },
       params: {
         query: query.q,
         ...(countryCode ? { country: countryCode } : {}),
         num_pages: 1,
+        date_posted: DATE_POSTED_WINDOW,
       },
     },
   );

@@ -1,13 +1,29 @@
+import axios from 'axios';
 import { fetchFeedJobs } from './feedSource.js';
 import { dedupeJobs } from './dedupe.js';
 import {
   fetchSerpApiJobs,
   getSerpApiQuota,
   isSerpApiConfigured,
+  isSerpApiQuotaError,
+  resolveSerpApiKeys,
 } from './serpApiSource.js';
-import { fetchJSearchJobs, isJSearchConfigured } from './jsearchSource.js';
+import {
+  fetchJSearchJobs,
+  isJSearchConfigured,
+  isJSearchQuotaError,
+  resolveJSearchKeys,
+} from './jsearchSource.js';
 import { isInMaritimeScope } from './scope.js';
 import { rotationDayIndex, pickRotationSlice } from './rotation.js';
+import {
+  countriesFor,
+  dailyFloorQueries,
+  MARITIME_COUNTRIES,
+  QUERY_GRID,
+  secondaryGridFor,
+} from './queryGrid.js';
+import { ApiKeyPool, maskApiKey } from './apiKeyPool.js';
 import { ExternalJob, ExternalJobQuery } from './types.js';
 import { prisma } from '../../config/prisma.js';
 import { env } from '../../config/env.js';
@@ -21,189 +37,237 @@ import { env } from '../../config/env.js';
  *
  * SerpApi's Google Jobs engine has no "worldwide" mode: a query with no
  * `location` silently defaults to US results, so every query below carries an
- * explicit location. Both SerpApi (250/month) and JSearch (200/month, on
- * whatever plan is configured) are metered on tight free tiers, so this
- * cannot afford to run the full search-term × country grid every day —
- * instead each provider rotates its own daily slice through the grid (see
- * `buildSerpApiPlan` / `buildJSearchPlan`), skipping itself for the day
- * rather than erroring when unconfigured or exhausted. RSS feeds
- * (fetchFeedJobs) are a third, unmetered source, but no default feeds are
- * configured — see feedSource.ts for why.
+ * explicit location. Both providers are metered on free tiers (SerpApi
+ * 250/month per key, JSearch 200/month per key), so this cannot run the full
+ * query space daily — each provider's day is split into a guaranteed floor
+ * (one search per country, every day — see `dailyFloorQueries`) plus whatever
+ * budget is left over, which rotates through the rank-specific and
+ * city-level searches in `SECONDARY_GRID` (rotation.ts), sized to however
+ * many keys are configured (apiKeyPool.ts). RSS feeds (fetchFeedJobs) are a
+ * third, unmetered source, but no default feeds are configured — see
+ * feedSource.ts for why.
  */
 
 /**
- * Broad, maritime-scoped search terms. Kept general on purpose — specificity
- * comes from crossing these with MARITIME_COUNTRIES below, not from more terms.
+ * Per-key daily ceilings, each sized so a full month stays inside one free
+ * key's quota (31 days x 8 = 248 of SerpApi's 250; 31 x 6 = 186 of JSearch's
+ * 200). The day's budget is this times the number of configured keys, so
+ * adding a key widens coverage without touching any of these numbers.
  */
-const SEARCH_TERMS = [
-  'maritime seafarer jobs',
-  'deck officer marine engineer jobs',
-  'seafarer ratings crew catering jobs',
-];
+const SERPAPI_SEARCHES_PER_KEY_PER_DAY = 8;
+const JSEARCH_SEARCHES_PER_KEY_PER_DAY = 6;
 
 /**
- * Countries to search, in priority order — the platform's actual target
- * markets rather than a broad sweep. UK first (rotation walks this list in
- * order, so earlier entries get queried on earlier days), then the other
- * priority sourcing/demand markets. Add/remove countries here to retune
- * coverage; SerpApi resolves these as free-text place names, JSearch maps
- * them to ISO codes via countryCodes.ts — keep both in step.
+ * An optional hard cap on the day's searches, across all of a provider's keys.
+ * Unset is the normal case — the pool's own allowance is already the right
+ * number. Only lowers, never raises: a cap above what the keys can spend would
+ * be a promise the quota can't keep.
  */
-const MARITIME_COUNTRIES = [
-  'United Kingdom',
-  'Nigeria',
-  'Philippines',
-  'India',
-  'Germany',
-  'Ethiopia',
-];
-
-/**
- * Every (term, country) combination — the full grid, not what runs in one
- * day. Term-major order (all countries under the first, most general term
- * before moving to narrower terms) means the rotation covers broad
- * geographic reach first and fills in category-specific searches later.
- */
-const QUERY_GRID: ExternalJobQuery[] = SEARCH_TERMS.flatMap((q) =>
-  MARITIME_COUNTRIES.map((location) => ({ q, location })),
-);
-
-/**
- * Default daily ceiling if SERPAPI_MAX_QUERIES_PER_DAY isn't set. With the
- * 6-country grid (18 combinations), 8/day cycles the full grid in ~3 days
- * while staying at ~240/month — safely under the 250/month free-tier cap.
- */
-const DEFAULT_SERPAPI_DAILY_BUDGET = 8;
-
-/**
- * Default daily ceiling if JSEARCH_MAX_QUERIES_PER_DAY isn't set. Sized for a
- * 200-searches/month free tier: 6/day ≈ 180/month, leaving headroom (JSearch
- * has no free quota-check call to spend on, unlike SerpApi, so this budget is
- * the only thing keeping usage under the cap — see fetchJSearchJobs for the
- * mid-run stop-early fallback if the account is closer to empty than expected).
- */
-const DEFAULT_JSEARCH_DAILY_BUDGET = 6;
-
-/**
- * A listing survives this many days without being re-seen before it's
- * considered stale/likely expired. Sized to the 6-country grid: at the
- * default daily budgets above, the full 18-combination grid cycles in ~3
- * days for either provider, so ~2x that gives a safety buffer without
- * letting an expired listing (one no longer returned when its query comes
- * back around) linger for anywhere near as long as the old 20-country grid's
- * 14-day window required.
- */
-const SERPAPI_STALE_AFTER_DAYS = 6;
-const JSEARCH_STALE_AFTER_DAYS = 6;
-
-const configuredDailyBudget = (
-  envValue: string | undefined,
-  fallback: number,
-) => {
-  const parsed = Number(envValue);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+const applyConfiguredCap = (
+  poolAllowance: number,
+  configured: string | undefined,
+): number => {
+  const cap = Number(configured);
+  return Number.isFinite(cap) && cap > 0
+    ? Math.min(cap, poolAllowance)
+    : poolAllowance;
 };
 
 /**
- * Picks today's SerpApi slice, clamped to whatever the account actually has
- * left this month (checked via SerpApi's free, unmetered account.json).
+ * True when a failed request still cost a search. A response — even an error
+ * one — means the provider processed it; no response at all (timeout, DNS,
+ * socket) means it never counted, so the claim can go back to the pool.
  */
-const buildSerpApiPlan = async (
-  dayIndex: number,
-): Promise<{ queries: ExternalJobQuery[]; quotaNote: string }> => {
-  if (!isSerpApiConfigured()) {
-    return { queries: [], quotaNote: 'SERPAPI_KEY not set' };
+const wasCharged = (error: unknown): boolean =>
+  !axios.isAxiosError(error) || Boolean(error.response);
+
+const describeQuery = (query: ExternalJobQuery) =>
+  `"${query.q}"${query.location ? ` @ ${query.location}` : ''}`;
+
+/**
+ * Builds the SerpApi pool from a live per-key quota check — free and
+ * unmetered on SerpApi's side, so it costs nothing to ask each key what it
+ * actually has left rather than trusting the configured ceiling.
+ */
+const buildSerpApiPool = async (): Promise<{
+  pool: ApiKeyPool;
+  note: string;
+}> => {
+  const keys = resolveSerpApiKeys();
+  if (keys.length === 0) {
+    return { pool: new ApiKeyPool([]), note: 'no SERPAPI_KEY configured' };
   }
 
-  const quota = await getSerpApiQuota();
-  const configured = configuredDailyBudget(
-    env.SERPAPI_MAX_QUERIES_PER_DAY,
-    DEFAULT_SERPAPI_DAILY_BUDGET,
-  );
-  const budget = Math.min(configured, quota ? quota.searchesLeft : configured);
+  const quotas = await Promise.all(keys.map((key) => getSerpApiQuota(key)));
 
-  const quotaNote = quota
-    ? `${quota.searchesLeft}/${quota.monthlyLimit ?? '?'} searches left this month (${quota.planId ?? 'unknown plan'})`
-    : 'quota check failed — using configured default only';
+  const allowances = keys.map((key, index) => {
+    const quota = quotas[index];
+    return {
+      key,
+      allowance: quota
+        ? Math.min(SERPAPI_SEARCHES_PER_KEY_PER_DAY, quota.searchesLeft)
+        : // A failed check is not evidence the key is empty — fall back to the
+          // configured ceiling rather than skipping an otherwise good key.
+          SERPAPI_SEARCHES_PER_KEY_PER_DAY,
+    };
+  });
 
-  if (budget <= 0) {
-    return { queries: [], quotaNote: `${quotaNote} — skipping SerpApi today` };
-  }
+  const perKeyNotes = keys.map((key, index) => {
+    const quota = quotas[index];
+    return quota
+      ? `${maskApiKey(key)}: ${quota.searchesLeft}/${quota.monthlyLimit ?? '?'} left`
+      : `${maskApiKey(key)}: quota check failed, assuming default`;
+  });
 
   return {
-    queries: pickRotationSlice(QUERY_GRID, dayIndex, budget),
-    quotaNote,
+    pool: new ApiKeyPool(allowances),
+    note: `${keys.length} key(s) — ${perKeyNotes.join('; ')}`,
   };
 };
 
 /**
- * Picks today's JSearch slice. Unlike SerpApi, there's no free precheck —
- * the configured daily budget is the only pre-flight signal; actual
- * remaining quota only surfaces on real responses (see runJSearchQueries).
+ * Builds the JSearch pool. No pre-flight check exists, so every key starts at
+ * its configured ceiling and is corrected downward mid-run from the
+ * `x-ratelimit-requests-remaining` header on real responses.
  */
-const buildJSearchPlan = (
-  dayIndex: number,
-): { queries: ExternalJobQuery[]; note: string } => {
-  if (!isJSearchConfigured()) {
-    return { queries: [], note: 'JSEARCH_API_KEY not set' };
+const buildJSearchPool = (): { pool: ApiKeyPool; note: string } => {
+  const keys = resolveJSearchKeys();
+  if (keys.length === 0) {
+    return { pool: new ApiKeyPool([]), note: 'no JSEARCH_API_KEY configured' };
   }
 
-  const budget = configuredDailyBudget(
-    env.JSEARCH_MAX_QUERIES_PER_DAY,
-    DEFAULT_JSEARCH_DAILY_BUDGET,
+  const pool = new ApiKeyPool(
+    keys.map((key) => ({ key, allowance: JSEARCH_SEARCHES_PER_KEY_PER_DAY })),
   );
 
   return {
-    queries: pickRotationSlice(QUERY_GRID, dayIndex, budget),
-    note: `budget ${budget}/day (no pre-flight quota check available)`,
+    pool,
+    note: `${keys.length} key(s) x ${JSEARCH_SEARCHES_PER_KEY_PER_DAY}/day (no pre-flight quota check available)`,
   };
 };
 
+/**
+ * Runs one SerpApi search, moving to another key if the one it drew turns out
+ * to be spent. A query is only abandoned once every key has been tried — a
+ * search lost to an exhausted key would otherwise wait a full rotation for its
+ * next turn.
+ */
 const runSerpApiQuery = async (
   query: ExternalJobQuery,
-): Promise<ExternalJob[]> => {
-  try {
-    return await fetchSerpApiJobs(query);
-  } catch (error) {
-    // No retry: the quota is too scarce to spend twice on one query. A
-    // failed search just waits for its next turn in the rotation.
-    console.error(
-      `[external-jobs] SerpApi query failed ("${query.q}"${query.location ? ` @ ${query.location}` : ''}):`,
-      error instanceof Error ? error.message : error,
-    );
-    return [];
-  }
-};
+  pool: ApiKeyPool,
+): Promise<{ jobs: ExternalJob[]; spent: number }> => {
+  let spent = 0;
 
-/**
- * Runs JSearch queries in sequence (not parallel, unlike SerpApi) so it can
- * watch `quotaRemaining` after each call and stop immediately once the
- * account is out, rather than firing a batch that's already known to fail.
- */
-const runJSearchQueries = async (
-  queries: ExternalJobQuery[],
-): Promise<ExternalJob[]> => {
-  const results: ExternalJob[] = [];
+  for (let attempt = 0; attempt < Math.max(1, pool.keyCount); attempt += 1) {
+    const key = pool.take();
+    if (!key) break;
 
-  for (const query of queries) {
     try {
-      const { jobs, quotaRemaining } = await fetchJSearchJobs(query);
-      results.push(...jobs);
-      if (quotaRemaining !== null && quotaRemaining <= 0) {
-        console.log(
-          '[external-jobs] JSearch quota exhausted mid-run — stopping early',
-        );
-        break;
-      }
+      const jobs = await fetchSerpApiJobs(query, key);
+      return { jobs, spent: spent + 1 };
     } catch (error) {
+      if (isSerpApiQuotaError(error)) {
+        console.warn(
+          `[external-jobs] SerpApi key ${maskApiKey(key)} is out of quota — retiring it for this run`,
+        );
+        pool.markExhausted(key);
+        spent += 1;
+        continue;
+      }
+
+      if (wasCharged(error)) spent += 1;
+      else pool.refund(key);
+
+      // No retry on the same key: quota is too scarce to spend twice on one
+      // query. A failed search just waits for its next turn in the rotation.
       console.error(
-        `[external-jobs] JSearch query failed ("${query.q}"${query.location ? ` @ ${query.location}` : ''}):`,
+        `[external-jobs] SerpApi query failed (${describeQuery(query)}):`,
         error instanceof Error ? error.message : error,
       );
+      break;
     }
   }
 
-  return results;
+  return { jobs: [], spent };
+};
+
+/**
+ * Gap left between JSearch calls. Hammering the endpoint back-to-back is
+ * measurably counter-productive: six rapid identical calls returned 10, 2, 0,
+ * 0, 0, 0 results while the quota counter decremented on every one — it
+ * degrades to empty responses (HTTP 200, `status: OK`, no jobs) rather than
+ * erroring, so nothing in the error handling below would ever notice. Pacing
+ * is cheap here: this is a once-a-day cron, so even 18 queries only adds
+ * about half a minute.
+ */
+const JSEARCH_INTER_QUERY_DELAY_MS = 2000;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Runs JSearch queries in sequence (not parallel, unlike SerpApi) so it can
+ * read `quotaRemaining` after each call and correct that key's budget — the
+ * only quota signal JSearch offers. A key reporting empty is retired and the
+ * query retried on another; once every key is spent the run stops.
+ */
+const runJSearchQueries = async (
+  queries: ExternalJobQuery[],
+  pool: ApiKeyPool,
+): Promise<{ jobs: ExternalJob[]; spent: number }> => {
+  const collected: ExternalJob[] = [];
+  let spent = 0;
+  let isFirstQuery = true;
+
+  for (const query of queries) {
+    if (!isFirstQuery) await sleep(JSEARCH_INTER_QUERY_DELAY_MS);
+    isFirstQuery = false;
+
+    for (let attempt = 0; attempt < Math.max(1, pool.keyCount); attempt += 1) {
+      const key = pool.take();
+      if (!key) {
+        console.log('[external-jobs] JSearch budget spent — stopping early');
+        return { jobs: collected, spent };
+      }
+
+      try {
+        const { jobs, quotaRemaining } = await fetchJSearchJobs(query, key);
+        collected.push(...jobs);
+        spent += 1;
+
+        if (quotaRemaining !== null) {
+          if (quotaRemaining <= 0) {
+            console.warn(
+              `[external-jobs] JSearch key ${maskApiKey(key)} reports 0 remaining — retiring it for this run`,
+            );
+            pool.markExhausted(key);
+          } else {
+            pool.clampRemaining(key, quotaRemaining);
+          }
+        }
+        break;
+      } catch (error) {
+        if (isJSearchQuotaError(error)) {
+          console.warn(
+            `[external-jobs] JSearch key ${maskApiKey(key)} is out of quota — retiring it for this run`,
+          );
+          pool.markExhausted(key);
+          spent += 1;
+          continue;
+        }
+
+        if (wasCharged(error)) spent += 1;
+        else pool.refund(key);
+
+        console.error(
+          `[external-jobs] JSearch query failed (${describeQuery(query)}):`,
+          error instanceof Error ? error.message : error,
+        );
+        break;
+      }
+    }
+  }
+
+  return { jobs: collected, spent };
 };
 
 /** Conservative — SerpApi calls compete for outbound bandwidth/rate limit; a wide burst risks timeouts. */
@@ -262,6 +326,26 @@ const upsertListing = (job: ExternalJob, fetchedAt: Date) =>
     },
   });
 
+/**
+ * How long a SerpApi/JSearch listing may sit on the platform before it's
+ * treated as expired, regardless of the rotation.
+ *
+ * Deliberately a fixed, generous window rather than one derived from the
+ * rotation's cycle speed (the earlier design): that coupling meant a listing
+ * could be deleted purely because its query hadn't come back around yet, as
+ * often as every 6-10 days depending on that day's budget — indistinguishable
+ * from the listing actually being gone, and it isn't. 21 days (3 weeks) is
+ * comfortably longer than the secondary rotation's cycle time at any
+ * realistic key count (5-15 days — see queryGrid.ts), so a listing is never
+ * caught by this while still waiting its normal turn to be re-confirmed; it
+ * only catches listings that have genuinely been on the platform for weeks.
+ */
+const LISTING_RETENTION_DAYS = 21;
+
+/** Anchored on `createdAt` — see the comment on `LISTING_RETENTION_DAYS`. */
+const retentionCutoff = (now: Date, days: number): Date =>
+  new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+
 export type RefreshSummary = {
   serpApiQueriesRun: number;
   serpApiQuotaNote: string;
@@ -269,80 +353,147 @@ export type RefreshSummary = {
   jSearchNote: string;
   jobsFound: number;
   jobsStored: number;
-  staleRemoved: number;
+  /** Feed listings removed because today's full re-fetch no longer includes them. */
+  feedRemoved: number;
+  /** SerpApi/JSearch listings removed for exceeding LISTING_RETENTION_DAYS. */
+  expiredRemoved: number;
 };
 
 /**
- * Fetches every source, stores the result, and removes listings no longer
- * current. Safe to run repeatedly — it's a resync, not an append.
+ * Fetches every source and stores the result. Safe to run repeatedly — it's a
+ * resync, not an append.
  *
  * Feed jobs are refetched in full every run (free, so no rotation needed) and
- * pruned if missing from this run. SerpApi/JSearch jobs only get touched by
- * that day's rotated slice, so they're pruned on a longer TTL instead — see
- * SERPAPI_STALE_AFTER_DAYS / JSEARCH_STALE_AFTER_DAYS.
+ * pruned if missing from this run — a genuine "no longer listed" signal, since
+ * the whole feed is re-read every time.
+ *
+ * SerpApi/JSearch listings are NOT pruned on rotation timing: each is only
+ * re-confirmed when its query's turn comes back around (see queryGrid.ts),
+ * which is not a signal that the listing has expired, so deleting on that
+ * basis would remove listings a professional saw only days ago. Instead:
+ *   - Age is handled through *ranking* first — getExternalJobsForProfessional
+ *     always sorts newest-first, so older listings sink toward the bottom of
+ *     their band rather than disappearing.
+ *   - `createdAt` (first-seen, never touched by the upsert below) is checked
+ *     against a fixed LISTING_RETENTION_DAYS window as a hard backstop, so
+ *     the table doesn't grow forever with listings that are, realistically,
+ *     long expired. `createdAt` rather than `fetchedAt` on purpose — the
+ *     latter only reflects when the rotation last happened to touch this
+ *     listing, not how long it's actually been on the platform.
+ * The other way a scraped listing leaves the platform is admin moderation
+ * (`hiddenByAdmin`, see adminExternalJobsController.ts) — always immediate,
+ * regardless of age.
  */
 export const refreshExternalJobs = async (): Promise<RefreshSummary> => {
   const runStartedAt = new Date();
   const dayIndex = rotationDayIndex(runStartedAt);
 
-  const [serpApiPlan, jSearchPlan] = await Promise.all([
-    buildSerpApiPlan(dayIndex),
-    Promise.resolve(buildJSearchPlan(dayIndex)),
+  const [serpApi, jSearch] = await Promise.all([
+    isSerpApiConfigured()
+      ? buildSerpApiPool()
+      : Promise.resolve({
+          pool: new ApiKeyPool([]),
+          note: 'no SERPAPI_KEY configured',
+        }),
+    Promise.resolve(
+      isJSearchConfigured()
+        ? buildJSearchPool()
+        : { pool: new ApiKeyPool([]), note: 'no JSEARCH_API_KEY configured' },
+    ),
   ]);
 
-  console.log(`[external-jobs] SerpApi quota: ${serpApiPlan.quotaNote}`);
-  console.log(`[external-jobs] JSearch: ${jSearchPlan.note}`);
+  const serpApiBudget = applyConfiguredCap(
+    serpApi.pool.totalAllowance,
+    env.SERPAPI_MAX_QUERIES_PER_DAY,
+  );
+  const jSearchBudget = applyConfiguredCap(
+    jSearch.pool.totalAllowance,
+    env.JSEARCH_MAX_QUERIES_PER_DAY,
+  );
 
-  const [serpApiResults, jSearchResults, feedJobs] = await Promise.all([
-    inChunks(serpApiPlan.queries, SERPAPI_CONCURRENCY, runSerpApiQuery),
-    runJSearchQueries(jSearchPlan.queries),
+  // Each provider only searches the countries it can actually answer for —
+  // SerpApi skips the EEA markets where Google Jobs has no inventory (see
+  // `noGoogleJobs` in queryGrid.ts), so that quota goes somewhere useful.
+  const serpApiCountries = countriesFor('serpapi').length;
+  const jSearchCountries = countriesFor('jsearch').length;
+
+  // The floor always goes first and is never traded away for secondary
+  // coverage — it's what guarantees every country the provider covers is
+  // actually searched today, not just "sometime this rotation".
+  const serpApiFloor = dailyFloorQueries(dayIndex, serpApiBudget, 'serpapi');
+  const jSearchFloor = dailyFloorQueries(dayIndex, jSearchBudget, 'jsearch');
+
+  const serpApiSecondary = pickRotationSlice(
+    secondaryGridFor('serpapi'),
+    dayIndex,
+    serpApiBudget - serpApiFloor.length,
+  );
+  const jSearchSecondary = pickRotationSlice(
+    secondaryGridFor('jsearch'),
+    dayIndex,
+    jSearchBudget - jSearchFloor.length,
+  );
+
+  const serpApiQueries = [...serpApiFloor, ...serpApiSecondary];
+  const jSearchQueries = [...jSearchFloor, ...jSearchSecondary];
+
+  console.log(
+    `[external-jobs] query space: ${QUERY_GRID.length} combinations across ${MARITIME_COUNTRIES.length} countries (rotation day ${dayIndex})`,
+  );
+  console.log(
+    `[external-jobs] SerpApi: ${serpApi.note} — ${serpApiFloor.length}/${serpApiCountries} countries on today's floor, ${serpApiSecondary.length} secondary search(es)`,
+  );
+  console.log(
+    `[external-jobs] JSearch: ${jSearch.note} — ${jSearchFloor.length}/${jSearchCountries} countries on today's floor, ${jSearchSecondary.length} secondary search(es)`,
+  );
+
+  const [serpApiRuns, jSearchRun, feedJobs] = await Promise.all([
+    inChunks(serpApiQueries, SERPAPI_CONCURRENCY, (query) =>
+      runSerpApiQuery(query, serpApi.pool),
+    ),
+    runJSearchQueries(jSearchQueries, jSearch.pool),
     fetchFeedJobs().catch((error) => {
       console.error('[external-jobs] Feed fetch failed:', error);
       return [] as ExternalJob[];
     }),
   ]);
 
+  const serpApiJobs = serpApiRuns.flatMap((run) => run.jobs);
+  const serpApiSpent = serpApiRuns.reduce((total, run) => total + run.spent, 0);
+
   const inScope = dedupeJobs(
-    [...serpApiResults.flat(), ...jSearchResults, ...feedJobs].filter(
-      isInMaritimeScope,
-    ),
+    [...serpApiJobs, ...jSearchRun.jobs, ...feedJobs].filter(isInMaritimeScope),
   );
 
   await inChunks(inScope, DB_WRITE_CONCURRENCY, (job) =>
     upsertListing(job, runStartedAt),
   );
 
-  const serpApiStaleCutoff = new Date(
-    runStartedAt.getTime() - SERPAPI_STALE_AFTER_DAYS * 24 * 60 * 60 * 1000,
+  const [{ count: feedRemoved }, { count: expiredRemoved }] = await Promise.all(
+    [
+      prisma.externalJobListing.deleteMany({
+        where: { provider: 'feed', fetchedAt: { lt: runStartedAt } },
+      }),
+      prisma.externalJobListing.deleteMany({
+        where: {
+          provider: { in: ['serpapi', 'jsearch'] },
+          createdAt: {
+            lt: retentionCutoff(runStartedAt, LISTING_RETENTION_DAYS),
+          },
+        },
+      }),
+    ],
   );
-  const jSearchStaleCutoff = new Date(
-    runStartedAt.getTime() - JSEARCH_STALE_AFTER_DAYS * 24 * 60 * 60 * 1000,
-  );
-
-  const [
-    { count: staleFeedRemoved },
-    { count: staleSerpApiRemoved },
-    { count: staleJSearchRemoved },
-  ] = await Promise.all([
-    prisma.externalJobListing.deleteMany({
-      where: { provider: 'feed', fetchedAt: { lt: runStartedAt } },
-    }),
-    prisma.externalJobListing.deleteMany({
-      where: { provider: 'serpapi', fetchedAt: { lt: serpApiStaleCutoff } },
-    }),
-    prisma.externalJobListing.deleteMany({
-      where: { provider: 'jsearch', fetchedAt: { lt: jSearchStaleCutoff } },
-    }),
-  ]);
 
   const summary: RefreshSummary = {
-    serpApiQueriesRun: serpApiPlan.queries.length,
-    serpApiQuotaNote: serpApiPlan.quotaNote,
-    jSearchQueriesRun: jSearchPlan.queries.length,
-    jSearchNote: jSearchPlan.note,
+    serpApiQueriesRun: serpApiSpent,
+    serpApiQuotaNote: serpApi.note,
+    jSearchQueriesRun: jSearchRun.spent,
+    jSearchNote: jSearch.note,
     jobsFound: inScope.length,
     jobsStored: inScope.length,
-    staleRemoved: staleFeedRemoved + staleSerpApiRemoved + staleJSearchRemoved,
+    feedRemoved,
+    expiredRemoved,
   };
 
   console.log('[external-jobs] refresh complete:', summary);

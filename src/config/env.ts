@@ -47,21 +47,37 @@ const envSchema = z.object({
   STRIPE_RECRUITER_FLEX_PRICE_ID: z.string().min(1),
   STRIPE_RECRUITER_PREMIUM_PRICE_ID: z.string().min(1),
   GEMINI_API_KEY: z.string().optional(),
-  /** SerpApi key used to pull external maritime job listings (Google Jobs engine). */
-  SERPAPI_KEY: z.string().optional(),
   /**
-   * Ceiling on SerpApi searches per daily refresh. Actual usage is also
-   * clamped to whatever the account has left this month, so this is a safe
-   * default to raise if you're on a bigger plan — no code change needed.
+   * SerpApi keys used to pull external maritime job listings (Google Jobs
+   * engine). Each key carries its own independent monthly quota, so adding
+   * keys widens the daily search budget proportionally — see
+   * externalJobs/apiKeyPool.ts. Numbered slots are optional; gaps are fine
+   * (setting only SERPAPI_KEY_3 still works).
+   */
+  SERPAPI_KEY: z.string().optional(),
+  SERPAPI_KEY_2: z.string().optional(),
+  SERPAPI_KEY_3: z.string().optional(),
+  /**
+   * Ceiling on SerpApi searches per daily refresh, across all keys combined.
+   * Leave unset: the default already scales with the number of configured
+   * keys, and actual usage is clamped per key to whatever that account has
+   * left this month. Only set this to deliberately hold usage *below* what
+   * the keys allow.
    */
   SERPAPI_MAX_QUERIES_PER_DAY: z.string().optional(),
-  /** RapidAPI key for JSearch, a second external maritime job source (independent quota from SerpApi). */
-  JSEARCH_API_KEY: z.string().optional(),
   /**
-   * Ceiling on JSearch searches per daily refresh. JSearch has no free
-   * account-quota-check endpoint (unlike SerpApi's account.json), so this is
-   * the only pre-flight budget signal — actual remaining quota is only known
-   * from the `x-ratelimit-requests-remaining` header on each real response.
+   * RapidAPI keys for JSearch, a second external maritime job source
+   * (independent quota pool from SerpApi). Same numbering rules as SERPAPI_KEY.
+   */
+  JSEARCH_API_KEY: z.string().optional(),
+  JSEARCH_API_KEY_2: z.string().optional(),
+  JSEARCH_API_KEY_3: z.string().optional(),
+  /**
+   * Ceiling on JSearch searches per daily refresh, across all keys combined.
+   * JSearch has no free account-quota-check endpoint (unlike SerpApi's
+   * account.json), so the configured budget is the only pre-flight signal —
+   * actual remaining quota is only known from the
+   * `x-ratelimit-requests-remaining` header on each real response.
    */
   JSEARCH_MAX_QUERIES_PER_DAY: z.string().optional(),
   /** Comma-separated RSS/Atom job feed URLs; falls back to built-in defaults. */

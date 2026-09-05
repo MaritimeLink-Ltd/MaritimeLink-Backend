@@ -27,6 +27,12 @@ const COUNTRY_TO_ALPHA2: Record<string, string> = {
   Canada: 'ca',
   Ethiopia: 'et',
   Germany: 'de',
+  Norway: 'no',
+  Netherlands: 'nl',
+  Denmark: 'dk',
+  Egypt: 'eg',
+  'South Africa': 'za',
+  Kenya: 'ke',
 };
 
 /** Null when a country has no known mapping — caller should skip it for JSearch rather than guess. */

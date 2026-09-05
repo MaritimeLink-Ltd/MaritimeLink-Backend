@@ -21,7 +21,8 @@ async function main() {
     `[external-jobs] SerpApi ran ${summary.serpApiQueriesRun} search(es) (${summary.serpApiQuotaNote}); ` +
       `JSearch ran ${summary.jSearchQueriesRun} search(es) (${summary.jSearchNote}); ` +
       `stored ${summary.jobsStored} listing(s); ` +
-      `removed ${summary.staleRemoved} stale listing(s); ` +
+      `removed ${summary.feedRemoved} feed listing(s) no longer listed, ` +
+      `${summary.expiredRemoved} expired listing(s) (>21 days old); ` +
       `took ${Date.now() - startedAt}ms`,
   );
 }

@@ -72,18 +72,27 @@ const candidateBaselineScore = (
     matchable,
   ).score;
 
-/** Newest first; listings with no date sink below dated ones. */
-const byRecency = (a: ExternalJob, b: ExternalJob) => {
-  const time = (job: ExternalJob) => {
-    if (!job.postedAt) return 0;
-    const parsed = Date.parse(job.postedAt);
-    return Number.isNaN(parsed) ? 0 : parsed;
-  };
-  return time(b) - time(a);
+/** Undated listings sink below every dated one, on either side of `byRecency`. */
+const postedAtMs = (job: ExternalJob): number => {
+  if (!job.postedAt) return 0;
+  const parsed = Date.parse(job.postedAt);
+  return Number.isNaN(parsed) ? 0 : parsed;
 };
 
+/** Newest first; listings with no date sink below dated ones. */
+const byRecency = (a: ExternalJob, b: ExternalJob) =>
+  postedAtMs(b) - postedAtMs(a);
+
 export type ExternalJobsResult = {
-  /** Matched jobs first (best score first), then the rest (newest first). */
+  /**
+   * Matched jobs first, then the rest — but within each band, newest is
+   * always on top. Relevance decides *which* band a job lands in; it never
+   * pushes an older match above a fresher one within that band. Nothing is
+   * ever dropped for being old — age only demotes a listing toward the
+   * bottom of its band, it never removes it (refresh.ts prunes SerpApi/
+   * JSearch listings on a fixed multi-week age, not on rotation timing, so
+   * a listing a professional saw recently never disappears mid-rotation).
+   */
   jobs: ExternalJob[];
   /** How many leading entries of `jobs` are profile matches. */
   matchedCount: number;
@@ -93,8 +102,13 @@ export type ExternalJobsResult = {
 
 /**
  * Returns external maritime jobs for a professional in two bands: the ones
- * matching their profile, then the wider maritime market. Nothing in the pool
- * is discarded — a low score demotes a job rather than hiding it.
+ * matching their profile, then the wider maritime market — newest first
+ * within each. Nothing in the pool is discarded — a low score, or simply
+ * being older, demotes a job within its band rather than hiding or deleting
+ * it. A very old listing does eventually fall outside `MAX_RESULTS` as
+ * fresher ones accumulate ahead of it, but the row itself stays in the
+ * database until it ages past refresh.ts's retention window or an admin
+ * removes it.
  */
 export const getExternalJobsForProfessional = async (
   professional: ProfessionalWithResume,
@@ -135,10 +149,10 @@ export const getExternalJobsForProfessional = async (
     };
   });
 
-  const matched = scored
-    .filter((job) => job.matched)
-    .sort((a, b) => (b.matchScore ?? 0) - (a.matchScore ?? 0));
-
+  // matchScore only decides band membership (the `matched` filter below) —
+  // ordering within a band is always by recency, newest first. An older job
+  // never outranks a fresher one just for scoring higher.
+  const matched = scored.filter((job) => job.matched).sort(byRecency);
   const others = scored.filter((job) => !job.matched).sort(byRecency);
 
   return {

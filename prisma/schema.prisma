@@ -8,55 +8,55 @@ datasource db {
 }
 
 model Professional {
-  id                     String                 @id @default(uuid())
-  fullname               String?
-  email                  String                 @unique
-  password               String
-  profession             JobCategory?
-  idPassportUrl          String?
-  bio                    String?
-  isVerified             Boolean                @default(false)
-  otpCode                String?
-  otpExpiresAt           DateTime?
-  passwordResetToken     String?
-  passwordResetExpires   DateTime?
-  createdAt              DateTime               @default(now())
-  updatedAt              DateTime               @updatedAt
-  cvUrl                  String?
-  lastCoverLetter        String?
-  firstName              String?
-  lastName               String?
-  middleName             String?
-  profilePhotoUrl        String?
-  registrationStep       Int                    @default(1)
-  subcategory            String?
-  lastActive             DateTime               @default(now())
-  status                 ProfessionalStatus     @default(PENDING)
-  tier                   UserTier               @default(FREE)
-  availableForWork       Boolean                @default(false)
-  publicProfileEnabled   Boolean                @default(false)
-  membershipUpdatedAt    DateTime?
+  id                         String                 @id @default(uuid())
+  fullname                   String?
+  email                      String                 @unique
+  password                   String
+  profession                 JobCategory?
+  idPassportUrl              String?
+  bio                        String?
+  isVerified                 Boolean                @default(false)
+  otpCode                    String?
+  otpExpiresAt               DateTime?
+  passwordResetToken         String?
+  passwordResetExpires       DateTime?
+  createdAt                  DateTime               @default(now())
+  updatedAt                  DateTime               @updatedAt
+  cvUrl                      String?
+  lastCoverLetter            String?
+  firstName                  String?
+  lastName                   String?
+  middleName                 String?
+  profilePhotoUrl            String?
+  registrationStep           Int                    @default(1)
+  subcategory                String?
+  lastActive                 DateTime               @default(now())
+  status                     ProfessionalStatus     @default(PENDING)
+  tier                       UserTier               @default(FREE)
+  availableForWork           Boolean                @default(false)
+  publicProfileEnabled       Boolean                @default(false)
+  membershipUpdatedAt        DateTime?
   /// Apple's stable per-subscription id (survives renewals). Set on first
   /// successful /membership/apple/confirm; lets the App Store Server
   /// Notifications webhook (which carries no auth/session) map an incoming
   /// renew/expire/refund/revoke event back to this professional.
-  appleOriginalTransactionId String?             @unique
-  suspendedAt            DateTime?
-  suspendedUntil         DateTime?
-  suspensionReason       String?
-  suspendedById          String?
-  statusBeforeSuspension ProfessionalStatus?
-  alerts                 Alert[]
-  conversations          Conversation[]
-  bookings               CourseBooking[]
-  applications           JobApplication[]
-  invitations            JobInvitation[]
-  documents              ProfessionalDocument[]
-  feedback               ProfessionalFeedback[]
-  kyc                    ProfessionalKyc?
-  resume                 ProfessionalResume?
-  savedCourses           SavedCourse[]
-  savedJobs              SavedJob[]
+  appleOriginalTransactionId String?                @unique
+  suspendedAt                DateTime?
+  suspendedUntil             DateTime?
+  suspensionReason           String?
+  suspendedById              String?
+  statusBeforeSuspension     ProfessionalStatus?
+  alerts                     Alert[]
+  conversations              Conversation[]
+  bookings                   CourseBooking[]
+  applications               JobApplication[]
+  invitations                JobInvitation[]
+  documents                  ProfessionalDocument[]
+  feedback                   ProfessionalFeedback[]
+  kyc                        ProfessionalKyc?
+  resume                     ProfessionalResume?
+  savedCourses               SavedCourse[]
+  savedJobs                  SavedJob[]
 }
 
 model ProfessionalFeedback {
@@ -471,23 +471,37 @@ model Job {
 /// `id` is the source-prefixed id (e.g. "serpapi:...", "feed:...") so a
 /// re-fetch naturally upserts instead of duplicating.
 model ExternalJobListing {
-  id             String   @id
-  title          String
-  company        String?
-  location       String?
-  description    String
-  salary         String?
-  postedAt       String?
-  applyLink      String?
-  via            String?
-  thumbnail      String?
-  category       String?
-  employmentType String?
-  provider       String
-  /// Start time of the refresh run that last saw this listing. Rows not
-  /// touched by the most recent run (i.e. no longer returned by any source)
-  /// are deleted, so this table always reflects the current market.
-  fetchedAt      DateTime
+  id              String    @id
+  title           String
+  company         String?
+  location        String?
+  description     String
+  salary          String?
+  postedAt        String?
+  applyLink       String?
+  via             String?
+  thumbnail       String?
+  category        String?
+  employmentType  String?
+  provider        String
+  /// Start time of the refresh run that last saw this listing.
+  /// Feed-sourced rows are deleted once no longer returned by that day's full
+  /// re-fetch. SerpApi/JSearch rows are NOT deleted on this basis — each is
+  /// only re-confirmed when its query's turn in the daily rotation comes back
+  /// around (see externalJobs/queryGrid.ts), so an old fetchedAt just means
+  /// "not re-checked recently", not "gone from the market". Those age out of
+  /// view primarily through ranking (getExternalJobsForProfessional always
+  /// sorts newest-first) and are only actually deleted once `createdAt`
+  /// (below) crosses refresh.ts's fixed LISTING_RETENTION_DAYS (21 days) —
+  /// a backstop against unbounded growth, deliberately not keyed off this
+  /// field. The other way one leaves the platform is admin moderation via
+  /// hiddenByAdmin below, which is immediate regardless of age.
+  fetchedAt       DateTime
+  /// When this listing was first discovered. Never touched by refresh.ts's
+  /// upsert `update` payload (only `create` sets it), so it stays fixed at
+  /// first-seen time for as long as the row exists — this, not `fetchedAt`,
+  /// is what the 21-day retention window above is measured against.
+  createdAt       DateTime  @default(now())
   /// Admin review/removal — set when an admin judges a scraped listing bad,
   /// suspicious, or a scam. Deliberately NOT included in refresh.ts's upsert
   /// `update` payload, so a daily re-fetch of the same source id (the API/AI
@@ -499,8 +513,7 @@ model ExternalJobListing {
   hiddenByAdmin   Boolean   @default(false)
   hiddenAt        DateTime?
   hiddenByAdminId String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  updatedAt       DateTime  @updatedAt
 
   @@index([fetchedAt])
   @@index([hiddenByAdmin])
