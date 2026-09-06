@@ -51,12 +51,19 @@ import { ExternalJobQuery } from './types.js';
  * Adding a term here costs nothing extra per day — the floor always runs
  * exactly one of these per country (dailyFloorQueries), so more terms just
  * stretch the phrasing rotation over more days.
+ *
+ * "merchant navy" used to be here and was removed: it measured 0 real
+ * results on JSearch across every market tried (India, Nigeria, Netherlands,
+ * Philippines), and on SerpApi its rare hits included non-target content
+ * like a "Military Sealift Command" (a US Navy command) posting. "maritime
+ * crew" replaced it — measured 10/10 in-scope on SerpApi UK and covered by
+ * the existing "maritime" scope term, with none of that risk.
  */
 export const BROAD_TERMS = [
   'seafarer',
   'vessel crew',
   'ship crew',
-  'merchant navy',
+  'maritime crew',
 ];
 
 /**

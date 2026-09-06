@@ -46,7 +46,15 @@ type JSearchJobResult = {
   job_title?: string;
   employer_name?: string;
   job_city?: string;
+  /**
+   * NOT trustworthy — do not use. Measured live: this field does not reflect
+   * the job's real country, it silently echoes back whichever country code
+   * the request asked for, even for jobs that are unambiguously elsewhere
+   * (see isUsJob's comment for the reproduction). `job_state` is the field
+   * that still carries the truth.
+   */
   job_country?: string;
+  job_state?: string;
   job_description?: string;
   job_apply_link?: string;
   job_publisher?: string;
@@ -55,6 +63,90 @@ type JSearchJobResult = {
   job_posted_at_datetime_utc?: string;
   job_posted_at_timestamp?: number;
 };
+
+/**
+ * Full US state names (+ DC), matched against `job_state` to catch a real,
+ * measured JSearch bug: when a query has thin or no genuine results for the
+ * requested country, JSearch falls back to loosely keyword-matched US
+ * postings instead of returning few/zero results — and stamps `job_country`
+ * with the country code that was requested, not the job's real one.
+ *
+ * Measured live, reproduced across every market tried: "able seaman" @
+ * Germany returned 9 of 10 jobs in Houston/Ingleside/Long Beach — genuine US
+ * Gulf Coast maritime jobs — each carrying `job_country: "DE"`. "deck
+ * officer" @ Nigeria returned 10 of 10 as Chicago listings, several not even
+ * maritime (matched on the bare word "deck"). This isn't a rare edge case —
+ * in these tests it was the majority or entirety of the result set.
+ *
+ * `job_state` is not a field this bug corrupts: every confirmed leak carried
+ * a real US state name there, so it's the one reliable place the truth
+ * survives. `job_country` is not used anywhere below — see its comment.
+ */
+const US_STATE_NAMES = new Set([
+  'Alabama',
+  'Alaska',
+  'Arizona',
+  'Arkansas',
+  'California',
+  'Colorado',
+  'Connecticut',
+  'Delaware',
+  'Florida',
+  'Georgia',
+  'Hawaii',
+  'Idaho',
+  'Illinois',
+  'Indiana',
+  'Iowa',
+  'Kansas',
+  'Kentucky',
+  'Louisiana',
+  'Maine',
+  'Maryland',
+  'Massachusetts',
+  'Michigan',
+  'Minnesota',
+  'Mississippi',
+  'Missouri',
+  'Montana',
+  'Nebraska',
+  'Nevada',
+  'New Hampshire',
+  'New Jersey',
+  'New Mexico',
+  'New York',
+  'North Carolina',
+  'North Dakota',
+  'Ohio',
+  'Oklahoma',
+  'Oregon',
+  'Pennsylvania',
+  'Rhode Island',
+  'South Carolina',
+  'South Dakota',
+  'Tennessee',
+  'Texas',
+  'Utah',
+  'Vermont',
+  'Virginia',
+  'Washington',
+  'West Virginia',
+  'Wisconsin',
+  'Wyoming',
+  'District of Columbia',
+]);
+
+/**
+ * True when a JSearch result is actually a US posting, whatever
+ * `job_country` claims. Exported for testing — pure, no network.
+ *
+ * Note: "Georgia" is both a US state and a country name. None of our target
+ * markets is the country Georgia today, so this can't misfire in practice —
+ * flagging in case that market is ever added, since it would need a second
+ * signal to disambiguate.
+ */
+export const isUsJob = (job: JSearchJobResult): boolean =>
+  Boolean(job.job_state && US_STATE_NAMES.has(job.job_state.trim()));
 
 type JSearchResponse = {
   status?: string;
@@ -88,9 +180,18 @@ export const isJSearchQuotaError = (error: unknown): boolean => {
   );
 };
 
-const buildLocation = (job: JSearchJobResult): string | null => {
-  const parts = [job.job_city, job.job_country].filter((part): part is string =>
-    Boolean(part?.trim()),
+/**
+ * Builds the displayed location from the job's city plus the country we
+ * actually searched for — not `job_country` (see its comment on why that
+ * field is never used). A job only reaches this point after surviving
+ * `isUsJob`, so the requested country is the trustworthy answer here.
+ */
+const buildLocation = (
+  job: JSearchJobResult,
+  targetCountryName: string | null,
+): string | null => {
+  const parts = [job.job_city, targetCountryName].filter(
+    (part): part is string => Boolean(part?.trim()),
   );
   return parts.length ? parts.join(', ') : null;
 };
@@ -104,9 +205,14 @@ const resolvePostedAt = (job: JSearchJobResult): string | null => {
   return job.job_posted_at ?? null;
 };
 
-/** Exported for testing — pure, no network. */
+/**
+ * Exported for testing — pure, no network. `targetCountryName` is the
+ * country the query actually searched for (e.g. "Netherlands"); pass it so
+ * the built location reflects a trustworthy country, not `job_country`.
+ */
 export const normalizeJSearchJob = (
   job: JSearchJobResult,
+  targetCountryName: string | null = null,
 ): ExternalJob | null => {
   if (!job.job_id || !job.job_title) return null;
 
@@ -114,7 +220,7 @@ export const normalizeJSearchJob = (
     id: `jsearch:${job.job_id}`,
     title: job.job_title,
     company: job.employer_name?.trim() || null,
-    location: buildLocation(job),
+    location: buildLocation(job, targetCountryName),
     description: job.job_description ?? '',
     salary: null,
     postedAt: resolvePostedAt(job),
@@ -180,8 +286,12 @@ export const fetchJSearchJobs = async (
       ? Number(remainingHeader)
       : null;
 
+  // Drop the US-leak jobs before normalizing — see isUsJob's comment. This
+  // must happen on the raw result: job_state (the only reliable signal)
+  // isn't carried into the normalized ExternalJob shape.
   const jobs = (response.data.data?.jobs ?? [])
-    .map(normalizeJSearchJob)
+    .filter((job) => !isUsJob(job))
+    .map((job) => normalizeJSearchJob(job, query.location ?? null))
     .filter((job): job is ExternalJob => job !== null);
 
   return { jobs, quotaRemaining };
