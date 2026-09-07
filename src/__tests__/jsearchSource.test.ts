@@ -1,6 +1,7 @@
 import {
-  isUsJob,
+  buildVerifiablePlace,
   normalizeJSearchJob,
+  verifyJobCountry,
 } from '../services/externalJobs/jsearchSource.js';
 
 describe('normalizeJSearchJob', () => {
@@ -40,8 +41,8 @@ describe('normalizeJSearchJob', () => {
   });
 
   it('never builds the location from job_country, even when no target country is passed', () => {
-    // job_country is proven untrustworthy (see isUsJob) — it must never
-    // appear in the displayed location, with or without a target country.
+    // job_country is proven untrustworthy (see verifyJobCountry) — it must
+    // never appear in the displayed location, with or without a target.
     const result = normalizeJSearchJob({
       job_id: 'x',
       job_title: 'T',
@@ -51,6 +52,27 @@ describe('normalizeJSearchJob', () => {
 
     expect(result?.location).toBe('Lagos');
     expect(result?.location).not.toContain('DE');
+  });
+
+  it('labels a cityless remote job "Remote" rather than naming a country it can\'t confirm', () => {
+    // Only reaches this point by passing verifyJobCountry's remote-only
+    // fallback (no city/state to check) — naming a specific country here
+    // would claim a certainty the data doesn't support.
+    const result = normalizeJSearchJob(
+      { job_id: 'x', job_title: 'T', job_is_remote: true },
+      'Nigeria',
+    );
+
+    expect(result?.location).toBe('Remote');
+  });
+
+  it('still shows city + country for a remote job that does carry a real city', () => {
+    const result = normalizeJSearchJob(
+      { job_id: 'x', job_title: 'T', job_city: 'Lagos', job_is_remote: true },
+      'Nigeria',
+    );
+
+    expect(result?.location).toBe('Lagos, Nigeria');
   });
 
   it('returns null when required fields (job_id, job_title) are missing', () => {
@@ -102,34 +124,48 @@ describe('normalizeJSearchJob', () => {
   });
 });
 
-describe('isUsJob', () => {
-  // Reproduces the exact live-measured leak: JSearch returns a US posting
-  // for a non-US country query and stamps job_country with whatever code was
-  // requested — job_state is the only field that still tells the truth.
-  it('flags a job whose job_state is a real US state, regardless of job_country', () => {
+describe('buildVerifiablePlace', () => {
+  it('joins city and state when both are present, for tighter disambiguation', () => {
     expect(
-      isUsJob({
-        job_city: 'Houston',
-        job_state: 'Texas',
-        job_country: 'DE', // the leak: echoes the requested country
-      }),
-    ).toBe(true);
+      buildVerifiablePlace({ job_city: 'Cheney', job_state: 'Kansas' }),
+    ).toBe('Cheney, Kansas');
   });
 
-  it('is not fooled by trailing whitespace on job_state', () => {
-    expect(isUsJob({ job_state: '  California ' })).toBe(true);
+  it('falls back to whichever of city/state is present', () => {
+    expect(buildVerifiablePlace({ job_city: 'Lagos' })).toBe('Lagos');
+    expect(buildVerifiablePlace({ job_state: 'New York' })).toBe('New York');
   });
 
-  it('does not flag a job with no job_state', () => {
-    expect(isUsJob({ job_city: 'Lagos', job_country: 'NG' })).toBe(false);
+  it('returns null when there is nothing to verify against', () => {
+    expect(buildVerifiablePlace({})).toBeNull();
   });
+});
 
-  it('does not flag a genuine non-US region name', () => {
-    expect(isUsJob({ job_city: 'Mumbai', job_state: 'Maharashtra' })).toBe(
-      false,
+describe('verifyJobCountry', () => {
+  // Only the network-free branch (no city/state at all) is exercised here —
+  // the real lookup is network-dependent and verified live instead, same
+  // convention as this codebase's other network-touching helpers (e.g.
+  // serpApiSource.ts's getSerpApiQuota has no direct unit test either).
+  // Measured live reproductions of the leak this replaces are documented on
+  // the function itself.
+
+  it('trusts job_is_remote only when there is no city/state to check', async () => {
+    await expect(verifyJobCountry({ job_is_remote: true }, 'ng')).resolves.toBe(
+      true,
     );
-    expect(isUsJob({ job_city: 'Aberdeen', job_state: 'Scotland' })).toBe(
-      false,
-    );
+  });
+
+  it('does not trust a bare remote flag once a real place is present', async () => {
+    // "remote" doesn't mean location-agnostic — measured live, a remote
+    // JSearch listing still carries a real (often wrong-country) job_state,
+    // so a job with a place always goes through the real lookup, not the
+    // remote shortcut.
+    await expect(
+      verifyJobCountry({ job_is_remote: true, job_state: 'New York' }, 'ng'),
+    ).resolves.toBe(false);
+  }, 20000);
+
+  it('rejects a non-remote job with nothing to verify', async () => {
+    await expect(verifyJobCountry({}, 'ng')).resolves.toBe(false);
   });
 });

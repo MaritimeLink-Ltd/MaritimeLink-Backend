@@ -46,15 +46,23 @@ type JSearchJobResult = {
   job_title?: string;
   employer_name?: string;
   job_city?: string;
+  job_state?: string;
   /**
    * NOT trustworthy — do not use. Measured live: this field does not reflect
    * the job's real country, it silently echoes back whichever country code
    * the request asked for, even for jobs that are unambiguously elsewhere
-   * (see isUsJob's comment for the reproduction). `job_state` is the field
-   * that still carries the truth.
+   * (see `verifyJobCountry`'s comment for the reproduction). `job_city` /
+   * `job_state` are the fields that still carry the truth.
    */
   job_country?: string;
-  job_state?: string;
+  /**
+   * Does NOT mean "location-agnostic" — measured live, a job marked remote
+   * still carries a real (often wrong-country) `job_state`, e.g.
+   * `job_state: "New York"` on a listing returned for a United Kingdom
+   * search. Only trusted as a pass when there's no city/state to check at
+   * all — see `verifyJobCountry`.
+   */
+  job_is_remote?: boolean;
   job_description?: string;
   job_apply_link?: string;
   job_publisher?: string;
@@ -65,88 +73,82 @@ type JSearchJobResult = {
 };
 
 /**
- * Full US state names (+ DC), matched against `job_state` to catch a real,
- * measured JSearch bug: when a query has thin or no genuine results for the
- * requested country, JSearch falls back to loosely keyword-matched US
- * postings instead of returning few/zero results — and stamps `job_country`
- * with the country code that was requested, not the job's real one.
- *
- * Measured live, reproduced across every market tried: "able seaman" @
- * Germany returned 9 of 10 jobs in Houston/Ingleside/Long Beach — genuine US
- * Gulf Coast maritime jobs — each carrying `job_country: "DE"`. "deck
- * officer" @ Nigeria returned 10 of 10 as Chicago listings, several not even
- * maritime (matched on the bare word "deck"). This isn't a rare edge case —
- * in these tests it was the majority or entirety of the result set.
- *
- * `job_state` is not a field this bug corrupts: every confirmed leak carried
- * a real US state name there, so it's the one reliable place the truth
- * survives. `job_country` is not used anywhere below — see its comment.
+ * The free-text place JSearch actually gives us to verify against — city
+ * plus state/region when both are present, for tighter disambiguation
+ * (SerpApi's locations database resolves "Cheney, Kansas" more precisely
+ * than bare "Cheney"). Exported for testing — pure, no network.
  */
-const US_STATE_NAMES = new Set([
-  'Alabama',
-  'Alaska',
-  'Arizona',
-  'Arkansas',
-  'California',
-  'Colorado',
-  'Connecticut',
-  'Delaware',
-  'Florida',
-  'Georgia',
-  'Hawaii',
-  'Idaho',
-  'Illinois',
-  'Indiana',
-  'Iowa',
-  'Kansas',
-  'Kentucky',
-  'Louisiana',
-  'Maine',
-  'Maryland',
-  'Massachusetts',
-  'Michigan',
-  'Minnesota',
-  'Mississippi',
-  'Missouri',
-  'Montana',
-  'Nebraska',
-  'Nevada',
-  'New Hampshire',
-  'New Jersey',
-  'New Mexico',
-  'New York',
-  'North Carolina',
-  'North Dakota',
-  'Ohio',
-  'Oklahoma',
-  'Oregon',
-  'Pennsylvania',
-  'Rhode Island',
-  'South Carolina',
-  'South Dakota',
-  'Tennessee',
-  'Texas',
-  'Utah',
-  'Vermont',
-  'Virginia',
-  'Washington',
-  'West Virginia',
-  'Wisconsin',
-  'Wyoming',
-  'District of Columbia',
-]);
+export const buildVerifiablePlace = (job: JSearchJobResult): string | null => {
+  const parts = [job.job_city, job.job_state].filter((part): part is string =>
+    Boolean(part?.trim()),
+  );
+  return parts.length ? parts.join(', ') : null;
+};
 
 /**
- * True when a JSearch result is actually a US posting, whatever
- * `job_country` claims. Exported for testing — pure, no network.
- *
- * Note: "Georgia" is both a US state and a country name. None of our target
- * markets is the country Georgia today, so this can't misfire in practice —
- * flagging in case that market is ever added, since it would need a second
- * signal to disambiguate.
+ * Free, unmetered SerpApi endpoint (no API key needed) — the same one used
+ * to verify the canonical hub-city strings in queryGrid.ts. Resolves
+ * free-text place names to a real ISO country code via Google's own location
+ * database, which is what makes it possible to check JSearch's claims
+ * against reality instead of trusting fields JSearch itself corrupts.
  */
-export const isUsJob = (job: JSearchJobResult): boolean =>
-  Boolean(job.job_state && US_STATE_NAMES.has(job.job_state.trim()));
+const LOCATIONS_ENDPOINT = 'https://serpapi.com/locations.json';
+const LOCATIONS_TIMEOUT_MS = 15000;
+
+/**
+ * Looks up a free-text place and returns its lowercase ISO country code, or
+ * null when nothing resolves or the request fails. Not unit tested directly
+ * (network-dependent, verified live — see `verifyJobCountry`'s comment for
+ * the measurements) — same convention as this codebase's other
+ * network-touching helpers (e.g. serpApiSource.ts's getSerpApiQuota).
+ */
+const resolvePlaceCountryCode = async (
+  place: string,
+): Promise<string | null> => {
+  try {
+    const response = await axios.get<Array<{ country_code?: string }>>(
+      LOCATIONS_ENDPOINT,
+      { params: { q: place, limit: 1 }, timeout: LOCATIONS_TIMEOUT_MS },
+    );
+    return response.data?.[0]?.country_code?.toLowerCase() ?? null;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * True when a JSearch result's real place actually belongs to the country we
+ * searched for. This replaces an earlier, narrower fix (`isUsJob`, matching
+ * `job_state` against a US-state list) that only caught part of the problem:
+ * JSearch doesn't just leak US jobs into other countries' searches, it leaks
+ * jobs from ANY wrong country, and stamps `job_country` with whatever code
+ * was requested regardless. All three measured live, after the US-only fix
+ * had already shipped:
+ *   - a genuine Frankfurt, Germany job returned for a Kenya search
+ *   - a genuine London, UK job returned for a Nigeria search
+ *   - a genuine Washington DC, US federal job returned for a South Africa
+ *     search — `job_state` came through as "DC", not "District of Columbia",
+ *     so even the old US-name list would have missed this specific one
+ * Checking against real geography (via `resolvePlaceCountryCode`) generalizes
+ * past all of these, rather than extending a country/abbreviation list every
+ * time a new leak shape turns up.
+ *
+ * A job with no city or state to check at all is only trusted when JSearch
+ * marked it `job_is_remote` — but a job that DOES carry a place is still
+ * checked even when marked remote (see `job_is_remote`'s comment on the
+ * type): "remote" here means remote within that job's own country, not
+ * location-agnostic.
+ */
+export const verifyJobCountry = async (
+  job: JSearchJobResult,
+  targetCountryCode: string,
+): Promise<boolean> => {
+  const place = buildVerifiablePlace(job);
+  if (!place) return job.job_is_remote === true;
+
+  const resolved = await resolvePlaceCountryCode(place);
+  return resolved === targetCountryCode.toLowerCase();
+};
 
 type JSearchResponse = {
   status?: string;
@@ -184,12 +186,20 @@ export const isJSearchQuotaError = (error: unknown): boolean => {
  * Builds the displayed location from the job's city plus the country we
  * actually searched for — not `job_country` (see its comment on why that
  * field is never used). A job only reaches this point after surviving
- * `isUsJob`, so the requested country is the trustworthy answer here.
+ * `verifyJobCountry`, so the requested country is the trustworthy answer
+ * when there's a real city to pair it with.
+ *
+ * A cityless job only gets here by being marked remote with nothing else to
+ * verify (see `verifyJobCountry`) — naming a specific country in that case
+ * would claim a certainty we don't actually have, so it's labelled "Remote"
+ * instead.
  */
 const buildLocation = (
   job: JSearchJobResult,
   targetCountryName: string | null,
 ): string | null => {
+  if (!job.job_city?.trim()) return job.job_is_remote ? 'Remote' : null;
+
   const parts = [job.job_city, targetCountryName].filter(
     (part): part is string => Boolean(part?.trim()),
   );
@@ -286,11 +296,23 @@ export const fetchJSearchJobs = async (
       ? Number(remainingHeader)
       : null;
 
-  // Drop the US-leak jobs before normalizing — see isUsJob's comment. This
-  // must happen on the raw result: job_state (the only reliable signal)
-  // isn't carried into the normalized ExternalJob shape.
-  const jobs = (response.data.data?.jobs ?? [])
-    .filter((job) => !isUsJob(job))
+  const rawJobs = response.data.data?.jobs ?? [];
+
+  // Verify each job's real place against the country we searched for before
+  // normalizing — see verifyJobCountry's comment for why job_country/
+  // job_is_remote alone can't be trusted for this. Runs in parallel: at most
+  // ~10 jobs per call, each a free/unmetered lookup.
+  const verifiedJobs: JSearchJobResult[] = countryCode
+    ? (
+        await Promise.all(
+          rawJobs.map(async (job) =>
+            (await verifyJobCountry(job, countryCode)) ? job : null,
+          ),
+        )
+      ).filter((job): job is JSearchJobResult => job !== null)
+    : rawJobs;
+
+  const jobs = verifiedJobs
     .map((job) => normalizeJSearchJob(job, query.location ?? null))
     .filter((job): job is ExternalJob => job !== null);
 
