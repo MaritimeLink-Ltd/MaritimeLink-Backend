@@ -30,9 +30,18 @@ type SerpApiJobResult = {
 type SerpApiResponse = {
   jobs_results?: SerpApiJobResult[];
   error?: string;
+  serpapi_pagination?: { next_page_token?: string };
 };
 
 const REQUEST_TIMEOUT_MS = 20000;
+
+/**
+ * Google Jobs returns at most this many results per page — confirmed in
+ * SerpApi's own docs ("Up to 10 results are returned per page"), no
+ * parameter raises it. A full page is the signal `fetchSerpApiJobs`'s caller
+ * uses to decide whether a second page is worth its own search unit.
+ */
+export const SERPAPI_PAGE_SIZE = 10;
 
 /**
  * No date filter is sent to Google Jobs, deliberately.
@@ -139,12 +148,31 @@ export const getSerpApiQuota = async (
   }
 };
 
-/** Runs one search. Throws on transport or API error; the caller decides. */
+export type SerpApiJobsResult = {
+  jobs: ExternalJob[];
+  /**
+   * Present when Google reports more results exist beyond this page — pass
+   * it back as `nextPageToken` to fetch the next one. Costs a full search
+   * unit just like the first page (confirmed live), so the caller should
+   * only spend it when there's budget to spare, not unconditionally.
+   */
+  nextPageToken: string | null;
+};
+
+/**
+ * Runs one search. Throws on transport or API error; the caller decides.
+ *
+ * Pass `nextPageToken` (from a prior call's result) to fetch the page after
+ * it — SerpApi requires the original `q`/`location`/`hl` to be resent
+ * alongside the token, not just the token alone (confirmed live: the token
+ * by itself errors with "Missing query `q` parameter").
+ */
 export const fetchSerpApiJobs = async (
   query: ExternalJobQuery,
   apiKey: string,
-): Promise<ExternalJob[]> => {
-  if (!apiKey) return [];
+  nextPageToken?: string,
+): Promise<SerpApiJobsResult> => {
+  if (!apiKey) return { jobs: [], nextPageToken: null };
 
   const response = await axios.get<SerpApiResponse>(
     'https://serpapi.com/search.json',
@@ -158,6 +186,7 @@ export const fetchSerpApiJobs = async (
         // country's language (e.g. Russian for `location: Russia`) — pin to
         // English since that's what the matcher and the UI expect.
         hl: 'en',
+        ...(nextPageToken ? { next_page_token: nextPageToken } : {}),
         api_key: apiKey,
       },
     },
@@ -167,12 +196,17 @@ export const fetchSerpApiJobs = async (
     // "no results" is a normal outcome for a narrow rank or location, not a
     // fault — report it as empty so the caller can widen the search instead.
     if (/hasn't returned any results|no results/i.test(response.data.error)) {
-      return [];
+      return { jobs: [], nextPageToken: null };
     }
     throw new Error(`SerpApi: ${response.data.error}`);
   }
 
-  return (response.data.jobs_results ?? [])
+  const jobs = (response.data.jobs_results ?? [])
     .filter((job) => job.job_id && job.title)
     .map(normalize);
+
+  return {
+    jobs,
+    nextPageToken: response.data.serpapi_pagination?.next_page_token ?? null,
+  };
 };

@@ -18,7 +18,7 @@ const main = async () => {
   const [serpApiKey] = resolveSerpApiKeys();
   if (!serpApiKey) throw new Error('No SERPAPI_KEY configured');
 
-  const serpJobs = await fetchSerpApiJobs(
+  const { jobs: serpJobs } = await fetchSerpApiJobs(
     { q: 'Chief Engineer maritime' },
     serpApiKey,
   );

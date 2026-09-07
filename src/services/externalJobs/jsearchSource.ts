@@ -170,14 +170,27 @@ export const resolveJSearchKeys = (): string[] =>
 export const isJSearchConfigured = () => resolveJSearchKeys().length > 0;
 
 /**
- * True when an error means "this key is spent" rather than a transient fault.
- * RapidAPI answers an overrun monthly plan with 429, so that's the signal to
- * retire the key and retry the query on another one.
+ * True when an error means "stop using this specific key for the rest of the
+ * run" — either its quota is spent (429) or its RapidAPI subscription itself
+ * is broken (403, e.g. lapsed/cancelled — `{"message":"You are not
+ * subscribed to this API."}`). Both are permanent for the run, unlike a
+ * transient network fault, and the fix is identical: retire the key and
+ * retry the query on another one.
+ *
+ * The 403 case is not hypothetical — observed live in production: a key
+ * whose subscription had lapsed sat in the round-robin pool failing on every
+ * single turn it got, since a 403 wasn't previously recognized as
+ * key-retiring. Across one real run that cost 6 of 18 JSearch searches (a
+ * third of the day's budget) to a key that could never succeed — exactly
+ * the kind of waste this function exists to prevent.
  */
 export const isJSearchQuotaError = (error: unknown): boolean => {
-  if (axios.isAxiosError(error) && error.response?.status === 429) return true;
+  if (axios.isAxiosError(error)) {
+    const status = error.response?.status;
+    if (status === 429 || status === 403) return true;
+  }
   const message = error instanceof Error ? error.message : String(error);
-  return /exceeded the (monthly|daily) quota|too many requests|rate limit/i.test(
+  return /exceeded the (monthly|daily) quota|too many requests|rate limit|not subscribed/i.test(
     message,
   );
 };
@@ -245,18 +258,42 @@ export const normalizeJSearchJob = (
   };
 };
 
+/**
+ * JSearch returns at most this many jobs per page/cursor step — measured
+ * live (10 jobs, every time). A full page is the signal `fetchJSearchJobs`'s
+ * caller uses to decide whether a bonus page is worth its own search unit.
+ */
+export const JSEARCH_PAGE_SIZE = 10;
+
 export type JSearchQueryResult = {
   jobs: ExternalJob[];
   /** From `x-ratelimit-requests-remaining`; null when the header was absent. */
   quotaRemaining: number | null;
+  /**
+   * Pass back as `cursor` to fetch the next page. Measured live: costs a
+   * full search unit, same as the first page, and returns entirely new jobs
+   * (0% overlap) — no bulk discount for asking for more per call, but no
+   * penalty either over spending that unit on a different query.
+   */
+  cursor: string | null;
 };
 
-/** Runs one search. Throws on transport or API error; the caller decides. */
+/**
+ * Runs one search. Throws on transport or API error; the caller decides.
+ *
+ * Pass `cursor` (from a prior call's result) to fetch the page after it.
+ * Confirmed live to be equivalent to (not cheaper than) `num_pages`: both
+ * bill 1 unit per page of up to JSEARCH_PAGE_SIZE — cursor is used here
+ * because it's what /search-v2 (this account's plan) actually documents,
+ * while `num_pages` also happened to work when tested but isn't its
+ * documented pagination mechanism.
+ */
 export const fetchJSearchJobs = async (
   query: ExternalJobQuery,
   apiKey: string,
+  cursor?: string,
 ): Promise<JSearchQueryResult> => {
-  if (!apiKey) return { jobs: [], quotaRemaining: null };
+  if (!apiKey) return { jobs: [], quotaRemaining: null, cursor: null };
 
   const countryCode = query.location
     ? toAlpha2CountryCode(query.location)
@@ -275,7 +312,7 @@ export const fetchJSearchJobs = async (
       params: {
         query: query.q,
         ...(countryCode ? { country: countryCode } : {}),
-        num_pages: 1,
+        ...(cursor ? { cursor } : { num_pages: 1 }),
         date_posted: DATE_POSTED_WINDOW,
       },
     },
@@ -316,5 +353,5 @@ export const fetchJSearchJobs = async (
     .map((job) => normalizeJSearchJob(job, query.location ?? null))
     .filter((job): job is ExternalJob => job !== null);
 
-  return { jobs, quotaRemaining };
+  return { jobs, quotaRemaining, cursor: response.data.data?.cursor ?? null };
 };

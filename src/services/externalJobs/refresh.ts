@@ -7,11 +7,13 @@ import {
   isSerpApiConfigured,
   isSerpApiQuotaError,
   resolveSerpApiKeys,
+  SERPAPI_PAGE_SIZE,
 } from './serpApiSource.js';
 import {
   fetchJSearchJobs,
   isJSearchConfigured,
   isJSearchQuotaError,
+  JSEARCH_PAGE_SIZE,
   resolveJSearchKeys,
 } from './jsearchSource.js';
 import { isInMaritimeScope } from './scope.js';
@@ -147,10 +149,20 @@ const buildJSearchPool = (): { pool: ApiKeyPool; note: string } => {
 };
 
 /**
- * Runs one SerpApi search, moving to another key if the one it drew turns out
- * to be spent. A query is only abandoned once every key has been tried — a
- * search lost to an exhausted key would otherwise wait a full rotation for its
- * next turn.
+ * Runs one SerpApi search — and, when the page comes back full, one bonus
+ * page right after it — moving to another key if the one it drew turns out
+ * to be spent. A page is only abandoned once every key has been tried — a
+ * search lost to an exhausted key would otherwise wait a full rotation for
+ * its next turn.
+ *
+ * The bonus page: Google Jobs caps every page at SERPAPI_PAGE_SIZE (10,
+ * confirmed in SerpApi's own docs — no parameter raises it), so a full page
+ * is the signal there's more to give. Measured live, a second page costs
+ * exactly one more search unit — same as the first — and returns entirely
+ * new jobs. That's a better use of the next unit of budget than gambling it
+ * on an untested (term, country) combo elsewhere in today's rotation, which
+ * this grid's own measurements show often returns 0. Capped at one bonus
+ * page per query so a single productive query can't monopolize the day.
  */
 const runSerpApiQuery = async (
   query: ExternalJobQuery,
@@ -158,37 +170,51 @@ const runSerpApiQuery = async (
 ): Promise<{ jobs: ExternalJob[]; spent: number }> => {
   let spent = 0;
 
-  for (let attempt = 0; attempt < Math.max(1, pool.keyCount); attempt += 1) {
-    const key = pool.take();
-    if (!key) break;
+  const attemptPage = async (
+    pageToken?: string,
+  ): Promise<{ jobs: ExternalJob[]; nextPageToken: string | null } | null> => {
+    for (let attempt = 0; attempt < Math.max(1, pool.keyCount); attempt += 1) {
+      const key = pool.take();
+      if (!key) return null;
 
-    try {
-      const jobs = await fetchSerpApiJobs(query, key);
-      return { jobs, spent: spent + 1 };
-    } catch (error) {
-      if (isSerpApiQuotaError(error)) {
-        console.warn(
-          `[external-jobs] SerpApi key ${maskApiKey(key)} is out of quota — retiring it for this run`,
-        );
-        pool.markExhausted(key);
+      try {
+        const result = await fetchSerpApiJobs(query, key, pageToken);
         spent += 1;
-        continue;
+        return result;
+      } catch (error) {
+        if (isSerpApiQuotaError(error)) {
+          console.warn(
+            `[external-jobs] SerpApi key ${maskApiKey(key)} is out of quota — retiring it for this run`,
+          );
+          pool.markExhausted(key);
+          spent += 1;
+          continue;
+        }
+
+        if (wasCharged(error)) spent += 1;
+        else pool.refund(key);
+
+        // No retry on the same key: quota is too scarce to spend twice on one
+        // page. A failed search just waits for its next turn in the rotation.
+        console.error(
+          `[external-jobs] SerpApi query failed (${describeQuery(query)}${pageToken ? ' [bonus page]' : ''}):`,
+          error instanceof Error ? error.message : error,
+        );
+        return null;
       }
-
-      if (wasCharged(error)) spent += 1;
-      else pool.refund(key);
-
-      // No retry on the same key: quota is too scarce to spend twice on one
-      // query. A failed search just waits for its next turn in the rotation.
-      console.error(
-        `[external-jobs] SerpApi query failed (${describeQuery(query)}):`,
-        error instanceof Error ? error.message : error,
-      );
-      break;
     }
+    return null;
+  };
+
+  const first = await attemptPage();
+  if (!first) return { jobs: [], spent };
+
+  if (first.jobs.length >= SERPAPI_PAGE_SIZE && first.nextPageToken) {
+    const second = await attemptPage(first.nextPageToken);
+    if (second) return { jobs: [...first.jobs, ...second.jobs], spent };
   }
 
-  return { jobs: [], spent };
+  return { jobs: first.jobs, spent };
 };
 
 /**
@@ -208,7 +234,16 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * Runs JSearch queries in sequence (not parallel, unlike SerpApi) so it can
  * read `quotaRemaining` after each call and correct that key's budget — the
  * only quota signal JSearch offers. A key reporting empty is retired and the
- * query retried on another; once every key is spent the run stops.
+ * page retried on another; once every key is spent the run stops.
+ *
+ * Also fetches one bonus page (via `cursor`) right after any page that comes
+ * back full — same reasoning as SerpApi's bonus page (see runSerpApiQuery):
+ * a full page signals more genuine supply, which is a better use of the next
+ * budget unit than an untested combo elsewhere in the rotation. Capped at
+ * one bonus page per query. The bonus fetch goes through the same pacing
+ * delay as every other call here — it's still a real request to the same
+ * endpoint, and skipping the delay is exactly the rapid-fire pattern
+ * JSEARCH_INTER_QUERY_DELAY_MS's comment measured as degrading results.
  */
 const runJSearchQueries = async (
   queries: ExternalJobQuery[],
@@ -216,35 +251,31 @@ const runJSearchQueries = async (
 ): Promise<{ jobs: ExternalJob[]; spent: number }> => {
   const collected: ExternalJob[] = [];
   let spent = 0;
-  let isFirstQuery = true;
+  let isFirstCall = true;
 
-  for (const query of queries) {
-    if (!isFirstQuery) await sleep(JSEARCH_INTER_QUERY_DELAY_MS);
-    isFirstQuery = false;
-
+  const attemptPage = async (query: ExternalJobQuery, cursor?: string) => {
     for (let attempt = 0; attempt < Math.max(1, pool.keyCount); attempt += 1) {
       const key = pool.take();
-      if (!key) {
-        console.log('[external-jobs] JSearch budget spent — stopping early');
-        return { jobs: collected, spent };
-      }
+      if (!key) return null;
+
+      if (!isFirstCall) await sleep(JSEARCH_INTER_QUERY_DELAY_MS);
+      isFirstCall = false;
 
       try {
-        const { jobs, quotaRemaining } = await fetchJSearchJobs(query, key);
-        collected.push(...jobs);
+        const result = await fetchJSearchJobs(query, key, cursor);
         spent += 1;
 
-        if (quotaRemaining !== null) {
-          if (quotaRemaining <= 0) {
+        if (result.quotaRemaining !== null) {
+          if (result.quotaRemaining <= 0) {
             console.warn(
               `[external-jobs] JSearch key ${maskApiKey(key)} reports 0 remaining — retiring it for this run`,
             );
             pool.markExhausted(key);
           } else {
-            pool.clampRemaining(key, quotaRemaining);
+            pool.clampRemaining(key, result.quotaRemaining);
           }
         }
-        break;
+        return result;
       } catch (error) {
         if (isJSearchQuotaError(error)) {
           console.warn(
@@ -259,11 +290,34 @@ const runJSearchQueries = async (
         else pool.refund(key);
 
         console.error(
-          `[external-jobs] JSearch query failed (${describeQuery(query)}):`,
+          `[external-jobs] JSearch query failed (${describeQuery(query)}${cursor ? ' [bonus page]' : ''}):`,
           error instanceof Error ? error.message : error,
         );
-        break;
+        return null;
       }
+    }
+    return null;
+  };
+
+  for (const query of queries) {
+    const first = await attemptPage(query);
+
+    if (!first) {
+      // Only stop the whole run if the pool is genuinely out of live keys —
+      // an ordinary per-query failure (network blip, bad response) just
+      // moves on to the next query, same as before this was refactored.
+      if (pool.liveKeyCount === 0) {
+        console.log('[external-jobs] JSearch budget spent — stopping early');
+        return { jobs: collected, spent };
+      }
+      continue;
+    }
+
+    collected.push(...first.jobs);
+
+    if (first.jobs.length >= JSEARCH_PAGE_SIZE && first.cursor) {
+      const second = await attemptPage(query, first.cursor);
+      if (second) collected.push(...second.jobs);
     }
   }
 
