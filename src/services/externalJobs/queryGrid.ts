@@ -180,18 +180,25 @@ export const MARITIME_COUNTRIES: MaritimeCountry[] = [
   },
   { name: 'India', depth: 'core', hubs: ['Mumbai,Maharashtra,India'] },
   { name: 'Nigeria', depth: 'core', hubs: ['Lagos,Lagos,Nigeria'] },
+  // Promoted from 'broad' to 'core' after measuring the gap live: "seafarer"
+  // (the only kind of term a 'broad' country ever got, via the daily floor)
+  // returned 0 for Egypt/South Africa/Ethiopia on the same day "marine
+  // engineer" — a ROLE_TERMS-only search, never run against a 'broad'
+  // country — returned 4 genuine, in-scope Egyptian jobs. 'broad' depth was
+  // silently leaving real, available jobs unfetched, not correctly skipping
+  // thin markets — see LISTING_RETENTION_DAYS below for the cost of this.
   {
     name: 'Egypt',
-    depth: 'broad',
+    depth: 'core',
     hubs: ['Alexandria,Alexandria Governorate,Egypt'],
   },
   {
     name: 'South Africa',
-    depth: 'broad',
+    depth: 'core',
     hubs: ['Cape Town,Western Cape,South Africa'],
   },
-  { name: 'Kenya', depth: 'broad', hubs: ['Mombasa,Mombasa County,Kenya'] },
-  { name: 'Ethiopia', depth: 'broad' },
+  { name: 'Kenya', depth: 'core', hubs: ['Mombasa,Mombasa County,Kenya'] },
+  { name: 'Ethiopia', depth: 'core' },
 ];
 
 /**

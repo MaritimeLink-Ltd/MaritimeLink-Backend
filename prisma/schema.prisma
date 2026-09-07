@@ -492,7 +492,7 @@ model ExternalJobListing {
   /// "not re-checked recently", not "gone from the market". Those age out of
   /// view primarily through ranking (getExternalJobsForProfessional always
   /// sorts newest-first) and are only actually deleted once `createdAt`
-  /// (below) crosses refresh.ts's fixed LISTING_RETENTION_DAYS (21 days) —
+  /// (below) crosses refresh.ts's fixed LISTING_RETENTION_DAYS (35 days) —
   /// a backstop against unbounded growth, deliberately not keyed off this
   /// field. The other way one leaves the platform is admin moderation via
   /// hiddenByAdmin below, which is immediate regardless of age.
@@ -500,7 +500,7 @@ model ExternalJobListing {
   /// When this listing was first discovered. Never touched by refresh.ts's
   /// upsert `update` payload (only `create` sets it), so it stays fixed at
   /// first-seen time for as long as the row exists — this, not `fetchedAt`,
-  /// is what the 21-day retention window above is measured against.
+  /// is what the 35-day retention window above is measured against.
   createdAt       DateTime  @default(now())
   /// Admin review/removal — set when an admin judges a scraped listing bad,
   /// suspicious, or a scam. Deliberately NOT included in refresh.ts's upsert

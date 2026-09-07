@@ -22,7 +22,7 @@ async function main() {
       `JSearch ran ${summary.jSearchQueriesRun} search(es) (${summary.jSearchNote}); ` +
       `stored ${summary.jobsStored} listing(s); ` +
       `removed ${summary.feedRemoved} feed listing(s) no longer listed, ` +
-      `${summary.expiredRemoved} expired listing(s) (>21 days old); ` +
+      `${summary.expiredRemoved} expired listing(s) (>35 days old); ` +
       `took ${Date.now() - startedAt}ms`,
   );
 }

@@ -386,15 +386,20 @@ const upsertListing = (job: ExternalJob, fetchedAt: Date) =>
  *
  * Deliberately a fixed, generous window rather than one derived from the
  * rotation's cycle speed (the earlier design): that coupling meant a listing
- * could be deleted purely because its query hadn't come back around yet, as
- * often as every 6-10 days depending on that day's budget — indistinguishable
- * from the listing actually being gone, and it isn't. 21 days (3 weeks) is
- * comfortably longer than the secondary rotation's cycle time at any
- * realistic key count (5-15 days — see queryGrid.ts), so a listing is never
- * caught by this while still waiting its normal turn to be re-confirmed; it
- * only catches listings that have genuinely been on the platform for weeks.
+ * could be deleted purely because its query hadn't come back around yet —
+ * indistinguishable from the listing actually being gone, and it isn't.
+ *
+ * 35 days is what's actually needed now, not just a round bigger number:
+ * promoting Egypt/South Africa/Kenya/Ethiopia to `core` depth (queryGrid.ts —
+ * they were missing real, available jobs at 'broad') grew JSearch's
+ * secondary rotation to 144 combinations. At its leanest realistic budget
+ * (3 keys, 6/day floor leaves 6/day for the secondary rotation), that cycles
+ * in 24 days — so a retention window even at the old 21 days would have
+ * deleted a listing 3 days before its query's next scheduled turn to
+ * re-confirm it. 35 days keeps a real margin above that, the same way 21 did
+ * over the smaller grid it was sized for.
  */
-const LISTING_RETENTION_DAYS = 21;
+const LISTING_RETENTION_DAYS = 35;
 
 /** Anchored on `createdAt` — see the comment on `LISTING_RETENTION_DAYS`. */
 const retentionCutoff = (now: Date, days: number): Date =>
