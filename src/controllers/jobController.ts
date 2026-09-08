@@ -204,14 +204,18 @@ export const getExternalJobs = catchAsync(
       return next(new AppError('Professional profile not found', 404));
     }
 
-    const { jobs, matchedCount, personalized } =
-      await getExternalJobsForProfessional(professional);
+    const { jobs, matchedCount, personalized, total, page, limit, pages } =
+      await getExternalJobsForProfessional(professional, {
+        page: parseInt(req.query.page as string) || undefined,
+        limit: parseInt(req.query.limit as string) || undefined,
+      });
 
     res.status(200).json({
       status: 'success',
       results: jobs.length,
       matchedCount,
       personalized,
+      pagination: { page, limit, total, pages },
       data: { jobs },
     });
   },

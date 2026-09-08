@@ -46,24 +46,35 @@ describe('getExternalJobsForProfessional', () => {
     resume: null,
   } as unknown as ProfessionalWithResume;
 
+  // A nonsense category value, not a real one ("OFFICER") — this pool is
+  // now the live production pool (500+ real listings, growing daily), so
+  // matching on a real category/keyword risks real jobs entering the same
+  // "matched" band and pushing these fixtures off whatever page a test
+  // checks. Must be a single unbroken token: jobMatching.ts's tokenizer
+  // splits on any non-alphanumeric character, so an underscored value like
+  // "ZZTEST_OFFICER_CATEGORY" silently produces a real "officer" token and
+  // matches real jobs anyway — measured live, that one matched 82 of them.
+  const FAKE_CATEGORY = 'zzztestcategoryxyz';
+
   // Matches on category alone (40 points, comfortably over MIN_MATCH_SCORE),
   // so both "matched" listings below score identically and only postedAt
   // can decide their order.
   const officerProfessional = {
     id: 'officer-test-professional',
     subcategory: null,
-    profession: 'OFFICER',
+    profession: FAKE_CATEGORY,
     resume: null,
   } as unknown as ProfessionalWithResume;
 
-  // Adds "chief" as a second candidate keyword on top of the category match,
-  // so a listing whose title also says "Chief Officer" scores meaningfully
-  // higher than a plain "Officer" one — needed to prove recency wins even
-  // when the scores genuinely differ, not just when they tie.
+  // Adds a second, equally-fake candidate keyword on top of the category
+  // match, so a listing whose title also carries it scores meaningfully
+  // higher than a plain category-only match — needed to prove recency wins
+  // even when the scores genuinely differ, not just when they tie.
+  const FAKE_KEYWORD = 'zzztestkeywordabc';
   const chiefOfficerProfessional = {
     id: 'chief-officer-test-professional',
-    subcategory: 'Chief Officer',
-    profession: 'OFFICER',
+    subcategory: FAKE_KEYWORD,
+    profession: FAKE_CATEGORY,
     resume: null,
   } as unknown as ProfessionalWithResume;
 
@@ -79,28 +90,28 @@ describe('getExternalJobsForProfessional', () => {
     // Identical in every scored field (title/description/location/category)
     // — only postedAt differs, isolating the recency tie-break.
     await makeListing('matched-older', {
-      title: 'Officer Role',
-      category: 'OFFICER',
+      title: 'Test Role',
+      category: FAKE_CATEGORY,
       postedAt: daysAgo(3),
     });
     await makeListing('matched-newer', {
-      title: 'Officer Role',
-      category: 'OFFICER',
+      title: 'Test Role',
+      category: FAKE_CATEGORY,
       postedAt: daysAgo(0),
     });
 
     // Deliberately different scores against chiefOfficerProfessional: the
-    // "Chief Officer" title earns an extra keyword match on top of the
-    // category match, so this one scores higher than a plain "Officer" title
+    // title carrying FAKE_KEYWORD earns an extra keyword match on top of the
+    // category match, so this one scores higher than a category-only title
     // — while being the older of the two.
     await makeListing('strong-match-older', {
-      title: 'Chief Officer Role',
-      category: 'OFFICER',
+      title: `Test Role ${FAKE_KEYWORD}`,
+      category: FAKE_CATEGORY,
       postedAt: daysAgo(10),
     });
     await makeListing('weak-match-newer', {
-      title: 'Officer Role',
-      category: 'OFFICER',
+      title: 'Test Role',
+      category: FAKE_CATEGORY,
       postedAt: daysAgo(0),
     });
   });
