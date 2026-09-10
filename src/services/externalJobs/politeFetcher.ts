@@ -15,7 +15,16 @@ const USER_AGENT =
 /** Minimum gap between two requests to the same host. */
 const MIN_HOST_INTERVAL_MS = 1500;
 
-const REQUEST_TIMEOUT_MS = 15000;
+/**
+ * A large ATS board's full-content response can genuinely be a few MB (a
+ * company with 200+ postings each carrying an HTML description) — measured
+ * live against Columbia Shipmanagement's Lever board (216 postings, ~2.6MB):
+ * 3-5.5s over several runs, but occasionally close enough to the previous
+ * 15s ceiling on a slow connection to time out outright. 30s keeps real
+ * margin above that without meaningfully slowing down the common case
+ * (a feed or a small ATS board), since this is only an upper bound.
+ */
+const REQUEST_TIMEOUT_MS = 30000;
 
 /** Refuse to buffer more than this from any single response. */
 const MAX_RESPONSE_BYTES = 5 * 1024 * 1024;
@@ -136,14 +145,11 @@ export class RobotsDisallowedError extends Error {
   }
 }
 
-/**
- * Fetches a URL as text, subject to robots.txt, per-host throttling and a
- * response size cap. Throws on transport errors so callers can skip a source.
- */
-export const politeGet = async (
+/** Shared robots-check + per-host queueing for both politeGet and politePost. */
+const withPoliteAccess = async <T>(
   url: string,
-  params?: Record<string, string | number>,
-): Promise<string> => {
+  run: () => Promise<T>,
+): Promise<T> => {
   const parsed = new URL(url);
   const origin = `${parsed.protocol}//${parsed.host}`;
 
@@ -152,19 +158,50 @@ export const politeGet = async (
     throw new RobotsDisallowedError(url);
   }
 
-  return enqueueForHost(parsed.host, async () => {
+  return enqueueForHost(parsed.host, run);
+};
+
+/**
+ * Fetches a URL as text, subject to robots.txt, per-host throttling and a
+ * response size cap. Throws on transport errors so callers can skip a source.
+ *
+ * `accept` defaults to the feed-oriented value every existing caller relies
+ * on; ATS JSON sources (see externalJobs/ats/) pass `application/json`
+ * instead rather than changing that default for everyone.
+ */
+export const politeGet = async (
+  url: string,
+  params?: Record<string, string | number>,
+  accept = 'application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.5',
+): Promise<string> =>
+  withPoliteAccess(url, async () => {
     const response = await axios.get<string>(url, {
       params,
       timeout: REQUEST_TIMEOUT_MS,
       responseType: 'text',
       maxContentLength: MAX_RESPONSE_BYTES,
       maxRedirects: 3,
+      headers: { 'User-Agent': USER_AGENT, Accept: accept },
+    });
+    return String(response.data ?? '');
+  });
+
+/**
+ * Same guarantees as `politeGet`, for the ATS sources (Workday's CXS API)
+ * that only answer to a POST with a JSON body.
+ */
+export const politePost = async (url: string, body: unknown): Promise<string> =>
+  withPoliteAccess(url, async () => {
+    const response = await axios.post<string>(url, body, {
+      timeout: REQUEST_TIMEOUT_MS,
+      responseType: 'text',
+      maxContentLength: MAX_RESPONSE_BYTES,
+      maxRedirects: 3,
       headers: {
         'User-Agent': USER_AGENT,
-        Accept:
-          'application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.5',
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
       },
     });
     return String(response.data ?? '');
   });
-};

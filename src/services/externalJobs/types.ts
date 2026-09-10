@@ -30,8 +30,19 @@ export type ExternalJob = {
   /** Employment terms, e.g. "Full-time". */
   employmentType: string | null;
   source: 'external';
-  /** Which adapter produced this row. */
-  provider: 'serpapi' | 'jsearch' | 'feed';
+  /**
+   * Which adapter produced this row. `greenhouse` / `lever` / `smartrecruiters`
+   * / `workday` are company career-page sources via those ATS platforms — see
+   * externalJobs/ats/.
+   */
+  provider:
+    | 'serpapi'
+    | 'jsearch'
+    | 'feed'
+    | 'greenhouse'
+    | 'lever'
+    | 'smartrecruiters'
+    | 'workday';
   /** Relevance against the requesting professional; absent when unranked. */
   matchScore?: number;
   matchReasons?: string[];

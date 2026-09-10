@@ -83,6 +83,24 @@ const envSchema = z.object({
   /** Comma-separated RSS/Atom job feed URLs; falls back to built-in defaults. */
   EXTERNAL_JOB_FEEDS: z.string().optional(),
   /**
+   * Company career-page sources via common ATS platforms — see
+   * externalJobs/ats/. Unset (no defaults) until the client's company list
+   * is known, same as EXTERNAL_JOB_FEEDS.
+   */
+  /** Comma-separated Greenhouse board tokens; each entry optionally `token:Display Name`. */
+  ATS_GREENHOUSE_BOARDS: z.string().optional(),
+  /** Comma-separated Lever company slugs; each entry optionally `slug:Display Name`. */
+  ATS_LEVER_COMPANIES: z.string().optional(),
+  /** Comma-separated SmartRecruiters company ids; each entry optionally `id:Display Name`. */
+  ATS_SMARTRECRUITERS_COMPANIES: z.string().optional(),
+  /**
+   * Comma-separated Workday CXS base URLs, e.g.
+   * `https://acme.wd1.myworkdayjobs.com/wday/cxs/acme/External` — copied from
+   * the company's careers site, since the data-center number and site path
+   * vary per tenant. Each entry optionally suffixed `|Display Name`.
+   */
+  ATS_WORKDAY_CAREER_SITES: z.string().optional(),
+  /**
    * Apple In-App Purchase (iOS app only — no effect on the website/Stripe
    * flow). Without APPLE_BUNDLE_ID set, the apple/confirm endpoint and the
    * apple webhook both reject every request rather than silently no-op,

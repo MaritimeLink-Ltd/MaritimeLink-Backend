@@ -2,7 +2,9 @@ import { prisma } from '../config/prisma.js';
 import { refreshExternalJobs } from '../services/externalJobs/refresh.js';
 
 /**
- * Daily external-jobs refresh (SerpApi + JSearch + syndicated maritime feeds).
+ * Daily external-jobs refresh (SerpApi + JSearch + syndicated maritime feeds
+ * + ATS company career-page sources — Greenhouse/Lever/SmartRecruiters/
+ * Workday, see services/externalJobs/ats/).
  *
  * Run from an external scheduler (Render cron, GitHub Actions, cloud
  * scheduler) rather than in-process, so exactly one instance fires it — same
@@ -21,7 +23,7 @@ async function main() {
     `[external-jobs] SerpApi ran ${summary.serpApiQueriesRun} search(es) (${summary.serpApiQuotaNote}); ` +
       `JSearch ran ${summary.jSearchQueriesRun} search(es) (${summary.jSearchNote}); ` +
       `stored ${summary.jobsStored} listing(s); ` +
-      `removed ${summary.feedRemoved} feed listing(s) no longer listed, ` +
+      `removed ${summary.fullRefreshRemoved} feed/ATS listing(s) no longer listed, ` +
       `${summary.expiredRemoved} expired listing(s) (>35 days old); ` +
       `took ${Date.now() - startedAt}ms`,
   );

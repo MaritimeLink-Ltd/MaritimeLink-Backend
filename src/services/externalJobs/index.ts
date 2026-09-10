@@ -45,10 +45,9 @@ const toExternalJob = (
   category: row.category,
   employmentType: row.employmentType,
   source: 'external',
-  provider:
-    row.provider === 'feed' || row.provider === 'jsearch'
-      ? row.provider
-      : 'serpapi',
+  // Trusted, self-written value — every row was upserted by refresh.ts with
+  // one of ExternalJob['provider']'s own literal values.
+  provider: row.provider as ExternalJob['provider'],
 });
 
 /**

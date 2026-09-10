@@ -43,7 +43,7 @@ async function main() {
     console.log(
       `[daily-jobs] external-jobs refresh: SerpApi ran ${summary.serpApiQueriesRun} search(es) (${summary.serpApiQuotaNote}); ` +
         `JSearch ran ${summary.jSearchQueriesRun} search(es) (${summary.jSearchNote}); ` +
-        `stored ${summary.jobsStored} listing(s); removed ${summary.feedRemoved} feed listing(s) no longer listed, ` +
+        `stored ${summary.jobsStored} listing(s); removed ${summary.fullRefreshRemoved} feed/ATS listing(s) no longer listed, ` +
         `${summary.expiredRemoved} expired listing(s) (>35 days old)`,
     );
   } catch (error) {

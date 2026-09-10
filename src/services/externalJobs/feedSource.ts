@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { XMLParser } from 'fast-xml-parser';
 import { env } from '../../config/env.js';
 import { politeGet } from './politeFetcher.js';
+import { toIsoDate, toPlainText } from './textUtils.js';
 import { ExternalJob } from './types.js';
 
 /**
@@ -57,24 +58,6 @@ const toArray = <T>(value: T | T[] | undefined | null): T[] => {
   return Array.isArray(value) ? value : [value];
 };
 
-/** Feed text is often escaped HTML; reduce it to readable plain text. */
-const toPlainText = (value: unknown): string => {
-  const raw = typeof value === 'string' ? value : String(value ?? '');
-  return raw
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/p>/gi, '\n')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/gi, ' ')
-    .replace(/&amp;/gi, '&')
-    .replace(/&lt;/gi, '<')
-    .replace(/&gt;/gi, '>')
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim();
-};
-
 /** Atom links are attribute-bearing objects; RSS links are plain strings. */
 const extractLink = (item: Record<string, unknown>): string | null => {
   const raw = item.link ?? item.url ?? item.guid;
@@ -103,12 +86,6 @@ const firstString = (
     if (typeof value === 'number') return String(value);
   }
   return null;
-};
-
-const toIsoDate = (value: string | null): string | null => {
-  if (!value) return null;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 };
 
 const normalizeItem = (

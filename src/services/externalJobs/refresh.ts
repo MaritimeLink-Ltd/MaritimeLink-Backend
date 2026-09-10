@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { fetchFeedJobs } from './feedSource.js';
+import { fetchAtsJobs } from './ats/index.js';
 import { dedupeJobs } from './dedupe.js';
 import {
   fetchSerpApiJobs,
@@ -31,8 +32,9 @@ import { prisma } from '../../config/prisma.js';
 import { env } from '../../config/env.js';
 
 /**
- * Daily refresh: the only place that calls out to SerpApi, JSearch, or the
- * syndicated feeds. Run once a day by a scheduled job (see
+ * Daily refresh: the only place that calls out to SerpApi, JSearch, the
+ * syndicated feeds, or the ATS company sources (Greenhouse/Lever/
+ * SmartRecruiters/Workday, see ./ats/). Run once a day by a scheduled job (see
  * scripts/refresh-external-jobs.ts), never by a user request —
  * `getExternalJobsForProfessional` only reads what this writes to
  * `external_job_listings`.
@@ -405,6 +407,20 @@ const LISTING_RETENTION_DAYS = 35;
 const retentionCutoff = (now: Date, days: number): Date =>
   new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 
+/**
+ * Providers re-fetched in full on every run — free, unmetered endpoints, so
+ * there's no rotation and nothing lost by re-reading the whole source every
+ * time. A listing missing from today's full re-fetch is a genuine "no longer
+ * listed" signal, same as feeds always were — see `refreshExternalJobs`.
+ */
+const FULL_REFRESH_PROVIDERS = [
+  'feed',
+  'greenhouse',
+  'lever',
+  'smartrecruiters',
+  'workday',
+] as const;
+
 export type RefreshSummary = {
   serpApiQueriesRun: number;
   serpApiQuotaNote: string;
@@ -412,8 +428,8 @@ export type RefreshSummary = {
   jSearchNote: string;
   jobsFound: number;
   jobsStored: number;
-  /** Feed listings removed because today's full re-fetch no longer includes them. */
-  feedRemoved: number;
+  /** Feed/ATS listings removed because today's full re-fetch no longer includes them. */
+  fullRefreshRemoved: number;
   /** SerpApi/JSearch listings removed for exceeding LISTING_RETENTION_DAYS. */
   expiredRemoved: number;
 };
@@ -422,9 +438,10 @@ export type RefreshSummary = {
  * Fetches every source and stores the result. Safe to run repeatedly — it's a
  * resync, not an append.
  *
- * Feed jobs are refetched in full every run (free, so no rotation needed) and
- * pruned if missing from this run — a genuine "no longer listed" signal, since
- * the whole feed is re-read every time.
+ * Feed and ATS jobs (FULL_REFRESH_PROVIDERS) are refetched in full every run
+ * (free, so no rotation needed) and pruned if missing from this run — a
+ * genuine "no longer listed" signal, since the whole source is re-read every
+ * time.
  *
  * SerpApi/JSearch listings are NOT pruned on rotation timing: each is only
  * re-confirmed when its query's turn comes back around (see queryGrid.ts),
@@ -506,7 +523,7 @@ export const refreshExternalJobs = async (): Promise<RefreshSummary> => {
     `[external-jobs] JSearch: ${jSearch.note} — ${jSearchFloor.length}/${jSearchCountries} countries on today's floor, ${jSearchSecondary.length} secondary search(es)`,
   );
 
-  const [serpApiRuns, jSearchRun, feedJobs] = await Promise.all([
+  const [serpApiRuns, jSearchRun, feedJobs, atsJobs] = await Promise.all([
     inChunks(serpApiQueries, SERPAPI_CONCURRENCY, (query) =>
       runSerpApiQuery(query, serpApi.pool),
     ),
@@ -515,23 +532,32 @@ export const refreshExternalJobs = async (): Promise<RefreshSummary> => {
       console.error('[external-jobs] Feed fetch failed:', error);
       return [] as ExternalJob[];
     }),
+    fetchAtsJobs().catch((error) => {
+      console.error('[external-jobs] ATS fetch failed:', error);
+      return [] as ExternalJob[];
+    }),
   ]);
 
   const serpApiJobs = serpApiRuns.flatMap((run) => run.jobs);
   const serpApiSpent = serpApiRuns.reduce((total, run) => total + run.spent, 0);
 
   const inScope = dedupeJobs(
-    [...serpApiJobs, ...jSearchRun.jobs, ...feedJobs].filter(isInMaritimeScope),
+    [...serpApiJobs, ...jSearchRun.jobs, ...feedJobs, ...atsJobs].filter(
+      isInMaritimeScope,
+    ),
   );
 
   await inChunks(inScope, DB_WRITE_CONCURRENCY, (job) =>
     upsertListing(job, runStartedAt),
   );
 
-  const [{ count: feedRemoved }, { count: expiredRemoved }] = await Promise.all(
-    [
+  const [{ count: fullRefreshRemoved }, { count: expiredRemoved }] =
+    await Promise.all([
       prisma.externalJobListing.deleteMany({
-        where: { provider: 'feed', fetchedAt: { lt: runStartedAt } },
+        where: {
+          provider: { in: [...FULL_REFRESH_PROVIDERS] },
+          fetchedAt: { lt: runStartedAt },
+        },
       }),
       prisma.externalJobListing.deleteMany({
         where: {
@@ -541,8 +567,7 @@ export const refreshExternalJobs = async (): Promise<RefreshSummary> => {
           },
         },
       }),
-    ],
-  );
+    ]);
 
   const summary: RefreshSummary = {
     serpApiQueriesRun: serpApiSpent,
@@ -551,7 +576,7 @@ export const refreshExternalJobs = async (): Promise<RefreshSummary> => {
     jSearchNote: jSearch.note,
     jobsFound: inScope.length,
     jobsStored: inScope.length,
-    feedRemoved,
+    fullRefreshRemoved,
     expiredRemoved,
   };
 
