@@ -9,7 +9,9 @@ import { ProfessionalWithResume } from '../services/externalJobs/profileQuery.js
  * (the old fixed MAX_RESULTS cutoff silently dropped everything past it).
  */
 describe('getExternalJobsForProfessional pagination', () => {
-  const testRunId = Date.now();
+  // File-specific prefix: the sibling DB-backed suite also keys rows by
+  // Date.now(), and parallel workers can start in the same millisecond.
+  const testRunId = `ranking-${Date.now()}`;
   const listingIds: string[] = [];
 
   const makeListing = (idSuffix: string, daysAgo: number) => {

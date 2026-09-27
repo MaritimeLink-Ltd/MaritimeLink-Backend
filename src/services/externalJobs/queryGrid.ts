@@ -10,16 +10,16 @@ import { ExternalJobQuery } from './types.js';
  * codes in countryCodes.ts.
  *
  * The day's queries for each provider come in two tiers (see refresh.ts):
- *   1. A daily floor — one broad search per country, every single day,
+ *   1. A daily floor — one FLOOR_TERMS search per country, every single day,
  *      unconditionally. This is what guarantees all 12 countries actually get
  *      searched today, rather than waiting their turn in a multi-day rotation.
- *   2. Whatever budget is left over rotates through SECONDARY_GRID — the
- *      rank-specific and city-level searches — via the existing
- *      pickRotationSlice machinery.
+ *   2. Whatever budget is left over rotates through `secondaryGridFor` — the
+ *      shared rank terms, the UK specialist set and the hub-city searches —
+ *      via the existing pickRotationSlice machinery.
  */
 
 /**
- * CRITICAL — keep every term here SHORT (one or two words).
+ * CRITICAL — one title per search, kept SHORT (at most three meaningful words).
  *
  * Google Jobs and JSearch both treat the query as text to match against the
  * posting, so every extra word shrinks the result set. Measured live, same
@@ -30,73 +30,215 @@ import { ExternalJobQuery } from './types.js';
  *   "third engineer second engineer motorman oiler jobs" -> 0 results
  *   "third officer"                              -> 10 results
  *
- * The old stuffed phrasing was returning 0-1 jobs per search where a plain
- * rank returns a full page of 10 — that, not the date window, was why so few
- * new listings were appearing. Never bundle several ranks into one query to
- * "save quota": a query that matches nothing costs exactly as much as one
- * that returns ten jobs. Add a term instead.
+ * Nor does `OR` work around this — also measured live, UK: SerpApi's
+ * `bosun OR "able seaman" OR deckhand` returned 17 results across two pages,
+ * every one a bosun posting (even a "Bosun Labs" sales role) and not a single
+ * able seaman or deckhand, despite "able seaman" alone returning 10. JSearch
+ * behaved the same with the order reversed: 10 of 10 matched only the first
+ * term. Neither provider honours OR, so grouping terms to "save quota" just
+ * silently drops every term after the first. One title per search.
  *
  * Ambiguity is handled downstream by scope.ts, not by padding the query with
  * maritime words — a bare "chief engineer" still returned 5 in-scope jobs of
- * 10, better than any compound phrase managed.
+ * 10, better than any compound phrase managed. The exception is a bare word
+ * whose ordinary meaning swamps the maritime one (Master, Captain, Fitter,
+ * Machinist, Steward, Reefer): those are qualified to the ship-board title
+ * ("ship master", "marine fitter", ...), the same way the client's own
+ * hospitality list prefixes every role with "Ship".
  */
 
 /**
- * General terms used for the daily floor — one of these, rotated by day, runs
- * against every country every day. Each is broad enough to return a mix of
- * maritime roles rather than a single rank, and unambiguous enough that
- * almost everything it returns survives the scope filter ("seafarer" and
- * "vessel crew" both measured 10 returned / 10 in-scope).
+ * The broadest, highest-volume ranks from the client's list — one of these,
+ * rotated by day, runs against every country every day (dailyFloorQueries).
  *
  * Adding a term here costs nothing extra per day — the floor always runs
- * exactly one of these per country (dailyFloorQueries), so more terms just
- * stretch the phrasing rotation over more days.
+ * exactly one of these per country, so more terms just stretch the phrasing
+ * rotation over more days.
  *
- * "merchant navy" used to be here and was removed: it measured 0 real
- * results on JSearch across every market tried (India, Nigeria, Netherlands,
- * Philippines), and on SerpApi its rare hits included non-target content
- * like a "Military Sealift Command" (a US Navy command) posting. "maritime
- * crew" replaced it — measured 10/10 in-scope on SerpApi UK and covered by
- * the existing "maritime" scope term, with none of that risk.
+ * Every floor term needs high precision, since it runs in every market:
+ * "chief officer" was moved out to RANK_TERMS after a live floor run found
+ * it mostly returns corporate "Chief <X> Officer" roles (0-9 in scope out of
+ * 10-20 per market); "bosun" replaced it (UK: 16 of 17 genuine).
  */
-export const BROAD_TERMS = [
-  'seafarer',
-  'vessel crew',
-  'ship crew',
-  'maritime crew',
+export const FLOOR_TERMS = [
+  'deck officer',
+  'marine engineer',
+  'able seaman',
+  'bosun',
+  'second engineer',
+  'deckhand',
 ];
 
 /**
- * Rank- and department-specific terms, run only against `core` countries via
- * SECONDARY_GRID.
- *
- * The maritime sector is not just engineers — these exist so ratings,
- * catering, offshore, cruise, medical and specialist roles surface as their
- * own searches rather than competing for space inside one general query.
- * They're held back from low-volume markets because a narrow rank query there
- * usually returns nothing, and an empty search still costs a unit of quota.
+ * Common international seagoing ranks — rotated through every market with
+ * enough volume for rank-level searches (`depth: 'core'`).
  */
-export const ROLE_TERMS = [
-  // Ratings / deck crew
-  'able seaman',
-  'deckhand',
-  'bosun',
+export const RANK_TERMS = [
   // Deck officers
-  'deck officer',
-  'third officer',
+  'ship master',
+  'ship captain',
   'chief officer',
-  // Engine department
-  'marine engineer',
-  'second engineer',
+  'chief mate',
+  'second officer',
+  'second mate',
+  'third officer',
+  'third mate',
+  // Engine officers
+  'chief engineer',
+  'third engineer',
+  'fourth engineer',
+  'engine cadet',
+  // Electro-technical
+  'ETO',
+  'electrical officer',
+  'ship electrician',
+  'marine electrician',
+  // Deck ratings
+  'ordinary seaman',
+  'deck rating',
+  'deck crew',
+  // Engine ratings
   'motorman',
-  // Catering, medical, and the specialist sectors
+  'oiler',
+  'wiper',
+  'engine rating',
+  'marine fitter',
+  'pumpman',
+  'engine crew',
+  // Catering / hotel
+  'chief cook',
   'ship cook',
-  'offshore medic',
-  'cruise ship crew',
+  'messman',
+  'ship steward',
 ];
 
-/** The single broadest term, used for the city-level hub searches. */
-const HUB_TERM = BROAD_TERMS[0];
+/**
+ * Ranks that are UK/MCA terminology (OOW, EOOW, Master Mariner) or
+ * lower-volume variants of a RANK_TERMS title. Run in `specialistTerms`
+ * markets only — spread across every market they'd mostly spend quota on
+ * zero-result searches.
+ */
+export const NICHE_RANK_TERMS = [
+  'master mariner',
+  'officer of the watch',
+  'OOW',
+  'navigation officer',
+  'first engineer',
+  'engineer officer',
+  'engineering officer',
+  'reefer engineer',
+  'EOOW',
+  'engine room watchkeeper',
+  'watchkeeping engineer',
+  'electro technical officer',
+  'electrotechnical officer',
+  'marine electrical engineer',
+  'boatswain',
+  'AB seaman',
+  'OS seaman',
+  'engine fitter',
+  'marine machinist',
+  'marine cook',
+  'galley crew',
+  'hotel crew',
+  'catering crew',
+];
+
+/**
+ * Vessel types — these surface jobs a rank-only search misses (a posting
+ * titled "LNG Carrier" or "AHTS Crew" with the rank buried in the body).
+ *
+ * Deliberately left out of the client's list:
+ *   - Category headers ("Tanker", "Cargo", "Offshore", "Passenger",
+ *     "Specialist") — as bare searches they're swamped by other trades; bare
+ *     "tanker" in the UK is mostly road-fuel HGV driving.
+ *   - Acronyms that collide with large non-maritime job families: PSV (UK
+ *     bus/coach licence), DSV (the DSV logistics company), CSV (the file
+ *     format), CTV (UK Counter-Terrorist Check vetting). Their spelled-out
+ *     forms are kept instead.
+ *   - Variants whose every word is already in a kept term, so a search for
+ *     the shorter one already matches those postings: "crude oil tanker"
+ *     (oil tanker), "harbour tug" and "anchor handling tug supply" (tug),
+ *     "passenger ferry" (ferry), "Roro" (Ro-Ro).
+ */
+export const VESSEL_TERMS = [
+  // Tankers and gas
+  'oil tanker',
+  'product tanker',
+  'chemical tanker',
+  'shuttle tanker',
+  'bunker tanker',
+  'LNG carrier',
+  'LNG vessel',
+  'LPG carrier',
+  'gas carrier',
+  // Dry cargo
+  'container ship',
+  'container vessel',
+  'bulk carrier',
+  'bulker',
+  'general cargo vessel',
+  'multipurpose vessel',
+  'heavy lift vessel',
+  'Ro-Ro',
+  'Ropax',
+  // Offshore
+  'offshore support vessel',
+  'OSV',
+  'platform supply vessel',
+  'AHTS',
+  'anchor handler',
+  'diving support vessel',
+  'construction support vessel',
+  'subsea vessel',
+  'survey vessel',
+  'fish farm vessel',
+  // Offshore wind
+  'service operation vessel',
+  'SOV',
+  'crew transfer vessel',
+  'offshore wind vessel',
+  'wind farm vessel',
+  // Passenger
+  'ferry',
+  'passenger vessel',
+  'passenger ship',
+  'cruise ship',
+  'cruise vessel',
+  // Specialist
+  'tug',
+  'towage',
+  'dredger',
+  'dredging vessel',
+  'research vessel',
+  'cable laying vessel',
+  'cable layer',
+  'yacht',
+  'superyacht',
+];
+
+/**
+ * Certification keywords — catch vacancies written around the required
+ * ticket rather than a rank or vessel type. The STCW regulation codes
+ * (II/1, II/2, III/1, III/2) and "STCW certificates" are dropped: every
+ * posting that cites them also contains "STCW", which is searched directly.
+ * Bare "CoC" is dropped too — it's "code of conduct" far more often.
+ */
+export const CERTIFICATION_TERMS = [
+  'STCW',
+  'certificate of competency',
+  'unlimited CoC',
+];
+
+/** Everything a `specialistTerms` market gets on top of RANK_TERMS. */
+export const SPECIALIST_TERMS = [
+  ...NICHE_RANK_TERMS,
+  ...VESSEL_TERMS,
+  ...CERTIFICATION_TERMS,
+];
+
+/** The broadest floor terms, reused for the city-level hub searches. */
+const HUB_TERMS = [FLOOR_TERMS[0], FLOOR_TERMS[1]];
 
 /** The two metered search providers, for coverage routing below. */
 export type SearchProvider = 'serpapi' | 'jsearch';
@@ -104,14 +246,21 @@ export type SearchProvider = 'serpapi' | 'jsearch';
 export type MaritimeCountry = {
   name: string;
   /**
-   * `core` countries get ROLE_TERMS on top of the daily floor — the markets
+   * `core` countries get RANK_TERMS on top of the daily floor — the markets
    * with enough posting volume for rank-specific searches to pay for
    * themselves.
    */
   depth: 'core' | 'broad';
   /**
+   * Also rotates SPECIALIST_TERMS (niche/UK-terminology ranks, vessel types,
+   * certifications) through this market. Reserved for the priority market:
+   * ~70 extra searches per cycle is affordable for one country, not twelve.
+   */
+  specialistTerms?: boolean;
+  /**
    * Port/offshore cities that a country-level query under-covers, because it
-   * skews toward the capital. Each hub adds one city-scoped SerpApi search.
+   * skews toward the capital. Each hub adds one city-scoped SerpApi search
+   * per HUB_TERMS entry.
    *
    * These MUST be canonical SerpApi location strings (verified against
    * serpapi.com/locations.json, which is free and unmetered) and are passed
@@ -140,16 +289,18 @@ export type MaritimeCountry = {
    *
    * JSearch is unaffected and still covers these markets (it returned a full
    * page for Germany and the Netherlands on "marine engineer"), which is why
-   * this is a per-provider flag rather than removing the country outright.
+   * this is a per-provider flag rather than removing the country outright —
+   * and why JSearch's secondary budget is reserved for exactly these
+   * markets (see `secondaryGridFor`).
    */
   noGoogleJobs?: boolean;
 };
 
 /**
  * Countries searched every day, in priority order — priority governs how a
- * too-small budget degrades (see `dailyFloorQueries`) and which earlier
- * entries the secondary rotation reaches first. UK first: it's the market
- * reported as barely covered, and it carries the most hubs.
+ * too-small budget degrades (see `dailyFloorQueries`). UK first: it's the
+ * market reported as barely covered, it carries the most hubs, and it's the
+ * one market that also gets the full specialist set.
  *
  * Every name here must have a matching entry in countryCodes.ts, or that
  * country silently loses its JSearch coverage.
@@ -158,6 +309,7 @@ export const MARITIME_COUNTRIES: MaritimeCountry[] = [
   {
     name: 'United Kingdom',
     depth: 'core',
+    specialistTerms: true,
     // Aberdeen is the UK offshore hub and is nearly invisible to a
     // London-weighted national query — the specific gap reported from the field.
     hubs: [
@@ -166,9 +318,8 @@ export const MARITIME_COUNTRIES: MaritimeCountry[] = [
       'Glasgow,Scotland,United Kingdom',
     ],
   },
-  // The EEA markets keep their hub cities listed for the record, but no
-  // SerpApi search is spent on them while `noGoogleJobs` holds — and JSearch
-  // ignores hubs entirely, so these are currently inert.
+  // The EEA markets carry no hubs: no SerpApi search is spent on them while
+  // `noGoogleJobs` holds, and JSearch has no city-level targeting.
   { name: 'Greece', depth: 'core', noGoogleJobs: true },
   { name: 'Norway', depth: 'core', noGoogleJobs: true },
   { name: 'Netherlands', depth: 'core', noGoogleJobs: true },
@@ -180,13 +331,11 @@ export const MARITIME_COUNTRIES: MaritimeCountry[] = [
   },
   { name: 'India', depth: 'core', hubs: ['Mumbai,Maharashtra,India'] },
   { name: 'Nigeria', depth: 'core', hubs: ['Lagos,Lagos,Nigeria'] },
-  // Promoted from 'broad' to 'core' after measuring the gap live: "seafarer"
-  // (the only kind of term a 'broad' country ever got, via the daily floor)
-  // returned 0 for Egypt/South Africa/Ethiopia on the same day "marine
-  // engineer" — a ROLE_TERMS-only search, never run against a 'broad'
+  // Promoted from 'broad' to 'core' after measuring the gap live: a
+  // floor-only search returned 0 for Egypt/South Africa/Ethiopia on the same
+  // day "marine engineer" — a rank search, never run against a 'broad'
   // country — returned 4 genuine, in-scope Egyptian jobs. 'broad' depth was
-  // silently leaving real, available jobs unfetched, not correctly skipping
-  // thin markets — see LISTING_RETENTION_DAYS below for the cost of this.
+  // silently leaving real, available jobs unfetched.
   {
     name: 'Egypt',
     depth: 'core',
@@ -214,18 +363,16 @@ export const countriesFor = (provider: SearchProvider): MaritimeCountry[] =>
 
 /**
  * One query per country the provider covers, every day — the guaranteed
- * floor. Term rotates daily through BROAD_TERMS (day 0 uses term 0, day 1
+ * floor. Term rotates daily through FLOOR_TERMS (day 0 uses term 0, day 1
  * term 1, and it wraps once past the end), so the phrasing varies across days
  * without ever skipping a country on any single day. That rotation matters
- * for coverage as well as variety: a term can be market-specific (JSearch
- * returns a full page for Germany on "marine engineer" but nothing on
- * "seafarer"), so cycling terms gives every country several different chances
- * across the week rather than betting it all on one phrasing.
+ * for coverage as well as variety: a term can be market-specific, so cycling
+ * terms gives every country several different chances across the week
+ * rather than betting it all on one phrasing.
  *
  * Priority-ordered: if the day's budget can't cover every country (a small
  * budget, or a provider running low mid-run), the countries dropped are the
- * lowest-priority ones — the broad-depth tail — rather than an arbitrary
- * subset.
+ * lowest-priority ones rather than an arbitrary subset.
  */
 export const dailyFloorQueries = (
   dayIndex: number,
@@ -234,58 +381,91 @@ export const dailyFloorQueries = (
 ): ExternalJobQuery[] => {
   if (budget <= 0) return [];
 
-  const term = BROAD_TERMS[dayIndex % BROAD_TERMS.length];
+  const term = FLOOR_TERMS[dayIndex % FLOOR_TERMS.length];
   return countriesFor(provider)
     .slice(0, budget)
     .map(({ name }) => ({ q: term, location: name }));
 };
 
 /**
- * Rank-specific and city-level searches, rotated through with whatever budget
- * the daily floor doesn't spend. Excludes BROAD_TERMS entirely — the floor
- * already gives every country one of those every day, so repeating them here
- * would just spend quota re-asking a question already answered today.
+ * Merges several query lists so each is spread evenly across the result —
+ * a slice of any length then carries a proportional mix of every list,
+ * instead of (say) a week of nothing but rank searches followed by a week of
+ * nothing but UK vessel searches.
+ */
+const interleaveEvenly = <T>(lists: T[][]): T[] =>
+  lists
+    .flatMap((list, listIndex) =>
+      list.map((item, i) => ({
+        item,
+        position: (i + 0.5) / list.length,
+        listIndex,
+      })),
+    )
+    .sort((a, b) => a.position - b.position || a.listIndex - b.listIndex)
+    .map(({ item }) => item);
+
+/**
+ * The searches rotated through with whatever budget the daily floor doesn't
+ * spend. Country-level entries never repeat a FLOOR_TERMS term — the floor
+ * already asks every country one of those every day.
+ *
+ * Per provider:
+ *   - SerpApi (the larger budget): RANK_TERMS across every `core` market it
+ *     serves, SPECIALIST_TERMS in the `specialistTerms` market, and the
+ *     hub-city searches.
+ *   - JSearch: RANK_TERMS in the `noGoogleJobs` markets only. Those are the
+ *     markets where it's the sole source — spending its much smaller budget
+ *     on the UK or India would re-ask what SerpApi's rotation already
+ *     covers, while Greece/Norway/the Netherlands/Germany would otherwise get
+ *     nothing past the floor.
  */
 export const secondaryGridFor = (
   provider: SearchProvider,
 ): ExternalJobQuery[] => {
-  const countries = countriesFor(provider);
-
-  const roleQueries = ROLE_TERMS.flatMap((q) =>
-    countries
-      .filter(({ depth }) => depth === 'core')
-      .map(({ name }) => ({ q, location: name })),
+  const coreCountries = countriesFor(provider).filter(
+    ({ depth }) => depth === 'core',
   );
+
+  if (provider === 'jsearch') {
+    const soleSourceMarkets = coreCountries.filter(
+      ({ noGoogleJobs }) => noGoogleJobs,
+    );
+    return RANK_TERMS.flatMap((q) =>
+      soleSourceMarkets.map(({ name }) => ({ q, location: name })),
+    );
+  }
+
+  const rankQueries = RANK_TERMS.flatMap((q) =>
+    coreCountries.map(({ name }) => ({ q, location: name })),
+  );
+
+  const specialistQueries = coreCountries
+    .filter(({ specialistTerms }) => specialistTerms)
+    .flatMap(({ name }) =>
+      SPECIALIST_TERMS.map((q) => ({ q, location: name })),
+    );
 
   // Hub cities are a SerpApi-only lever: the city goes in `location` (a
   // canonical SerpApi place), which JSearch has no equivalent for.
-  const hubQueries =
-    provider === 'serpapi'
-      ? countries.flatMap(({ hubs }) =>
-          (hubs ?? []).map((hub) => ({ q: HUB_TERM, location: hub })),
-        )
-      : [];
+  const hubQueries = countriesFor(provider).flatMap(({ hubs }) =>
+    (hubs ?? []).flatMap((hub) => HUB_TERMS.map((q) => ({ q, location: hub }))),
+  );
 
-  return [...roleQueries, ...hubQueries];
+  return interleaveEvenly([rankQueries, specialistQueries, hubQueries]);
 };
 
 /**
- * The rank-specific rotation shared by both providers (JSearch's grid, which
- * is the role terms alone — hub searches are SerpApi-only, see above).
- */
-export const SECONDARY_GRID: ExternalJobQuery[] = secondaryGridFor('jsearch');
-
-/**
- * The full query space across both providers, deduplicated — every broad term
- * against every country, plus each provider's secondary rotation. Not what
- * runs in one day (see dailyFloorQueries / secondaryGridFor for that); this
- * exists for logging and tests that want one "how much ground is covered
- * overall" number.
+ * The full query space across both providers, deduplicated — every floor
+ * term against every country, plus each provider's secondary rotation. Not
+ * what runs in one day (see dailyFloorQueries / secondaryGridFor for that);
+ * this exists for logging and tests that want one "how much ground is
+ * covered overall" number.
  */
 export const QUERY_GRID: ExternalJobQuery[] = (() => {
   const seen = new Set<string>();
   return [
-    ...BROAD_TERMS.flatMap((q) =>
+    ...FLOOR_TERMS.flatMap((q) =>
       MARITIME_COUNTRIES.map(({ name }) => ({ q, location: name })),
     ),
     ...secondaryGridFor('serpapi'),

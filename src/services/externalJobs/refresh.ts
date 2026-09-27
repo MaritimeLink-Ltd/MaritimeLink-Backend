@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { fetchFeedJobs } from './feedSource.js';
 import { fetchAtsJobs } from './ats/index.js';
+import { FULL_REFRESH_PROVIDERS, prunablePrefixes } from './prune.js';
 import { dedupeJobs } from './dedupe.js';
 import {
   fetchSerpApiJobs,
@@ -17,7 +18,7 @@ import {
   JSEARCH_PAGE_SIZE,
   resolveJSearchKeys,
 } from './jsearchSource.js';
-import { isInMaritimeScope } from './scope.js';
+import { inScopeRatio, isInMaritimeScope, isWorthABonusPage } from './scope.js';
 import { rotationDayIndex, pickRotationSlice } from './rotation.js';
 import {
   countriesFor,
@@ -45,8 +46,8 @@ import { env } from '../../config/env.js';
  * 250/month per key, JSearch 200/month per key), so this cannot run the full
  * query space daily — each provider's day is split into a guaranteed floor
  * (one search per country, every day — see `dailyFloorQueries`) plus whatever
- * budget is left over, which rotates through the rank-specific and
- * city-level searches in `SECONDARY_GRID` (rotation.ts), sized to however
+ * budget is left over, which rotates through the rank, specialist and
+ * city-level searches in `secondaryGridFor` (queryGrid.ts), sized to however
  * many keys are configured (apiKeyPool.ts). RSS feeds (fetchFeedJobs) are a
  * third, unmetered source, but no default feeds are configured — see
  * feedSource.ts for why.
@@ -87,6 +88,21 @@ const wasCharged = (error: unknown): boolean =>
 
 const describeQuery = (query: ExternalJobQuery) =>
   `"${query.q}"${query.location ? ` @ ${query.location}` : ''}`;
+
+/**
+ * One line per search, so a keyword that keeps returning nothing — or
+ * nothing that survives the scope filter — shows up in the run log instead
+ * of silently eating a unit of quota every time its turn comes around.
+ */
+const logQueryYield = (
+  provider: string,
+  query: ExternalJobQuery,
+  jobs: ExternalJob[],
+  note?: string,
+) =>
+  console.log(
+    `[external-jobs] ${provider} ${describeQuery(query)} -> ${jobs.length} returned, ${jobs.filter(isInMaritimeScope).length} in scope${note ? ` (${note})` : ''}`,
+  );
 
 /**
  * Builds the SerpApi pool from a live per-key quota check — free and
@@ -150,73 +166,137 @@ const buildJSearchPool = (): { pool: ApiKeyPool; note: string } => {
   };
 };
 
+type SerpApiPage = { jobs: ExternalJob[]; nextPageToken: string | null };
+
 /**
- * Runs one SerpApi search — and, when the page comes back full, one bonus
- * page right after it — moving to another key if the one it drew turns out
- * to be spent. A page is only abandoned once every key has been tried — a
- * search lost to an exhausted key would otherwise wait a full rotation for
- * its next turn.
- *
- * The bonus page: Google Jobs caps every page at SERPAPI_PAGE_SIZE (10,
- * confirmed in SerpApi's own docs — no parameter raises it), so a full page
- * is the signal there's more to give. Measured live, a second page costs
- * exactly one more search unit — same as the first — and returns entirely
- * new jobs. That's a better use of the next unit of budget than gambling it
- * on an untested (term, country) combo elsewhere in today's rotation, which
- * this grid's own measurements show often returns 0. Capped at one bonus
- * page per query so a single productive query can't monopolize the day.
+ * Fetches one SerpApi page, moving to another key if the one it drew turns
+ * out to be spent. A page is only abandoned once every key has been tried —
+ * a search lost to an exhausted key would otherwise wait a full rotation for
+ * its next turn. `page` is null when nothing was fetched (no key left in the
+ * pool, or a failure) — distinct from a search that ran and found nothing.
  */
-const runSerpApiQuery = async (
+const fetchSerpApiPage = async (
   query: ExternalJobQuery,
   pool: ApiKeyPool,
-): Promise<{ jobs: ExternalJob[]; spent: number }> => {
+  pageToken?: string,
+): Promise<{ page: SerpApiPage | null; spent: number }> => {
   let spent = 0;
+  for (let attempt = 0; attempt < Math.max(1, pool.keyCount); attempt += 1) {
+    const key = pool.take();
+    if (!key) return { page: null, spent };
 
-  const attemptPage = async (
-    pageToken?: string,
-  ): Promise<{ jobs: ExternalJob[]; nextPageToken: string | null } | null> => {
-    for (let attempt = 0; attempt < Math.max(1, pool.keyCount); attempt += 1) {
-      const key = pool.take();
-      if (!key) return null;
-
-      try {
-        const result = await fetchSerpApiJobs(query, key, pageToken);
-        spent += 1;
-        return result;
-      } catch (error) {
-        if (isSerpApiQuotaError(error)) {
-          console.warn(
-            `[external-jobs] SerpApi key ${maskApiKey(key)} is out of quota — retiring it for this run`,
-          );
-          pool.markExhausted(key);
-          spent += 1;
-          continue;
-        }
-
-        if (wasCharged(error)) spent += 1;
-        else pool.refund(key);
-
-        // No retry on the same key: quota is too scarce to spend twice on one
-        // page. A failed search just waits for its next turn in the rotation.
-        console.error(
-          `[external-jobs] SerpApi query failed (${describeQuery(query)}${pageToken ? ' [bonus page]' : ''}):`,
-          error instanceof Error ? error.message : error,
+    try {
+      const page = await fetchSerpApiJobs(query, key, pageToken);
+      return { page, spent: spent + 1 };
+    } catch (error) {
+      if (isSerpApiQuotaError(error)) {
+        console.warn(
+          `[external-jobs] SerpApi key ${maskApiKey(key)} is out of quota — retiring it for this run`,
         );
-        return null;
+        pool.markExhausted(key);
+        spent += 1;
+        continue;
       }
+
+      if (wasCharged(error)) spent += 1;
+      else pool.refund(key);
+
+      // No retry on the same key: quota is too scarce to spend twice on one
+      // page. A failed search just waits for its next turn in the rotation.
+      console.error(
+        `[external-jobs] SerpApi query failed (${describeQuery(query)}${pageToken ? ' [bonus page]' : ''}):`,
+        error instanceof Error ? error.message : error,
+      );
+      return { page: null, spent };
     }
-    return null;
-  };
-
-  const first = await attemptPage();
-  if (!first) return { jobs: [], spent };
-
-  if (first.jobs.length >= SERPAPI_PAGE_SIZE && first.nextPageToken) {
-    const second = await attemptPage(first.nextPageToken);
-    if (second) return { jobs: [...first.jobs, ...second.jobs], spent };
   }
+  return { page: null, spent };
+};
 
-  return { jobs: first.jobs, spent };
+/** Conservative — SerpApi calls compete for outbound bandwidth/rate limit; a wide burst risks timeouts. */
+const SERPAPI_CONCURRENCY = 4;
+
+/**
+ * Runs the day's SerpApi plan in two phases:
+ *
+ *   1. The first page of every planned search (floor, then secondary).
+ *   2. With whatever budget is left, a bonus page for the searches whose
+ *      first page earned one (see `isWorthABonusPage`), most in-scope first.
+ *
+ * Google Jobs caps every page at SERPAPI_PAGE_SIZE (10, confirmed in
+ * SerpApi's own docs — no parameter raises it), so a full, mostly-maritime
+ * page is the signal there's more to give; measured live, a second page
+ * costs exactly one more unit and returns entirely new jobs. But it was
+ * previously fetched inline, right after its first page — and since the
+ * day's slice is sized to the budget, every bonus page displaced a planned
+ * search at the tail of the slice, which then didn't come round again for
+ * a full rotation (~3 weeks). Observed on a live run: 4 of 16 secondary
+ * searches "skipped, no budget left" behind 4 bonus pages. Bonus pages are
+ * worth more than an untested combo, but not more than a planned one.
+ * Capped at one bonus page per search so a single productive search can't
+ * monopolize the leftover.
+ */
+const runSerpApiQueries = async (
+  queries: ExternalJobQuery[],
+  pool: ApiKeyPool,
+): Promise<{ jobs: ExternalJob[]; spent: number }> => {
+  const firstPages = await inChunks(
+    queries,
+    SERPAPI_CONCURRENCY,
+    async (query) => ({
+      query,
+      ...(await fetchSerpApiPage(query, pool)),
+    }),
+  );
+
+  const bonusCandidates = firstPages
+    .filter(
+      (
+        run,
+      ): run is typeof run & {
+        page: SerpApiPage & { nextPageToken: string };
+      } =>
+        Boolean(run.page?.nextPageToken) &&
+        isWorthABonusPage(run.page!.jobs, SERPAPI_PAGE_SIZE),
+    )
+    .sort((a, b) => inScopeRatio(b.page.jobs) - inScopeRatio(a.page.jobs));
+
+  const bonusPages = await inChunks(
+    bonusCandidates,
+    SERPAPI_CONCURRENCY,
+    async (run) => ({
+      query: run.query,
+      ...(await fetchSerpApiPage(run.query, pool, run.page.nextPageToken)),
+    }),
+  );
+  const bonusByQuery = new Map(bonusPages.map((run) => [run.query, run]));
+
+  const jobs: ExternalJob[] = [];
+  let spent = 0;
+  for (const run of firstPages) {
+    spent += run.spent;
+    if (!run.page) {
+      console.log(
+        `[external-jobs] SerpApi ${describeQuery(run.query)} -> skipped, no budget left`,
+      );
+      continue;
+    }
+    const bonus = bonusByQuery.get(run.query);
+    spent += bonus?.spent ?? 0;
+    const queryJobs = [...run.page.jobs, ...(bonus?.page?.jobs ?? [])];
+    jobs.push(...queryJobs);
+    logQueryYield(
+      'SerpApi',
+      run.query,
+      queryJobs,
+      bonus
+        ? bonus.page
+          ? 'bonus page'
+          : 'bonus page skipped, no budget left'
+        : undefined,
+    );
+  }
+  return { jobs, spent };
 };
 
 /**
@@ -238,14 +318,12 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  * only quota signal JSearch offers. A key reporting empty is retired and the
  * page retried on another; once every key is spent the run stops.
  *
- * Also fetches one bonus page (via `cursor`) right after any page that comes
- * back full — same reasoning as SerpApi's bonus page (see runSerpApiQuery):
- * a full page signals more genuine supply, which is a better use of the next
- * budget unit than an untested combo elsewhere in the rotation. Capped at
- * one bonus page per query. The bonus fetch goes through the same pacing
- * delay as every other call here — it's still a real request to the same
- * endpoint, and skipping the delay is exactly the rapid-fire pattern
- * JSEARCH_INTER_QUERY_DELAY_MS's comment measured as degrading results.
+ * Bonus pages (via `cursor`) come in a second phase after every planned
+ * search has had its first page — see runSerpApiQueries for why. The bonus
+ * fetch goes through the same pacing delay as every other call here — it's
+ * still a real request to the same endpoint, and skipping the delay is
+ * exactly the rapid-fire pattern JSEARCH_INTER_QUERY_DELAY_MS's comment
+ * measured as degrading results.
  */
 const runJSearchQueries = async (
   queries: ExternalJobQuery[],
@@ -301,6 +379,12 @@ const runJSearchQueries = async (
     return null;
   };
 
+  // Phase 1: the first page of every planned search.
+  const firstPages: {
+    query: ExternalJobQuery;
+    jobs: ExternalJob[];
+    cursor: string | null;
+  }[] = [];
   for (const query of queries) {
     const first = await attemptPage(query);
 
@@ -310,24 +394,47 @@ const runJSearchQueries = async (
       // moves on to the next query, same as before this was refactored.
       if (pool.liveKeyCount === 0) {
         console.log('[external-jobs] JSearch budget spent — stopping early');
-        return { jobs: collected, spent };
+        break;
       }
       continue;
     }
+    firstPages.push({ query, jobs: first.jobs, cursor: first.cursor });
+  }
 
-    collected.push(...first.jobs);
+  // Phase 2: bonus pages for the searches that earned one, most in-scope
+  // first, with whatever budget is left — same reasoning as
+  // runSerpApiQueries: a bonus page must never displace a planned search.
+  const bonusCandidates = firstPages
+    .filter(
+      (run) => run.cursor && isWorthABonusPage(run.jobs, JSEARCH_PAGE_SIZE),
+    )
+    .sort((a, b) => inScopeRatio(b.jobs) - inScopeRatio(a.jobs));
+  const bonusByQuery = new Map<ExternalJobQuery, ExternalJob[] | null>();
+  for (const run of bonusCandidates) {
+    if (pool.liveKeyCount === 0) break;
+    const second = await attemptPage(run.query, run.cursor as string);
+    bonusByQuery.set(run.query, second?.jobs ?? null);
+  }
 
-    if (first.jobs.length >= JSEARCH_PAGE_SIZE && first.cursor) {
-      const second = await attemptPage(query, first.cursor);
-      if (second) collected.push(...second.jobs);
-    }
+  for (const run of firstPages) {
+    const bonus = bonusByQuery.get(run.query);
+    const queryJobs = [...run.jobs, ...(bonus ?? [])];
+    collected.push(...queryJobs);
+    const earned = bonusCandidates.some((c) => c.query === run.query);
+    logQueryYield(
+      'JSearch',
+      run.query,
+      queryJobs,
+      earned
+        ? bonus
+          ? 'bonus page'
+          : 'bonus page skipped, no budget left'
+        : undefined,
+    );
   }
 
   return { jobs: collected, spent };
 };
-
-/** Conservative — SerpApi calls compete for outbound bandwidth/rate limit; a wide burst risks timeouts. */
-const SERPAPI_CONCURRENCY = 4;
 
 /** DB writes are cheap and local to the pool; can run wider than the SerpApi fan-out. */
 const DB_WRITE_CONCURRENCY = 10;
@@ -407,20 +514,6 @@ const LISTING_RETENTION_DAYS = 35;
 const retentionCutoff = (now: Date, days: number): Date =>
   new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 
-/**
- * Providers re-fetched in full on every run — free, unmetered endpoints, so
- * there's no rotation and nothing lost by re-reading the whole source every
- * time. A listing missing from today's full re-fetch is a genuine "no longer
- * listed" signal, same as feeds always were — see `refreshExternalJobs`.
- */
-const FULL_REFRESH_PROVIDERS = [
-  'feed',
-  'greenhouse',
-  'lever',
-  'smartrecruiters',
-  'workday',
-] as const;
-
 export type RefreshSummary = {
   serpApiQueriesRun: number;
   serpApiQuotaNote: string;
@@ -441,7 +534,9 @@ export type RefreshSummary = {
  * Feed and ATS jobs (FULL_REFRESH_PROVIDERS) are refetched in full every run
  * (free, so no rotation needed) and pruned if missing from this run — a
  * genuine "no longer listed" signal, since the whole source is re-read every
- * time.
+ * time — but only for a source that returned listings this run (see
+ * prune.ts's `prunablePrefixes`), so an outage or missing config never
+ * wipes a company's jobs.
  *
  * SerpApi/JSearch listings are NOT pruned on rotation timing: each is only
  * re-confirmed when its query's turn comes back around (see queryGrid.ts),
@@ -523,10 +618,8 @@ export const refreshExternalJobs = async (): Promise<RefreshSummary> => {
     `[external-jobs] JSearch: ${jSearch.note} — ${jSearchFloor.length}/${jSearchCountries} countries on today's floor, ${jSearchSecondary.length} secondary search(es)`,
   );
 
-  const [serpApiRuns, jSearchRun, feedJobs, atsJobs] = await Promise.all([
-    inChunks(serpApiQueries, SERPAPI_CONCURRENCY, (query) =>
-      runSerpApiQuery(query, serpApi.pool),
-    ),
+  const [serpApiRun, jSearchRun, feedJobs, atsJobs] = await Promise.all([
+    runSerpApiQueries(serpApiQueries, serpApi.pool),
     runJSearchQueries(jSearchQueries, jSearch.pool),
     fetchFeedJobs().catch((error) => {
       console.error('[external-jobs] Feed fetch failed:', error);
@@ -538,8 +631,8 @@ export const refreshExternalJobs = async (): Promise<RefreshSummary> => {
     }),
   ]);
 
-  const serpApiJobs = serpApiRuns.flatMap((run) => run.jobs);
-  const serpApiSpent = serpApiRuns.reduce((total, run) => total + run.spent, 0);
+  const serpApiJobs = serpApiRun.jobs;
+  const serpApiSpent = serpApiRun.spent;
 
   const inScope = dedupeJobs(
     [...serpApiJobs, ...jSearchRun.jobs, ...feedJobs, ...atsJobs].filter(
@@ -551,14 +644,21 @@ export const refreshExternalJobs = async (): Promise<RefreshSummary> => {
     upsertListing(job, runStartedAt),
   );
 
+  const prunableSources = prunablePrefixes([...feedJobs, ...atsJobs]);
+
   const [{ count: fullRefreshRemoved }, { count: expiredRemoved }] =
     await Promise.all([
-      prisma.externalJobListing.deleteMany({
-        where: {
-          provider: { in: [...FULL_REFRESH_PROVIDERS] },
-          fetchedAt: { lt: runStartedAt },
-        },
-      }),
+      prunableSources.length === 0
+        ? Promise.resolve({ count: 0 })
+        : prisma.externalJobListing.deleteMany({
+            where: {
+              provider: { in: [...FULL_REFRESH_PROVIDERS] },
+              fetchedAt: { lt: runStartedAt },
+              OR: prunableSources.map((prefix) => ({
+                id: { startsWith: prefix },
+              })),
+            },
+          }),
       prisma.externalJobListing.deleteMany({
         where: {
           provider: { in: ['serpapi', 'jsearch'] },

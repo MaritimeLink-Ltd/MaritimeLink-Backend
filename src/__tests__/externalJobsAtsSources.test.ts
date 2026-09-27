@@ -23,6 +23,12 @@ const { fetchSmartRecruitersJobs } =
   await import('../services/externalJobs/ats/smartrecruiters.js');
 const { fetchWorkdayJobs } =
   await import('../services/externalJobs/ats/workday.js');
+const { fetchPinpointJobs } =
+  await import('../services/externalJobs/ats/pinpoint.js');
+const { fetchTeamtailorJobs } =
+  await import('../services/externalJobs/ats/teamtailor.js');
+const { fetchRecruiteeJobs } =
+  await import('../services/externalJobs/ats/recruitee.js');
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -205,56 +211,247 @@ describe('fetchLeverJobs', () => {
 });
 
 describe('fetchSmartRecruitersJobs', () => {
-  it('normalizes a postings page and stops once a short page is returned', async () => {
+  const listPage = (postings: object[]) =>
+    JSON.stringify({ content: postings });
+  const detail = (overrides: object = {}) =>
+    JSON.stringify({
+      postingUrl: 'https://jobs.smartrecruiters.com/Boskalis/1-vessel-manager',
+      jobAd: {
+        sections: {
+          companyDescription: { text: '<p>A global leader in dredging.</p>' },
+          jobDescription: { text: '<p>Manage the vessel.</p>' },
+          qualifications: { text: '<p>Master CoC.</p>' },
+        },
+      },
+      ...overrides,
+    });
+
+  it('fetches each kept posting’s detail for its description and canonical URL', async () => {
+    politeGet
+      .mockResolvedValueOnce(
+        listPage([
+          {
+            id: '1',
+            name: 'Vessel Manager',
+            releasedDate: '2026-09-20T10:00:00Z',
+            location: { city: 'Aberdeen', country: 'gb' },
+            department: { label: 'Marine' },
+          },
+        ]),
+      )
+      .mockResolvedValueOnce(detail());
+
+    const jobs = await fetchSmartRecruitersJobs('boskalis', 'Boskalis');
+
+    expect(jobs).toHaveLength(1);
+    expect(jobs[0]).toMatchObject({
+      id: 'smartrecruiters:boskalis:1',
+      title: 'Vessel Manager',
+      company: 'Boskalis',
+      location: 'Aberdeen, gb',
+      applyLink: 'https://jobs.smartrecruiters.com/Boskalis/1-vessel-manager',
+      category: 'Marine',
+      postedAt: new Date('2026-09-20T10:00:00Z').toISOString(),
+      provider: 'smartrecruiters',
+    });
+    // Job-specific sections only — the company boilerplate would make every
+    // office role look maritime.
+    expect(jobs[0].description).toContain('Manage the vessel.');
+    expect(jobs[0].description).not.toContain('global leader');
+    expect(politeGet).toHaveBeenLastCalledWith(
+      'https://api.smartrecruiters.com/v1/companies/boskalis/postings/1',
+      undefined,
+      'application/json',
+    );
+  });
+
+  it('spends no detail request on a posting the keep filter drops', async () => {
+    politeGet
+      .mockResolvedValueOnce(
+        listPage([
+          { id: '1', name: 'Vessel Manager' },
+          { id: '2', name: 'Senior Accountant' },
+        ]),
+      )
+      .mockResolvedValueOnce(detail());
+
+    const jobs = await fetchSmartRecruitersJobs('boskalis', undefined, (all) =>
+      all.filter((j) => j.title === 'Vessel Manager'),
+    );
+
+    expect(jobs.map((j) => j.id)).toEqual(['smartrecruiters:boskalis:1']);
+    expect(politeGet).toHaveBeenCalledTimes(2); // one list page + one detail
+  });
+
+  it('drops a posting whose detail fails or carries no public page', async () => {
+    politeGet
+      .mockResolvedValueOnce(
+        listPage([
+          { id: '1', name: 'Vessel Manager' },
+          { id: '2', name: 'Marine Pilot' },
+        ]),
+      )
+      .mockRejectedValueOnce(new Error('timeout'))
+      .mockResolvedValueOnce(detail({ postingUrl: undefined }));
+
+    expect(await fetchSmartRecruitersJobs('boskalis')).toEqual([]);
+  });
+
+  it('pages the list until a short page is returned', async () => {
+    const fullPage = listPage(
+      Array.from({ length: 100 }, (_, i) => ({
+        id: `sr${i}`,
+        name: 'Deckhand',
+      })),
+    );
+    politeGet
+      .mockResolvedValueOnce(fullPage)
+      .mockResolvedValueOnce(listPage([{ id: 'last', name: 'Bosun' }]));
+
+    // Keep nothing so no detail requests are made — this is about paging.
+    await fetchSmartRecruitersJobs('acme', undefined, () => []);
+
+    expect(politeGet).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('fetchPinpointJobs', () => {
+  it('normalizes a postings feed, with no fabricated date', async () => {
     politeGet.mockResolvedValueOnce(
       JSON.stringify({
-        content: [
+        data: [
           {
-            id: 'sr1',
-            name: 'Able Seaman',
-            releasedDate: '2026-01-02T00:00:00Z',
-            location: { city: 'Lagos', region: 'Lagos', country: 'Nigeria' },
-            department: { label: 'Deck Crew' },
-            postingUrl: 'https://jobs.smartrecruiters.com/acme/sr1',
+            id: '334361',
+            title: 'Motorman for cruise vessel Ultramarine',
+            url: 'https://vgroup.pinpointhq.com/en/postings/abc',
+            description: '<p>Join the engine department.</p>',
+            key_responsibilities: '<ul><li>Watchkeeping</li></ul>',
+            employment_type_text: 'Contract',
+            location: { name: 'Shipboard', city: 'London' },
+            job: { department: { name: 'Engine' } },
           },
         ],
       }),
     );
 
-    const jobs = await fetchSmartRecruitersJobs('acme', 'Acme Shipping');
+    const jobs = await fetchPinpointJobs('vgroup', 'V.Group');
+
+    expect(jobs[0]).toMatchObject({
+      id: 'pinpoint:vgroup:334361',
+      title: 'Motorman for cruise vessel Ultramarine',
+      company: 'V.Group',
+      location: 'Shipboard',
+      applyLink: 'https://vgroup.pinpointhq.com/en/postings/abc',
+      category: 'Engine',
+      employmentType: 'Contract',
+      postedAt: null,
+      provider: 'pinpoint',
+    });
+    expect(jobs[0].description).toContain('Join the engine department.');
+    expect(jobs[0].description).toContain('Watchkeeping');
+    expect(politeGet).toHaveBeenCalledWith(
+      'https://vgroup.pinpointhq.com/postings.json',
+      undefined,
+      'application/json',
+    );
+  });
+});
+
+describe('fetchTeamtailorJobs', () => {
+  const rss = (items: string) => `<?xml version="1.0"?>
+    <rss version="2.0" xmlns:tt="https://teamtailor.com/locations"><channel>
+      <title>North Star Shipping</title>${items}
+    </channel></rss>`;
+
+  it('normalizes an RSS item with its real publish date and location', async () => {
+    politeGet.mockResolvedValueOnce(
+      rss(`<item>
+        <title>3rd Engineer - ERRV</title>
+        <description>&lt;p&gt;Join our ERRV fleet.&lt;/p&gt;</description>
+        <pubDate>Wed, 23 Sep 2026 08:12:32 +0100</pubDate>
+        <link>https://careers.northstarshipping.co.uk/jobs/8438505-3rd-engineer-errv</link>
+        <guid>bd19f44e-ae24</guid>
+        <tt:locations><tt:location><tt:city>Aberdeen</tt:city><tt:country>United Kingdom</tt:country></tt:location></tt:locations>
+        <tt:department>Offshore</tt:department>
+      </item>`),
+    );
+
+    const jobs = await fetchTeamtailorJobs('northstarshipping');
+
+    expect(jobs[0]).toMatchObject({
+      id: 'teamtailor:northstarshipping:bd19f44e-ae24',
+      title: '3rd Engineer - ERRV',
+      company: 'North Star Shipping',
+      location: 'Aberdeen, United Kingdom',
+      description: 'Join our ERRV fleet.',
+      postedAt: new Date('Wed, 23 Sep 2026 08:12:32 +0100').toISOString(),
+      applyLink:
+        'https://careers.northstarshipping.co.uk/jobs/8438505-3rd-engineer-errv',
+      category: 'Offshore',
+      provider: 'teamtailor',
+    });
+    expect(politeGet).toHaveBeenCalledWith(
+      'https://northstarshipping.teamtailor.com/jobs.rss',
+    );
+  });
+
+  it('handles several items and several locations per item', async () => {
+    politeGet.mockResolvedValueOnce(
+      rss(`<item><title>Cook - ERRV</title><link>https://x/1</link><guid>1</guid>
+          <tt:locations><tt:location><tt:city>Aberdeen</tt:city><tt:country>United Kingdom</tt:country></tt:location>
+          <tt:location><tt:city>Great Yarmouth</tt:city><tt:country>United Kingdom</tt:country></tt:location></tt:locations></item>
+        <item><title>Fleet Manager</title><link>https://x/2</link><guid>2</guid></item>`),
+    );
+
+    const jobs = await fetchTeamtailorJobs('northstarshipping', 'North Star');
+
+    expect(jobs.map((j) => j.title)).toEqual(['Cook - ERRV', 'Fleet Manager']);
+    expect(jobs[0].location).toBe(
+      'Aberdeen, United Kingdom / Great Yarmouth, United Kingdom',
+    );
+    expect(jobs[1].location).toBeNull();
+    expect(jobs[0].company).toBe('North Star');
+  });
+});
+
+describe('fetchRecruiteeJobs', () => {
+  it('normalizes an offer, parsing Recruitee’s "YYYY-MM-DD hh:mm:ss UTC" dates', async () => {
+    politeGet.mockResolvedValueOnce(
+      JSON.stringify({
+        offers: [
+          {
+            id: 2749491,
+            title: 'Master (CTV)',
+            careers_url: 'https://windcat.recruitee.com/o/master-ctv',
+            published_at: '2026-09-17 11:38:57 UTC',
+            location: 'Across the UK, Suffolk, United Kingdom',
+            department: 'Fleet',
+            description: '<p>Command a crew transfer vessel.</p>',
+            requirements: '<p>Master 200GT.</p>',
+            employment_type_code: 'fulltime_permanent',
+            status: 'published',
+          },
+          { id: 2, title: 'Draft', careers_url: 'https://x', status: 'draft' },
+        ],
+      }),
+    );
+
+    const jobs = await fetchRecruiteeJobs('windcat', 'Windcat');
 
     expect(jobs).toHaveLength(1);
     expect(jobs[0]).toMatchObject({
-      id: 'smartrecruiters:acme:sr1',
-      title: 'Able Seaman',
-      company: 'Acme Shipping',
-      location: 'Lagos, Lagos, Nigeria',
-      applyLink: 'https://jobs.smartrecruiters.com/acme/sr1',
-      via: 'SmartRecruiters',
-      category: 'Deck Crew',
-      provider: 'smartrecruiters',
+      id: 'recruitee:windcat:2749491',
+      title: 'Master (CTV)',
+      company: 'Windcat',
+      location: 'Across the UK, Suffolk, United Kingdom',
+      applyLink: 'https://windcat.recruitee.com/o/master-ctv',
+      postedAt: '2026-09-17T11:38:57.000Z',
+      category: 'Fleet',
+      employmentType: 'Fulltime permanent',
+      provider: 'recruitee',
     });
-    // A page shorter than PAGE_SIZE (100) signals the last page — only one call made.
-    expect(politeGet).toHaveBeenCalledTimes(1);
-  });
-
-  it('pages until a short page is returned, bounded by MAX_PAGES', async () => {
-    const fullPage = {
-      content: Array.from({ length: 100 }, (_, i) => ({
-        id: `sr${i}`,
-        name: 'Deckhand',
-      })),
-    };
-    politeGet
-      .mockResolvedValueOnce(JSON.stringify(fullPage))
-      .mockResolvedValueOnce(
-        JSON.stringify({ content: [{ id: 'last', name: 'Bosun' }] }),
-      );
-
-    const jobs = await fetchSmartRecruitersJobs('acme');
-
-    expect(jobs).toHaveLength(101);
-    expect(politeGet).toHaveBeenCalledTimes(2);
+    expect(jobs[0].description).toContain('Command a crew transfer vessel.');
+    expect(jobs[0].description).toContain('Master 200GT.');
   });
 });
 

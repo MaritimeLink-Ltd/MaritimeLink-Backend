@@ -1,6 +1,7 @@
 import { prisma } from '../../config/prisma.js';
 import { scoreProfessionalForJob } from '../../utils/jobMatching.js';
 import { hasMatchableProfile, ProfessionalWithResume } from './profileQuery.js';
+import { recencyTimestamps } from './recency.js';
 import { ExternalJob } from './types.js';
 
 /**
@@ -28,9 +29,46 @@ export const DEFAULT_PAGE_SIZE = 50;
 /** Upper bound on `limit`, so a client can't ask for the entire table in one call. */
 export const MAX_PAGE_SIZE = 100;
 
-const toExternalJob = (
-  row: Awaited<ReturnType<typeof prisma.externalJobListing.findMany>>[number],
-): ExternalJob => ({
+type ListingRow = Awaited<
+  ReturnType<typeof prisma.externalJobListing.findMany>
+>[number];
+
+/**
+ * The pool only changes when the daily refresh runs or an admin hides a
+ * listing, but the Jobs page walks every page in sequence — and each page
+ * used to re-read the entire table. Measured at 1,758 listings: 3.2s for
+ * page 1, then another 22s for the remaining 17 pages, re-downloading the
+ * same rows (full descriptions included) every time. Cached briefly so one
+ * page-walk reads it once; the in-flight promise is shared so concurrent
+ * page requests don't each start their own load.
+ */
+const POOL_CACHE_TTL_MS = 60_000;
+let poolCache: { rows: Promise<ListingRow[]>; loadedAt: number } | null = null;
+
+const loadVisiblePool = (): Promise<ListingRow[]> => {
+  if (poolCache && Date.now() - poolCache.loadedAt < POOL_CACHE_TTL_MS) {
+    return poolCache.rows;
+  }
+  const rows = prisma.externalJobListing
+    .findMany({ where: { hiddenByAdmin: false } })
+    .catch((error) => {
+      poolCache = null;
+      throw error;
+    });
+  poolCache = { rows, loadedAt: Date.now() };
+  return rows;
+};
+
+/**
+ * Drops the cached pool so the next request re-reads it — call after
+ * anything in this process changes which listings are visible (an admin
+ * removal must be immediate, not up to POOL_CACHE_TTL_MS late).
+ */
+export const invalidateExternalJobsPool = (): void => {
+  poolCache = null;
+};
+
+const toExternalJob = (row: ListingRow): ExternalJob => ({
   id: row.id,
   title: row.title,
   company: row.company,
@@ -39,6 +77,7 @@ const toExternalJob = (
   salary: row.salary,
   postedAt: row.postedAt,
   fetchedAt: row.fetchedAt.toISOString(),
+  firstSeenAt: row.createdAt.toISOString(),
   applyLink: row.applyLink,
   via: row.via,
   thumbnail: row.thumbnail,
@@ -78,26 +117,6 @@ const candidateBaselineScore = (
     { title: '', description: '', location: '', category: '' },
     matchable,
   ).score;
-
-/**
- * Falls back to `fetchedAt` when a listing has no `postedAt` — genuinely
- * common for smaller markets (Kenya/South Africa/Egypt routinely come back
- * with no date at all from Google Jobs), and NOT a signal the listing is
- * old. Treating a missing date as epoch (the previous behaviour) buried
- * every undated listing beneath every dated one, permanently, regardless of
- * how recently it was actually confirmed live.
- */
-const postedAtMs = (job: ExternalJob): number => {
-  if (job.postedAt) {
-    const parsed = Date.parse(job.postedAt);
-    if (!Number.isNaN(parsed)) return parsed;
-  }
-  return (job.fetchedAt && Date.parse(job.fetchedAt)) || 0;
-};
-
-/** Newest first; a listing with no usable date at all sinks to the bottom. */
-const byRecency = (a: ExternalJob, b: ExternalJob) =>
-  postedAtMs(b) - postedAtMs(a);
 
 export type ExternalJobsPagination = {
   /** 1-indexed. Defaults to 1. */
@@ -146,10 +165,12 @@ export const getExternalJobsForProfessional = async (
   const { page, limit } = clampPagination(pagination);
   const skip = (page - 1) * limit;
 
-  const rows = await prisma.externalJobListing.findMany({
-    where: { hiddenByAdmin: false },
-  });
+  const rows = await loadVisiblePool();
   const pool = rows.map(toExternalJob);
+  // Newest first — see recency.ts for how undated listings are placed.
+  const recency = recencyTimestamps(pool);
+  const byRecency = (a: ExternalJob, b: ExternalJob) =>
+    (recency.get(b.id) ?? 0) - (recency.get(a.id) ?? 0);
 
   let combined: ExternalJob[];
   let matchedCount = 0;

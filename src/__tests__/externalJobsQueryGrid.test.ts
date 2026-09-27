@@ -1,24 +1,29 @@
 import {
-  BROAD_TERMS,
+  CERTIFICATION_TERMS,
   countriesFor,
   dailyFloorQueries,
+  FLOOR_TERMS,
   MARITIME_COUNTRIES,
+  NICHE_RANK_TERMS,
   QUERY_GRID,
-  ROLE_TERMS,
-  SECONDARY_GRID,
+  RANK_TERMS,
   secondaryGridFor,
+  SPECIALIST_TERMS,
+  VESSEL_TERMS,
 } from '../services/externalJobs/queryGrid.js';
 import { pickRotationSlice } from '../services/externalJobs/rotation.js';
 import { isInMaritimeScope } from '../services/externalJobs/scope.js';
 import { ExternalJob } from '../services/externalJobs/types.js';
 
-const coreCountries = MARITIME_COUNTRIES.filter(
-  ({ depth }) => depth === 'core',
-);
 // JSearch is the provider that covers every market, so it's the one whose
-// grids should match the full country list.
+// floor should match the full country list.
 const allCountries = countriesFor('jsearch');
 const googleCountries = countriesFor('serpapi');
+const serpGrid = secondaryGridFor('serpapi');
+const jsearchGrid = secondaryGridFor('jsearch');
+const countryNames = new Set(MARITIME_COUNTRIES.map(({ name }) => name));
+
+const ALL_TERMS = [...FLOOR_TERMS, ...RANK_TERMS, ...SPECIALIST_TERMS];
 
 describe('search term shape', () => {
   // The single highest-impact thing about these terms. Measured live on the
@@ -28,30 +33,78 @@ describe('search term shape', () => {
   // providers match the query text against the posting, so every extra word
   // shrinks the result set — and a query matching nothing costs exactly the
   // same quota as one returning a full page.
-  const MAX_WORDS = 3;
+  const MAX_MEANINGFUL_WORDS = 3;
+  const STOP_WORDS = new Set(['of', 'the']);
 
-  it.each([...BROAD_TERMS, ...ROLE_TERMS])(
+  it.each(ALL_TERMS)(
     '"%s" stays short enough to actually match postings',
     (term) => {
-      expect(term.trim().split(/\s+/).length).toBeLessThanOrEqual(MAX_WORDS);
+      const words = term
+        .trim()
+        .split(/\s+/)
+        .filter((word) => !STOP_WORDS.has(word.toLowerCase()));
+      expect(words.length).toBeLessThanOrEqual(MAX_MEANINGFUL_WORDS);
     },
   );
 
   it('never pads a term with filler words that only narrow the match', () => {
     // "jobs", "vacancies", "careers" etc. appear in almost no job *title*,
     // so they cost recall and buy nothing.
-    for (const term of [...BROAD_TERMS, ...ROLE_TERMS]) {
+    for (const term of ALL_TERMS) {
       expect(term).not.toMatch(/\b(jobs?|vacanc(y|ies)|careers?|hiring)\b/i);
     }
   });
 
-  it('does not bundle several ranks into one query', () => {
-    // Two ranks in one string is the exact pattern that measured 0-1 results.
-    const rankWords =
-      /\b(seaman|officer|engineer|deckhand|bosun|motorman|cook|medic|steward|captain|mariner)\b/gi;
-    for (const term of [...BROAD_TERMS, ...ROLE_TERMS]) {
-      expect((term.match(rankWords) ?? []).length).toBeLessThanOrEqual(1);
+  it('never groups several titles into one search', () => {
+    // Measured live: neither provider honours OR — `bosun OR "able seaman"
+    // OR deckhand` returned only bosun postings on SerpApi, and JSearch
+    // matched only the first term too. Grouping silently drops every term
+    // after the first.
+    for (const term of ALL_TERMS) {
+      expect(term).not.toMatch(/\bor\b|\band\b|[,|/"]/i);
     }
+  });
+
+  it('does not search a bare word whose ordinary meaning swamps the maritime one', () => {
+    // Each of these, searched alone, returns mostly another trade: Master
+    // (degrees, Scrum), Captain/First Officer (airline pilots), Fitter,
+    // Machinist, Steward, Reefer (refrigerated haulage), Tanker (UK road-fuel
+    // HGV), and acronyms that collide with large non-maritime job families.
+    const ambiguous = [
+      'master',
+      'captain',
+      'first officer',
+      'fitter',
+      'machinist',
+      'steward',
+      'reefer',
+      'tanker',
+      'cargo',
+      'offshore',
+      'passenger',
+      'psv',
+      'dsv',
+      'csv',
+      'ctv',
+      'coc',
+    ];
+    const lowered = new Set(ALL_TERMS.map((term) => term.toLowerCase()));
+    for (const word of ambiguous) expect(lowered.has(word)).toBe(false);
+  });
+
+  it('keeps every tier disjoint, with no term searched twice', () => {
+    // A term in two tiers would be rotated twice per cycle for the same
+    // country, spending quota to re-ask the same question.
+    const lowered = ALL_TERMS.map((term) => term.toLowerCase());
+    expect(new Set(lowered).size).toBe(lowered.length);
+  });
+
+  it('builds the specialist set from niche ranks, vessel types and certifications', () => {
+    expect(SPECIALIST_TERMS).toEqual([
+      ...NICHE_RANK_TERMS,
+      ...VESSEL_TERMS,
+      ...CERTIFICATION_TERMS,
+    ]);
   });
 });
 
@@ -82,27 +135,28 @@ describe('per-provider country coverage', () => {
     }
   });
 
-  it('spends no SerpApi search — floor, role or hub — on a blank market', () => {
-    const spent = [
-      ...dailyFloorQueries(0, 99, 'serpapi'),
-      ...secondaryGridFor('serpapi'),
-    ];
+  it('spends no SerpApi search — floor, rank, specialist or hub — on a blank market', () => {
+    const spent = [...dailyFloorQueries(0, 99, 'serpapi'), ...serpGrid];
     for (const query of spent) {
       expect(blacked).not.toContain(query.location);
+      expect(blacked.some((name) => query.location?.includes(name))).toBe(
+        false,
+      );
     }
   });
 
-  it('spends nothing on a blank market’s hub cities either', () => {
-    // Any hub search there would be a guaranteed-zero SerpApi call.
-    const serpLocations = secondaryGridFor('serpapi').map((q) => q.location);
-    for (const name of blacked) {
-      expect(serpLocations.some((l) => l?.includes(name))).toBe(false);
-    }
+  it('spends JSearch’s secondary budget only where it is the sole source', () => {
+    // SerpApi's larger budget already rotates the same rank terms through
+    // every other market — JSearch re-asking them there would be duplicate
+    // coverage while the EEA markets got nothing past the floor.
+    expect(new Set(jsearchGrid.map((q) => q.location))).toEqual(
+      new Set(blacked),
+    );
   });
 });
 
 describe('dailyFloorQueries', () => {
-  it('covers every one of a provider\u2019s countries when the budget allows', () => {
+  it('covers every one of a provider’s countries when the budget allows', () => {
     for (const provider of ['serpapi', 'jsearch'] as const) {
       const covered = countriesFor(provider);
       const floor = dailyFloorQueries(0, covered.length, provider);
@@ -134,18 +188,15 @@ describe('dailyFloorQueries', () => {
   it('rotates the term by day so phrasing varies without ever skipping a country', () => {
     const day0 = dailyFloorQueries(0, allCountries.length, 'jsearch');
     const day1 = dailyFloorQueries(1, allCountries.length, 'jsearch');
-    // BROAD_TERMS.length wraps back to term 0 — every country is still
-    // covered every day regardless of how many terms are in the rotation,
-    // just with whichever phrasing that day lands on.
     const wrapDay = dailyFloorQueries(
-      BROAD_TERMS.length,
+      FLOOR_TERMS.length,
       allCountries.length,
       'jsearch',
     );
 
-    expect(day0.every((q) => q.q === BROAD_TERMS[0])).toBe(true);
-    expect(day1.every((q) => q.q === BROAD_TERMS[1])).toBe(true);
-    expect(wrapDay.every((q) => q.q === BROAD_TERMS[0])).toBe(true);
+    expect(day0.every((q) => q.q === FLOOR_TERMS[0])).toBe(true);
+    expect(day1.every((q) => q.q === FLOOR_TERMS[1])).toBe(true);
+    expect(wrapDay.every((q) => q.q === FLOOR_TERMS[0])).toBe(true);
   });
 
   it('gives every query an explicit country as location', () => {
@@ -155,98 +206,132 @@ describe('dailyFloorQueries', () => {
   });
 });
 
-describe('SECONDARY_GRID', () => {
-  it('is role terms x core markets — hub searches are SerpApi-only', () => {
-    expect(SECONDARY_GRID).toHaveLength(
-      ROLE_TERMS.length * coreCountries.length,
+describe('secondary grids', () => {
+  const serpCore = googleCountries.filter(({ depth }) => depth === 'core');
+  const specialistMarkets = serpCore.filter(
+    ({ specialistTerms }) => specialistTerms,
+  );
+  const serpHubs = googleCountries.reduce(
+    (total, { hubs }) => total + (hubs?.length ?? 0),
+    0,
+  );
+  const HUB_TERM_COUNT = 2;
+
+  it('is rank terms x core markets, plus the specialist set and hub searches on SerpApi', () => {
+    expect(serpGrid).toHaveLength(
+      RANK_TERMS.length * serpCore.length +
+        SPECIALIST_TERMS.length * specialistMarkets.length +
+        serpHubs * HUB_TERM_COUNT,
     );
 
-    const serpCore = countriesFor('serpapi').filter(
-      ({ depth }) => depth === 'core',
-    );
-    const serpHubs = countriesFor('serpapi').reduce(
-      (total, { hubs }) => total + (hubs?.length ?? 0),
-      0,
-    );
-    expect(secondaryGridFor('serpapi')).toHaveLength(
-      ROLE_TERMS.length * serpCore.length + serpHubs,
-    );
+    const blacked = MARITIME_COUNTRIES.filter((c) => c.noGoogleJobs);
+    expect(jsearchGrid).toHaveLength(RANK_TERMS.length * blacked.length);
   });
 
-  it('never repeats a broad term — that coverage belongs to the daily floor only', () => {
-    // Re-rotating a broad term here would spend quota re-asking a question
-    // the floor already answered for every country today.
-    for (const query of SECONDARY_GRID) {
-      expect(BROAD_TERMS).not.toContain(query.q);
+  it('runs the specialist set in the UK — the priority market — and nowhere else', () => {
+    expect(specialistMarkets.map(({ name }) => name)).toEqual([
+      'United Kingdom',
+    ]);
+
+    const specialist = new Set(SPECIALIST_TERMS);
+    for (const query of [...serpGrid, ...jsearchGrid]) {
+      if (specialist.has(query.q))
+        expect(query.location).toBe('United Kingdom');
+    }
+  });
+
+  it('never repeats a floor term at country level — the floor already asks it daily', () => {
+    for (const query of [...serpGrid, ...jsearchGrid]) {
+      if (countryNames.has(query.location as string)) {
+        expect(FLOOR_TERMS).not.toContain(query.q);
+      }
     }
   });
 
   it('gives every query an explicit location', () => {
-    for (const query of SECONDARY_GRID) {
+    for (const query of [...serpGrid, ...jsearchGrid]) {
       expect(query.location).toBeTruthy();
     }
   });
 
-  it('only ever uses a plain country name as the location', () => {
+  it('only ever uses a plain country name as a JSearch location', () => {
     // JSearch can only resolve a plain country name to an ISO code, so its
     // grid must never carry a city-level location (SerpApi's may).
-    const countryNames = new Set(MARITIME_COUNTRIES.map(({ name }) => name));
-    for (const query of SECONDARY_GRID) {
+    for (const query of jsearchGrid) {
       expect(countryNames.has(query.location as string)).toBe(true);
     }
   });
 
   it('contains no duplicate country/term pairs that would spend quota twice', () => {
-    const seen = SECONDARY_GRID.map((query) => `${query.q}::${query.location}`);
-    expect(new Set(seen).size).toBe(seen.length);
+    for (const grid of [serpGrid, jsearchGrid]) {
+      const seen = grid.map((query) => `${query.q}::${query.location}`);
+      expect(new Set(seen).size).toBe(seen.length);
+    }
   });
 
   it('targets a hub city through `location`, never by naming it in the query', () => {
     // Measured: "seafarer in Aberdeen" @ United Kingdom returns 1 result,
     // while "seafarer" @ Aberdeen,Scotland,United Kingdom returns 10 — the
     // city is a location, not another word the posting must match.
-    const aberdeen = secondaryGridFor('serpapi').filter((query) =>
+    const aberdeen = serpGrid.filter((query) =>
       query.location?.includes('Aberdeen'),
     );
 
-    expect(aberdeen).toHaveLength(1);
-    expect(aberdeen[0].location).toBe('Aberdeen,Scotland,United Kingdom');
-    expect(aberdeen[0].q).not.toMatch(/Aberdeen/);
-    expect(BROAD_TERMS).toContain(aberdeen[0].q);
+    expect(aberdeen).toHaveLength(HUB_TERM_COUNT);
+    for (const query of aberdeen) {
+      expect(query.location).toBe('Aberdeen,Scotland,United Kingdom');
+      expect(query.q).not.toMatch(/Aberdeen/);
+      expect(FLOOR_TERMS).toContain(query.q);
+    }
   });
 
-  it('covers the whole secondary grid within a reasonable rotation at the 3-key leftover budget', () => {
-    // 3 SerpApi keys = 24/day, minus the 12-country floor = 12/day left over
-    // for the secondary rotation. This just confirms every combination does
-    // eventually come back around — listings are never deleted for going
-    // unconfirmed (see refresh.ts), so there's no staleness deadline to beat,
-    // only "does the rotation actually reach everything".
-    const perDay = 12;
-    const cycleDays = Math.ceil(SECONDARY_GRID.length / perDay);
-    const covered = new Set(
-      Array.from({ length: cycleDays }, (_, day) =>
-        pickRotationSlice(SECONDARY_GRID, day, perDay),
-      )
-        .flat()
-        .map((query) => `${query.q}::${query.location}`),
+  it('mixes rank, specialist and hub searches through the rotation instead of running them in blocks', () => {
+    // A 16-search day (the 3-key SerpApi leftover) should already carry a
+    // bit of each, rather than weeks of one kind before the next starts.
+    const specialist = new Set(SPECIALIST_TERMS);
+    const firstDay = pickRotationSlice(serpGrid, 0, 16);
+    expect(firstDay.some((q) => specialist.has(q.q))).toBe(true);
+    expect(firstDay.some((q) => RANK_TERMS.includes(q.q))).toBe(true);
+
+    const firstWeek = pickRotationSlice(serpGrid, 0, 16 * 7);
+    expect(firstWeek.some((q) => !countryNames.has(q.location as string))).toBe(
+      true,
     );
-
-    expect(covered.size).toBe(SECONDARY_GRID.length);
   });
+
+  it.each([
+    // 3 keys x 8/day minus the 8-country floor; 3 keys x 6/day minus the 12-country floor.
+    ['serpapi', serpGrid, 16],
+    ['jsearch', jsearchGrid, 6],
+  ] as const)(
+    '%s rotation reaches every combination within a month at the 3-key budget',
+    (_provider, grid, perDay) => {
+      // Adding keywords at a fixed budget stretches how long any single
+      // search waits for its next turn — this is the guard against a list
+      // growing past what the budget can actually cycle through.
+      const cycleDays = Math.ceil(grid.length / perDay);
+      expect(cycleDays).toBeLessThanOrEqual(30);
+
+      const covered = new Set(
+        Array.from({ length: cycleDays }, (_, day) =>
+          pickRotationSlice(grid, day, perDay),
+        )
+          .flat()
+          .map((query) => `${query.q}::${query.location}`),
+      );
+      expect(covered.size).toBe(grid.length);
+    },
+  );
 });
 
 describe('QUERY_GRID', () => {
   it('is the floor’s full term space plus both providers’ secondary grids', () => {
-    const serpHubs = countriesFor('serpapi').reduce(
-      (total, { hubs }) => total + (hubs?.length ?? 0),
-      0,
-    );
-    // Role terms are shared between the providers, so they dedupe down to
-    // one copy; the hub searches are SerpApi-only and add on top.
+    // No overlap to dedupe: floor terms never appear at country level in a
+    // secondary grid, and SerpApi's and JSearch's secondary markets are disjoint.
     expect(QUERY_GRID).toHaveLength(
-      BROAD_TERMS.length * MARITIME_COUNTRIES.length +
-        SECONDARY_GRID.length +
-        serpHubs,
+      FLOOR_TERMS.length * MARITIME_COUNTRIES.length +
+        serpGrid.length +
+        jsearchGrid.length,
     );
   });
 
@@ -288,14 +373,31 @@ describe('search terms against the maritime scope filter', () => {
     'Ship Captain',
     'Master Mariner',
     'Electro-Technical Officer',
+    'Electro Technical Officer',
     'ETO Marine Electrician',
     'Superyacht Chef',
     'Radio Officer',
     'Ship Bosun',
     'Cruise Ship Purser',
+    'Officer of the Watch',
+    'OOW',
+    'EOOW',
+    'Watchkeeping Engineer',
+    'Engine Room Watchkeeper',
+    'Boatswain',
+    'Pumpman',
+    'Deck Crew',
+    'Reefer Engineer',
+    'LNG Carrier Chief Engineer',
+    'Gas Carrier Second Officer',
+    'AHTS Master',
+    'OSV Chief Engineer',
+    'Ro-Ro Chief Officer',
+    'Ropax Second Officer',
+    'Dredger Master',
   ])('keeps a "%s" listing in scope', (title) => {
-    // Every ROLE_TERMS search is wasted quota if the filter then drops what it
-    // returns, so the ranks those terms target must survive on the title alone.
+    // Every search is wasted quota if the filter then drops what it
+    // returns, so the titles those terms target must survive on the title alone.
     expect(isInMaritimeScope(listingFor(title))).toBe(true);
   });
 
@@ -304,12 +406,13 @@ describe('search terms against the maritime scope filter', () => {
     'Hotel Steward',
     'Line Cook',
     'Airline Purser',
+    // Deliberately not scope terms (scope.ts) — each is an ordinary title
+    // in another trade, so a listing must earn scope through another word.
+    'Multi-Engine Rating Pilot',
+    'Road Towage Driver',
+    'Cement Bulker Driver',
+    'Cable Layer',
   ])('still rejects an unrelated "%s" listing', (title) => {
-    // "Purser" alone is deliberately not a scope term (scope.ts) — airlines
-    // use the same title for cabin crew leads, so a purser listing must
-    // still earn scope through another maritime word actually in its text
-    // (e.g. "cruise" or "ship", covered above), same as the bare
-    // "steward"/"cook" precedent.
     expect(isInMaritimeScope(listingFor(title))).toBe(false);
   });
 });

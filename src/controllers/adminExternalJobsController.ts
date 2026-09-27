@@ -7,6 +7,7 @@ import { AppError } from '../utils/AppError.js';
 import { ActorType } from '../generated/client/index.js';
 import { logActivity } from '../services/activityLogger.js';
 import { getClientIp } from '../utils/requestMetadata.js';
+import { invalidateExternalJobsPool } from '../services/externalJobs/index.js';
 
 /**
  * Admin visibility and moderation over the scraped/external job pool
@@ -104,6 +105,7 @@ export const deleteExternalJobListing = catchAsync(
         hiddenByAdminId: adminId,
       },
     });
+    invalidateExternalJobsPool();
 
     await logActivity({
       action: 'EXTERNAL_JOB_REMOVED',

@@ -3,7 +3,7 @@ import { getExternalJobsForProfessional } from '../services/externalJobs/index.j
 import { ProfessionalWithResume } from '../services/externalJobs/profileQuery.js';
 
 describe('getExternalJobsForProfessional', () => {
-  const testRunId = Date.now();
+  const testRunId = `for-professional-${Date.now()}`;
   const listingIds: string[] = [];
 
   const makeListing = (

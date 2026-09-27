@@ -100,6 +100,12 @@ const envSchema = z.object({
    * vary per tenant. Each entry optionally suffixed `|Display Name`.
    */
   ATS_WORKDAY_CAREER_SITES: z.string().optional(),
+  /** Comma-separated Pinpoint company subdomains; each entry optionally `company:Display Name`. */
+  ATS_PINPOINT_COMPANIES: z.string().optional(),
+  /** Comma-separated Teamtailor company subdomains; each entry optionally `company:Display Name`. */
+  ATS_TEAMTAILOR_COMPANIES: z.string().optional(),
+  /** Comma-separated Recruitee company subdomains; each entry optionally `company:Display Name`. */
+  ATS_RECRUITEE_COMPANIES: z.string().optional(),
   /**
    * Apple In-App Purchase (iOS app only — no effect on the website/Stripe
    * flow). Without APPLE_BUNDLE_ID set, the apple/confirm endpoint and the

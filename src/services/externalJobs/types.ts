@@ -20,6 +20,13 @@ export type ExternalJob = {
    * `toExternalJob`) actually has one.
    */
   fetchedAt?: string;
+  /**
+   * When this listing was first stored (ISO string) — only set on rows read
+   * back from the database. The recency fallback for undated company-board
+   * listings, whose `fetchedAt` is re-stamped every day (see
+   * externalJobs/index.ts's `postedAtMs`).
+   */
+  firstSeenAt?: string;
   /** Where the seeker goes to apply — always an off-platform employer/board URL. */
   applyLink: string | null;
   /** Human-readable origin, e.g. "Indeed" or "MaritimeJobs". */
@@ -32,7 +39,8 @@ export type ExternalJob = {
   source: 'external';
   /**
    * Which adapter produced this row. `greenhouse` / `lever` / `smartrecruiters`
-   * / `workday` are company career-page sources via those ATS platforms — see
+   * / `workday` / `pinpoint` / `teamtailor` / `recruitee` are company
+   * career-page sources via those hiring platforms — see
    * externalJobs/ats/.
    */
   provider:
@@ -42,7 +50,10 @@ export type ExternalJob = {
     | 'greenhouse'
     | 'lever'
     | 'smartrecruiters'
-    | 'workday';
+    | 'workday'
+    | 'pinpoint'
+    | 'teamtailor'
+    | 'recruitee';
   /** Relevance against the requesting professional; absent when unranked. */
   matchScore?: number;
   matchReasons?: string[];
