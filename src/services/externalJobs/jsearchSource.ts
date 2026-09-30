@@ -3,6 +3,8 @@ import { env } from '../../config/env.js';
 import { ExternalJob, ExternalJobQuery } from './types.js';
 import { toAlpha2CountryCode } from './countryCodes.js';
 import { resolveApiKeys } from './apiKeyPool.js';
+import { pickApplyLink } from './applyLink.js';
+import { relativeToIso } from './textUtils.js';
 
 /**
  * JSearch (RapidAPI), a second live job source independent of SerpApi —
@@ -65,6 +67,12 @@ type JSearchJobResult = {
   job_is_remote?: boolean;
   job_description?: string;
   job_apply_link?: string;
+  /** Every site listing this vacancy; `is_direct` marks the employer's own page. */
+  apply_options?: {
+    publisher?: string;
+    apply_link?: string;
+    is_direct?: boolean;
+  }[];
   job_publisher?: string;
   job_employment_type?: string;
   job_posted_at?: string;
@@ -219,13 +227,17 @@ const buildLocation = (
   return parts.length ? parts.join(', ') : null;
 };
 
-const resolvePostedAt = (job: JSearchJobResult): string | null => {
+const resolvePostedAt = (
+  job: JSearchJobResult,
+  readAt: Date,
+): string | null => {
   if (job.job_posted_at_datetime_utc) return job.job_posted_at_datetime_utc;
   if (typeof job.job_posted_at_timestamp === 'number') {
     const parsed = new Date(job.job_posted_at_timestamp * 1000);
     if (!Number.isNaN(parsed.getTime())) return parsed.toISOString();
   }
-  return job.job_posted_at ?? null;
+  // Relative text ("2 days ago") freezes if stored as-is — see relativeToIso.
+  return relativeToIso(job.job_posted_at, readAt);
 };
 
 /**
@@ -236,8 +248,20 @@ const resolvePostedAt = (job: JSearchJobResult): string | null => {
 export const normalizeJSearchJob = (
   job: JSearchJobResult,
   targetCountryName: string | null = null,
+  readAt: Date = new Date(),
 ): ExternalJob | null => {
   if (!job.job_id || !job.job_title) return null;
+
+  // Employer-direct options first, then the default link, then the rest —
+  // and none from an expiry-prone re-posting site (see applyLink.ts). A
+  // vacancy only listed on such sites isn't listed here either.
+  const options = job.apply_options ?? [];
+  const applyLink = pickApplyLink([
+    ...options.filter((o) => o.is_direct).map((o) => o.apply_link),
+    job.job_apply_link,
+    ...options.filter((o) => !o.is_direct).map((o) => o.apply_link),
+  ]);
+  if (!applyLink) return null;
 
   return {
     id: `jsearch:${job.job_id}`,
@@ -246,8 +270,8 @@ export const normalizeJSearchJob = (
     location: buildLocation(job, targetCountryName),
     description: job.job_description ?? '',
     salary: null,
-    postedAt: resolvePostedAt(job),
-    applyLink: job.job_apply_link ?? null,
+    postedAt: resolvePostedAt(job, readAt),
+    applyLink,
     via: job.job_publisher?.trim() || null,
     thumbnail: null,
     // Same reasoning as SerpApi: no clean occupational category upstream.

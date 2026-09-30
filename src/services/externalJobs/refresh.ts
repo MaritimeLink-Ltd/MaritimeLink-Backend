@@ -2,6 +2,10 @@ import axios from 'axios';
 import { fetchFeedJobs } from './feedSource.js';
 import { fetchAtsJobs } from './ats/index.js';
 import { FULL_REFRESH_PROVIDERS, prunablePrefixes } from './prune.js';
+import {
+  purgeExpiredSearchListings,
+  verifyFetchedSearchJobs,
+} from './expiry.js';
 import { dedupeJobs } from './dedupe.js';
 import {
   fetchSerpApiJobs,
@@ -489,31 +493,6 @@ const upsertListing = (job: ExternalJob, fetchedAt: Date) =>
     },
   });
 
-/**
- * How long a SerpApi/JSearch listing may sit on the platform before it's
- * treated as expired, regardless of the rotation.
- *
- * Deliberately a fixed, generous window rather than one derived from the
- * rotation's cycle speed (the earlier design): that coupling meant a listing
- * could be deleted purely because its query hadn't come back around yet —
- * indistinguishable from the listing actually being gone, and it isn't.
- *
- * 35 days is what's actually needed now, not just a round bigger number:
- * promoting Egypt/South Africa/Kenya/Ethiopia to `core` depth (queryGrid.ts —
- * they were missing real, available jobs at 'broad') grew JSearch's
- * secondary rotation to 144 combinations. At its leanest realistic budget
- * (3 keys, 6/day floor leaves 6/day for the secondary rotation), that cycles
- * in 24 days — so a retention window even at the old 21 days would have
- * deleted a listing 3 days before its query's next scheduled turn to
- * re-confirm it. 35 days keeps a real margin above that, the same way 21 did
- * over the smaller grid it was sized for.
- */
-const LISTING_RETENTION_DAYS = 35;
-
-/** Anchored on `createdAt` — see the comment on `LISTING_RETENTION_DAYS`. */
-const retentionCutoff = (now: Date, days: number): Date =>
-  new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
-
 export type RefreshSummary = {
   serpApiQueriesRun: number;
   serpApiQuotaNote: string;
@@ -523,7 +502,7 @@ export type RefreshSummary = {
   jobsStored: number;
   /** Feed/ATS listings removed because today's full re-fetch no longer includes them. */
   fullRefreshRemoved: number;
-  /** SerpApi/JSearch listings removed for exceeding LISTING_RETENTION_DAYS. */
+  /** SerpApi/JSearch listings permanently deleted as expired (see expiry.ts). */
   expiredRemoved: number;
 };
 
@@ -540,17 +519,10 @@ export type RefreshSummary = {
  *
  * SerpApi/JSearch listings are NOT pruned on rotation timing: each is only
  * re-confirmed when its query's turn comes back around (see queryGrid.ts),
- * which is not a signal that the listing has expired, so deleting on that
- * basis would remove listings a professional saw only days ago. Instead:
- *   - Age is handled through *ranking* first — getExternalJobsForProfessional
- *     always sorts newest-first, so older listings sink toward the bottom of
- *     their band rather than disappearing.
- *   - `createdAt` (first-seen, never touched by the upsert below) is checked
- *     against a fixed LISTING_RETENTION_DAYS window as a hard backstop, so
- *     the table doesn't grow forever with listings that are, realistically,
- *     long expired. `createdAt` rather than `fetchedAt` on purpose — the
- *     latter only reflects when the rotation last happened to touch this
- *     listing, not how long it's actually been on the platform.
+ * which is not a signal that the listing has expired. Instead expiry.ts
+ * permanently deletes the ones that are: links on expiry-prone re-posting
+ * sites, links that now 404 or say "no longer available", and anything past
+ * SEARCH_LISTING_MAX_AGE_DAYS from its real posted date.
  * The other way a scraped listing leaves the platform is admin moderation
  * (`hiddenByAdmin`, see adminExternalJobsController.ts) — always immediate,
  * regardless of age.
@@ -640,7 +612,18 @@ export const refreshExternalJobs = async (): Promise<RefreshSummary> => {
     ),
   );
 
-  await inChunks(inScope, DB_WRITE_CONCURRENCY, (job) =>
+  // Dead, expired and unverifiable search results are dropped before they
+  // can be saved — and removed if an earlier run had stored them.
+  const verdict = await verifyFetchedSearchJobs(inScope, runStartedAt);
+  if (verdict.rejectedIds.length > 0) {
+    await prisma.externalJobListing.deleteMany({
+      // Admin-hidden rows stay: they're tombstones against re-creation.
+      where: { id: { in: verdict.rejectedIds }, hiddenByAdmin: false },
+    });
+  }
+  const toStore = verdict.kept;
+
+  await inChunks(toStore, DB_WRITE_CONCURRENCY, (job) =>
     upsertListing(job, runStartedAt),
   );
 
@@ -659,14 +642,10 @@ export const refreshExternalJobs = async (): Promise<RefreshSummary> => {
               })),
             },
           }),
-      prisma.externalJobListing.deleteMany({
-        where: {
-          provider: { in: ['serpapi', 'jsearch'] },
-          createdAt: {
-            lt: retentionCutoff(runStartedAt, LISTING_RETENTION_DAYS),
-          },
-        },
-      }),
+      purgeExpiredSearchListings({
+        now: runStartedAt,
+        verifiedSince: runStartedAt,
+      }).then((purge) => ({ count: purge.total })),
     ]);
 
   const summary: RefreshSummary = {
@@ -675,9 +654,9 @@ export const refreshExternalJobs = async (): Promise<RefreshSummary> => {
     jSearchQueriesRun: jSearchRun.spent,
     jSearchNote: jSearch.note,
     jobsFound: inScope.length,
-    jobsStored: inScope.length,
+    jobsStored: toStore.length,
     fullRefreshRemoved,
-    expiredRemoved,
+    expiredRemoved: expiredRemoved + verdict.rejectedIds.length,
   };
 
   console.log('[external-jobs] refresh complete:', summary);

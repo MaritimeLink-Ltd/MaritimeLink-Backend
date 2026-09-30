@@ -4,6 +4,9 @@ import {
   verifyJobCountry,
 } from '../services/externalJobs/jsearchSource.js';
 
+// Every listing now needs a usable apply link (see applyLink.ts).
+const withLink = { job_apply_link: 'https://example.com/apply' };
+
 describe('normalizeJSearchJob', () => {
   it('maps a full JSearch result to the shared ExternalJob shape', () => {
     const result = normalizeJSearchJob(
@@ -44,6 +47,7 @@ describe('normalizeJSearchJob', () => {
     // job_country is proven untrustworthy (see verifyJobCountry) — it must
     // never appear in the displayed location, with or without a target.
     const result = normalizeJSearchJob({
+      ...withLink,
       job_id: 'x',
       job_title: 'T',
       job_city: 'Lagos',
@@ -59,7 +63,7 @@ describe('normalizeJSearchJob', () => {
     // fallback (no city/state to check) — naming a specific country here
     // would claim a certainty the data doesn't support.
     const result = normalizeJSearchJob(
-      { job_id: 'x', job_title: 'T', job_is_remote: true },
+      { ...withLink, job_id: 'x', job_title: 'T', job_is_remote: true },
       'Nigeria',
     );
 
@@ -68,7 +72,13 @@ describe('normalizeJSearchJob', () => {
 
   it('still shows city + country for a remote job that does carry a real city', () => {
     const result = normalizeJSearchJob(
-      { job_id: 'x', job_title: 'T', job_city: 'Lagos', job_is_remote: true },
+      {
+        ...withLink,
+        job_id: 'x',
+        job_title: 'T',
+        job_city: 'Lagos',
+        job_is_remote: true,
+      },
       'Nigeria',
     );
 
@@ -82,6 +92,7 @@ describe('normalizeJSearchJob', () => {
 
   it('falls back to the unix timestamp when job_posted_at_datetime_utc is absent', () => {
     const result = normalizeJSearchJob({
+      ...withLink,
       job_id: 'x',
       job_title: 'Title',
       job_posted_at_timestamp: 1_755_648_000, // 2025-08-20T00:00:00Z
@@ -90,36 +101,82 @@ describe('normalizeJSearchJob', () => {
     expect(result?.postedAt).toBe(new Date(1_755_648_000 * 1000).toISOString());
   });
 
-  it('falls back to the raw job_posted_at string when no structured date is present', () => {
+  it('turns relative job_posted_at text into a real date when no structured date is present', () => {
+    // Stored as-is, "3 days ago" froze — it still said so weeks later.
+    const readAt = new Date('2026-09-29T12:00:00Z');
+    const result = normalizeJSearchJob(
+      { ...withLink, job_id: 'x', job_title: 'T', job_posted_at: '3 days ago' },
+      null,
+      readAt,
+    );
+    expect(result?.postedAt).toBe('2026-09-26T12:00:00.000Z');
+  });
+
+  it('drops a job with no apply link, or only expiry-prone ones', () => {
+    expect(normalizeJSearchJob({ job_id: 'x', job_title: 'T' })).toBeNull();
+    expect(
+      normalizeJSearchJob({
+        job_id: 'x',
+        job_title: 'T',
+        job_apply_link: 'https://bebee.com/in/jobs/1',
+        apply_options: [
+          { apply_link: 'https://za.jobrapido.com/1', is_direct: false },
+        ],
+      }),
+    ).toBeNull();
+  });
+
+  it('prefers the employer-direct apply option over the default board link', () => {
     const result = normalizeJSearchJob({
       job_id: 'x',
-      job_title: 'Title',
-      job_posted_at: '3 days ago',
+      job_title: 'T',
+      job_apply_link: 'https://uk.linkedin.com/jobs/view/1',
+      apply_options: [
+        { apply_link: 'https://uk.linkedin.com/jobs/view/1', is_direct: false },
+        {
+          apply_link: 'https://careers.acme-shipping.com/jobs/7',
+          is_direct: true,
+        },
+      ],
     });
-
-    expect(result?.postedAt).toBe('3 days ago');
+    expect(result?.applyLink).toBe('https://careers.acme-shipping.com/jobs/7');
   });
 
   it('builds location from city + target country, and null when both are absent', () => {
     expect(
       normalizeJSearchJob(
-        { job_id: 'x', job_title: 'T', job_city: 'Lagos' },
+        { ...withLink, job_id: 'x', job_title: 'T', job_city: 'Lagos' },
         'Nigeria',
       )?.location,
     ).toBe('Lagos, Nigeria');
     expect(
-      normalizeJSearchJob({ job_id: 'x', job_title: 'T', job_city: 'Lagos' })
-        ?.location,
+      normalizeJSearchJob({
+        ...withLink,
+        ...withLink,
+        job_id: 'x',
+        job_title: 'T',
+        job_city: 'Lagos',
+      })?.location,
     ).toBe('Lagos');
     expect(
-      normalizeJSearchJob({ job_id: 'x', job_title: 'T' })?.location,
+      normalizeJSearchJob({
+        ...withLink,
+        ...withLink,
+        job_id: 'x',
+        job_title: 'T',
+      })?.location,
     ).toBeNull();
   });
 
   it('treats a blank employer_name as no company, not an empty string', () => {
     expect(
-      normalizeJSearchJob({ job_id: 'x', job_title: 'T', employer_name: '   ' })
-        ?.company,
+      normalizeJSearchJob({
+        ...withLink,
+        ...withLink,
+        job_id: 'x',
+        job_title: 'T',
+        employer_name: '   ',
+      })?.company,
     ).toBeNull();
   });
 });

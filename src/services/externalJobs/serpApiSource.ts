@@ -2,6 +2,8 @@ import axios from 'axios';
 import { env } from '../../config/env.js';
 import { ExternalJob, ExternalJobQuery } from './types.js';
 import { resolveApiKeys } from './apiKeyPool.js';
+import { pickApplyLink } from './applyLink.js';
+import { relativeToIso } from './textUtils.js';
 
 /**
  * Google Jobs results, via SerpApi's hosted API.
@@ -66,25 +68,36 @@ const stripVia = (via: unknown) =>
     .replace(/^via\s+/i, '')
     .trim() || null;
 
-const normalize = (job: SerpApiJobResult): ExternalJob => ({
-  id: `serpapi:${job.job_id}`,
-  title: job.title,
-  company: job.company_name?.trim() || null,
-  location: job.location?.trim() || null,
-  description: job.description ?? '',
-  salary: job.detected_extensions?.salary ?? null,
-  postedAt: job.detected_extensions?.posted_at ?? null,
-  applyLink: job.apply_options?.find((option) => option.link)?.link ?? null,
-  via: stripVia(job.via),
-  thumbnail: job.thumbnail ?? null,
-  // Google Jobs exposes no occupational category — only a schedule type, which
-  // is employment terms, not a category. Feeding it to the matcher as a
-  // category would compare "Full-time" against a professional's rank.
-  category: null,
-  employmentType: job.detected_extensions?.schedule_type ?? null,
-  source: 'external',
-  provider: 'serpapi',
-});
+/**
+ * Null when every apply link is on an expiry-prone re-posting site (see
+ * applyLink.ts) — such a vacancy isn't worth listing.
+ */
+const normalize = (job: SerpApiJobResult, readAt: Date): ExternalJob | null => {
+  const applyLink = pickApplyLink(
+    (job.apply_options ?? []).map((option) => option.link),
+  );
+  if (!applyLink) return null;
+
+  return {
+    id: `serpapi:${job.job_id}`,
+    title: job.title,
+    company: job.company_name?.trim() || null,
+    location: job.location?.trim() || null,
+    description: job.description ?? '',
+    salary: job.detected_extensions?.salary ?? null,
+    postedAt: relativeToIso(job.detected_extensions?.posted_at, readAt),
+    applyLink,
+    via: stripVia(job.via),
+    thumbnail: job.thumbnail ?? null,
+    // Google Jobs exposes no occupational category — only a schedule type, which
+    // is employment terms, not a category. Feeding it to the matcher as a
+    // category would compare "Full-time" against a professional's rank.
+    category: null,
+    employmentType: job.detected_extensions?.schedule_type ?? null,
+    source: 'external',
+    provider: 'serpapi',
+  };
+};
 
 /** Every configured SerpApi key, in slot order. Each has its own monthly quota. */
 export const resolveSerpApiKeys = (): string[] =>
@@ -201,9 +214,11 @@ export const fetchSerpApiJobs = async (
     throw new Error(`SerpApi: ${response.data.error}`);
   }
 
+  const readAt = new Date();
   const jobs = (response.data.jobs_results ?? [])
     .filter((job) => job.job_id && job.title)
-    .map(normalize);
+    .map((job) => normalize(job, readAt))
+    .filter((job): job is ExternalJob => job !== null);
 
   return {
     jobs,

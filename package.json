@@ -19,6 +19,8 @@
     "job:expiry-reminders:prod": "node dist/scripts/send-expiry-reminders.js",
     "job:refresh-external-jobs": "tsx src/scripts/refresh-external-jobs.ts",
     "job:refresh-external-jobs:prod": "node dist/scripts/refresh-external-jobs.js",
+    "job:purge-expired-jobs": "tsx src/scripts/purge-expired-external-jobs.ts",
+    "job:purge-expired-jobs:prod": "node dist/scripts/purge-expired-external-jobs.js",
     "job:daily": "tsx src/scripts/run-daily-jobs.ts",
     "job:daily:prod": "node dist/scripts/run-daily-jobs.js",
     "prepare": "if [ \"$NODE_ENV\" != \"production\" ]; then husky; fi"
