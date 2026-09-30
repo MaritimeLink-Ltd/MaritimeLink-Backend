@@ -57,6 +57,8 @@ model Professional {
   resume                     ProfessionalResume?
   savedCourses               SavedCourse[]
   savedJobs                  SavedJob[]
+  phoneHandoffTokens         PhoneHandoffToken[]
+  shareLinks                 ShareLink[]
 }
 
 model ProfessionalFeedback {
@@ -784,6 +786,37 @@ model ProfessionalDocument {
 
   @@index([expiryDate])
   @@map("professional_documents")
+}
+
+/// One-time link from the desktop Document Wallet's QR code that signs the
+/// same professional in on their phone. Only a hash of the token is stored;
+/// each is short-lived and consumed on first use.
+model PhoneHandoffToken {
+  id             String       @id @default(uuid())
+  tokenHash      String       @unique
+  professionalId String
+  expiresAt      DateTime
+  usedAt         DateTime?
+  createdAt      DateTime     @default(now())
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@index([professionalId])
+  @@map("phone_handoff_tokens")
+}
+
+/// Short code behind a profile / document-pack share URL. The signed share
+/// token (which carries the selection and expiry) is kept here so the URL
+/// the professional sends stays short: /shared/profile/<code>.
+model ShareLink {
+  code           String       @id
+  token          String
+  professionalId String
+  expiresAt      DateTime
+  createdAt      DateTime     @default(now())
+  professional   Professional @relation(fields: [professionalId], references: [id], onDelete: Cascade)
+
+  @@index([professionalId])
+  @@map("share_links")
 }
 
 model ActivityLog {

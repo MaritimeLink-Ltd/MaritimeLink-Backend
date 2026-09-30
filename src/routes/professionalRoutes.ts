@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import multer from 'multer';
+import { rateLimit } from 'express-rate-limit';
 import * as authController from '../controllers/professionalAuthController.js';
 import * as kycController from '../controllers/professionalKycController.js';
 import * as documentController from '../controllers/professionalDocumentController.js';
 import * as profileShareController from '../controllers/professionalProfileShareController.js';
+import * as phoneHandoffController from '../controllers/professionalPhoneHandoffController.js';
 import * as publicProfileController from '../controllers/publicProfileController.js';
 import * as courseController from '../controllers/professionalCourseController.js';
 import { protect } from '../middlewares/authMiddleware.js';
@@ -636,6 +638,62 @@ router.post(
   protect,
   documentController.createDocumentPackShareLink,
 );
+
+/**
+ * @swagger
+ * /api/professional/documents/phone-link:
+ *   post:
+ *     summary: Create a one-time link that signs this professional in on their phone
+ *     description: >
+ *       Backs the QR code on the desktop Document Wallet upload screen. The token is
+ *       valid for 10 minutes and can be used once; the phone exchanges it at
+ *       POST /api/professional/phone-link/redeem.
+ *     tags: [Professional Documents]
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       201: { description: "Token created: { token, expiresAt, expiresInSeconds }" }
+ */
+router.post(
+  '/documents/phone-link',
+  protect,
+  phoneHandoffController.createPhoneHandoff,
+);
+
+const phoneHandoffRedeemLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: 'Too many attempts. Please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+/**
+ * @swagger
+ * /api/professional/phone-link/redeem:
+ *   post:
+ *     summary: Exchange a one-time phone link for a session (public)
+ *     description: Same response as /api/professional/login.
+ *     tags: [Professional Documents]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [token]
+ *             properties:
+ *               token: { type: string }
+ *     responses:
+ *       200: { description: Signed in }
+ *       401: { description: Link expired, already used, or invalid }
+ *       403: { description: Account restricted }
+ */
+router.post(
+  '/phone-link/redeem',
+  phoneHandoffRedeemLimiter,
+  phoneHandoffController.redeemPhoneHandoff,
+);
+
 router.get(
   '/documents/shared/:token/file/:documentId',
   documentController.streamSharedDocumentFile,

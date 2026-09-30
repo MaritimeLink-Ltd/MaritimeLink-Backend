@@ -8,6 +8,10 @@ import {
   validateDocumentType,
 } from '../services/geminiService.js';
 import { env } from '../config/env.js';
+import {
+  createShareCode,
+  resolveShareToken,
+} from '../services/shareLinkService.js';
 import jwt, { type JwtPayload } from 'jsonwebtoken';
 import {
   uploadDocumentSchema,
@@ -48,7 +52,14 @@ type DocumentPackShareJwt = JwtPayload & {
   docIds?: string[];
 };
 
-const verifyDocumentPackShareToken = (token: string): DocumentPackShareJwt => {
+/** Accepts the short code from the URL (or a legacy full JWT). */
+const verifyDocumentPackShareToken = async (
+  segment: string,
+): Promise<DocumentPackShareJwt> => {
+  const token = await resolveShareToken(segment);
+  if (!token) {
+    throw new AppError('Invalid or expired share link', 401);
+  }
   try {
     const payload = jwt.verify(token, env.JWT_SECRET) as DocumentPackShareJwt;
     if (
@@ -863,9 +874,15 @@ export const createDocumentPackShareLink = catchAsync(
     );
 
     const frontendBase = env.FRONTEND_URL.replace(/\/+$/, '');
-    const secureLink = `${frontendBase}/personal/documents/shared/${encodeURIComponent(token)}`;
+    const expiresAtDate = new Date(Date.now() + ttlSeconds * 1000);
+    const code = await createShareCode({
+      professionalId,
+      token,
+      expiresAt: expiresAtDate,
+    });
+    const secureLink = `${frontendBase}/personal/documents/shared/${code}`;
 
-    const expiresAt = new Date(Date.now() + ttlSeconds * 1000).toISOString();
+    const expiresAt = expiresAtDate.toISOString();
 
     await logActivity({
       action: 'DOCUMENT_PACK_SHARED',
@@ -913,7 +930,7 @@ export const getSharedDocumentPack = catchAsync(
 
     let payload: DocumentPackShareJwt;
     try {
-      payload = verifyDocumentPackShareToken(token);
+      payload = await verifyDocumentPackShareToken(token);
     } catch (error) {
       return next(error);
     }
@@ -979,7 +996,7 @@ export const streamSharedDocumentFile = catchAsync(
 
     let payload: DocumentPackShareJwt;
     try {
-      payload = verifyDocumentPackShareToken(token);
+      payload = await verifyDocumentPackShareToken(token);
     } catch (error) {
       return next(error);
     }

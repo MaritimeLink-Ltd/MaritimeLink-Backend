@@ -4,6 +4,10 @@ import { prisma } from '../config/prisma.js';
 import { AppError } from '../utils/AppError.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { env } from '../config/env.js';
+import {
+  createShareCode,
+  resolveShareToken,
+} from '../services/shareLinkService.js';
 import { CustomRequest } from '../types/index.js';
 import { logActivity } from '../services/activityLogger.js';
 import { getDocumentDisplayCategory } from './professionalDocumentController.js';
@@ -51,7 +55,14 @@ type ProfileShareJwt = JwtPayload & {
   docIds?: string[];
 };
 
-const verifyProfileShareToken = (token: string): ProfileShareJwt => {
+/** Accepts the short code from the URL (or a legacy full JWT). */
+const verifyProfileShareToken = async (
+  segment: string,
+): Promise<ProfileShareJwt> => {
+  const token = await resolveShareToken(segment);
+  if (!token) {
+    throw new AppError('This link is invalid or has expired.', 401);
+  }
   try {
     const payload = jwt.verify(token, env.JWT_SECRET) as ProfileShareJwt;
     if (
@@ -169,10 +180,14 @@ export const createProfileShareLink = catchAsync(
     );
 
     const frontendBase = env.FRONTEND_URL.replace(/\/+$/, '');
-    const shareLink = `${frontendBase}/shared/profile/${encodeURIComponent(token)}`;
-    const expiresAt = new Date(
-      Date.now() + expiresInSeconds * 1000,
-    ).toISOString();
+    const expiresAtDate = new Date(Date.now() + expiresInSeconds * 1000);
+    const code = await createShareCode({
+      professionalId,
+      token,
+      expiresAt: expiresAtDate,
+    });
+    const shareLink = `${frontendBase}/shared/profile/${code}`;
+    const expiresAt = expiresAtDate.toISOString();
 
     await logActivity({
       action: 'PROFILE_SHARED',
@@ -218,7 +233,7 @@ export const getSharedProfile = catchAsync(
 
     let payload: ProfileShareJwt;
     try {
-      payload = verifyProfileShareToken(token);
+      payload = await verifyProfileShareToken(token);
     } catch (error) {
       return next(error);
     }
@@ -356,7 +371,7 @@ export const streamSharedProfileDocument = catchAsync(
 
     let payload: ProfileShareJwt;
     try {
-      payload = verifyProfileShareToken(token);
+      payload = await verifyProfileShareToken(token);
     } catch (error) {
       return next(error);
     }
