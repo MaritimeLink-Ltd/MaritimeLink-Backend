@@ -11,6 +11,24 @@ jest.unstable_mockModule('../services/externalJobs/politeFetcher.js', () => ({
   RobotsDisallowedError,
 }));
 
+type AsyncMock = jest.MockedFunction<(...args: unknown[]) => Promise<unknown>>;
+const mockPrisma = {
+  expiredExternalJob: {
+    findMany: jest.fn() as AsyncMock,
+    createMany: jest.fn() as AsyncMock,
+    deleteMany: jest.fn() as AsyncMock,
+  },
+  externalJobListing: {
+    findMany: jest.fn() as AsyncMock,
+    update: jest.fn() as AsyncMock,
+    deleteMany: jest.fn() as AsyncMock,
+  },
+};
+jest.unstable_mockModule('../config/prisma.js', () => ({
+  prisma: mockPrisma,
+  Prisma: {},
+}));
+
 const { pickApplyLink, isExpiryProneLink, isUncheckableLink } =
   await import('../services/externalJobs/applyLink.js');
 const { relativeToIso } = await import('../services/externalJobs/textUtils.js');
@@ -21,15 +39,22 @@ const {
   isPastMaxAge,
   isDueForLinkCheck,
   isUnverifiableAndUndated,
-  verifyFetchedSearchJobs,
+  verifyFetchedJobs,
+  purgeExpiredListings,
   LINK_CHECK_EVERY_DAYS,
-  SEARCH_LISTING_MAX_AGE_DAYS,
+  MAX_LISTING_AGE_DAYS,
 } = await import('../services/externalJobs/expiry.js');
+const { extractDatePosted } =
+  await import('../services/externalJobs/postedDate.js');
 
 const DAY = 24 * 60 * 60 * 1000;
 const NOW = new Date('2026-09-29T12:00:00Z');
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => {
+  jest.clearAllMocks();
+  mockPrisma.expiredExternalJob.findMany.mockResolvedValue([]);
+  mockPrisma.externalJobListing.findMany.mockResolvedValue([]);
+});
 
 describe('pickApplyLink', () => {
   it('never picks an expiry-prone re-posting site', () => {
@@ -220,12 +245,8 @@ describe('age limit', () => {
     expect(effectivePostedMs(row('3 days ago', 10))).toBe(
       NOW.getTime() - 10 * DAY,
     );
-    expect(isPastMaxAge(row(null, SEARCH_LISTING_MAX_AGE_DAYS + 1), NOW)).toBe(
-      true,
-    );
-    expect(isPastMaxAge(row(null, SEARCH_LISTING_MAX_AGE_DAYS - 1), NOW)).toBe(
-      false,
-    );
+    expect(isPastMaxAge(row(null, MAX_LISTING_AGE_DAYS + 1), NOW)).toBe(true);
+    expect(isPastMaxAge(row(null, MAX_LISTING_AGE_DAYS - 1), NOW)).toBe(false);
   });
 });
 
@@ -265,7 +286,7 @@ describe('isUnverifiableAndUndated', () => {
   });
 });
 
-describe('verifyFetchedSearchJobs', () => {
+describe('verifyFetchedJobs', () => {
   const job = (
     id: string,
     provider: string,
@@ -273,7 +294,7 @@ describe('verifyFetchedSearchJobs', () => {
     postedAt: string | null,
   ) =>
     ({ id, provider, applyLink, postedAt }) as unknown as Parameters<
-      typeof verifyFetchedSearchJobs
+      typeof verifyFetchedJobs
     >[0][number];
   const daysAgo = (n: number) =>
     new Date(NOW.getTime() - n * DAY).toISOString();
@@ -284,7 +305,7 @@ describe('verifyFetchedSearchJobs', () => {
         ? '<p>This job is no longer available</p>'
         : '<h1>Bosun</h1>',
     );
-    const verdict = await verifyFetchedSearchJobs(
+    const verdict = await verifyFetchedJobs(
       [
         job('s:live', 'serpapi', 'https://careers.a.example/live', daysAgo(2)),
         job('s:dead', 'serpapi', 'https://careers.b.example/dead', daysAgo(2)),
@@ -296,27 +317,163 @@ describe('verifyFetchedSearchJobs', () => {
           'https://uk.linkedin.com/jobs/view/2',
           daysAgo(3),
         ),
-        job('ats:board', 'lever', 'https://jobs.lever.co/x/1', null),
       ],
       NOW,
     );
     expect(verdict.kept.map((j) => j.id).sort()).toEqual([
-      'ats:board',
       'j:dated-blind',
       's:live',
     ]);
     expect(verdict.rejectedIds.sort()).toEqual(['j:blind', 'j:old', 's:dead']);
-    expect(verdict.counts).toEqual({
+    expect(verdict.counts).toMatchObject({
       expiryProne: 0,
       tooOld: 1,
       unverifiable: 1,
       deadLink: 1,
     });
-    // Company-board jobs aren't fetched again here: their source is re-read in full daily.
-    expect(politeGet).not.toHaveBeenCalledWith(
-      'https://jobs.lever.co/x/1',
-      expect.anything(),
-      expect.anything(),
+  });
+
+  it('applies the 30-day limit to company-board jobs too', async () => {
+    const verdict = await verifyFetchedJobs(
+      [
+        job('lever:c:new', 'lever', 'https://jobs.lever.co/c/1', daysAgo(10)),
+        job('lever:c:old', 'lever', 'https://jobs.lever.co/c/2', daysAgo(31)),
+        job('workday:s:old', 'workday', 'https://s.wd3.example/2', daysAgo(90)),
+      ],
+      NOW,
     );
+    expect(verdict.kept.map((j) => j.id)).toEqual(['lever:c:new']);
+    expect(verdict.rejectedIds.sort()).toEqual([
+      'lever:c:old',
+      'workday:s:old',
+    ]);
+    // Remembered, so tomorrow's refresh doesn't re-create them.
+    expect(mockPrisma.expiredExternalJob.createMany).toHaveBeenCalledWith({
+      data: [{ id: 'lever:c:old' }, { id: 'workday:s:old' }],
+      skipDuplicates: true,
+    });
+    // Board links aren't liveness-checked: the board is re-read in full daily.
+    expect(politeGet).not.toHaveBeenCalled();
+  });
+
+  it('reads an undated board job’s posted date off its job page', async () => {
+    politeGet.mockImplementation(async (url: string) =>
+      url.endsWith('/old')
+        ? `<script type="application/ld+json">{"@type":"JobPosting","datePosted":"${daysAgo(200)}"}</script>`
+        : `<script type="application/ld+json">{"datePosted":"${daysAgo(4)}"}</script>`,
+    );
+    const verdict = await verifyFetchedJobs(
+      [
+        job('pinpoint:v:1', 'pinpoint', 'https://v.pinpointhq.com/p/new', null),
+        job('pinpoint:v:2', 'pinpoint', 'https://v.pinpointhq.com/p/old', null),
+      ],
+      NOW,
+    );
+    expect(verdict.kept).toEqual([
+      expect.objectContaining({ id: 'pinpoint:v:1', postedAt: daysAgo(4) }),
+    ]);
+    expect(verdict.rejectedIds).toEqual(['pinpoint:v:2']);
+    expect(verdict.counts.datesFound).toBe(2);
+  });
+
+  it('reuses a date found on an earlier run instead of re-reading the page', async () => {
+    mockPrisma.externalJobListing.findMany.mockResolvedValue([
+      { id: 'pinpoint:v:1', createdAt: new Date(NOW), postedAt: daysAgo(6) },
+    ]);
+    const verdict = await verifyFetchedJobs(
+      [job('pinpoint:v:1', 'pinpoint', 'https://v.pinpointhq.com/p/1', null)],
+      NOW,
+    );
+    expect(verdict.kept[0].postedAt).toBe(daysAgo(6));
+    expect(politeGet).not.toHaveBeenCalled();
+  });
+
+  it('never re-creates a job already deleted for age', async () => {
+    mockPrisma.expiredExternalJob.findMany.mockResolvedValue([
+      { id: 'pinpoint:v:9' },
+    ]);
+    const verdict = await verifyFetchedJobs(
+      [job('pinpoint:v:9', 'pinpoint', 'https://v.pinpointhq.com/p/9', null)],
+      NOW,
+    );
+    expect(verdict.kept).toEqual([]);
+    expect(verdict.counts.previouslyExpired).toBe(1);
+    expect(politeGet).not.toHaveBeenCalled();
+  });
+
+  it('ages an undated job from when it was first seen, not from today', async () => {
+    mockPrisma.externalJobListing.findMany.mockResolvedValue([
+      {
+        id: 'serpapi:x',
+        createdAt: new Date(NOW.getTime() - 31 * DAY),
+        postedAt: null,
+      },
+    ]);
+    const verdict = await verifyFetchedJobs(
+      [job('serpapi:x', 'serpapi', 'https://careers.a.example/x', null)],
+      NOW,
+    );
+    expect(verdict.rejectedIds).toEqual(['serpapi:x']);
   });
 });
+
+describe('extractDatePosted', () => {
+  it('reads schema.org JobPosting datePosted', () => {
+    expect(
+      extractDatePosted(
+        '<script>{"@type":"JobPosting","datePosted":"2025-05-13T02:50:19+01:00"}</script>',
+      ),
+    ).toBe('2025-05-13T01:50:19.000Z');
+    expect(extractDatePosted('<h1>No date here</h1>')).toBeNull();
+  });
+});
+
+describe('purgeExpiredListings', () => {
+  it('deletes over-age jobs from every source and remembers them', async () => {
+    mockPrisma.externalJobListing.findMany.mockResolvedValue([
+      {
+        id: 'lever:c:old',
+        provider: 'lever',
+        applyLink: 'https://jobs.lever.co/c/2',
+        postedAt: daysAgoIso(40),
+        createdAt: NOW,
+        fetchedAt: NOW,
+        hiddenByAdmin: false,
+      },
+      {
+        id: 'pinpoint:v:1',
+        provider: 'pinpoint',
+        applyLink: 'https://v.pinpointhq.com/p/1',
+        postedAt: null,
+        createdAt: new Date(NOW.getTime() - 31 * DAY),
+        fetchedAt: NOW,
+        hiddenByAdmin: false,
+      },
+      {
+        id: 'lever:c:new',
+        provider: 'lever',
+        applyLink: 'https://jobs.lever.co/c/1',
+        postedAt: daysAgoIso(3),
+        createdAt: NOW,
+        fetchedAt: NOW,
+        hiddenByAdmin: false,
+      },
+    ]);
+    const summary = await purgeExpiredListings({ now: NOW });
+
+    expect(summary.tooOldRemoved).toBe(2);
+    expect(mockPrisma.externalJobListing.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ['lever:c:old', 'pinpoint:v:1'] } },
+    });
+    expect(mockPrisma.expiredExternalJob.createMany).toHaveBeenCalledWith({
+      data: [{ id: 'lever:c:old' }, { id: 'pinpoint:v:1' }],
+      skipDuplicates: true,
+    });
+    // Company-board links aren't liveness-checked.
+    expect(politeGet).not.toHaveBeenCalled();
+  });
+});
+
+function daysAgoIso(n: number) {
+  return new Date(NOW.getTime() - n * DAY).toISOString();
+}

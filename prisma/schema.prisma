@@ -487,22 +487,20 @@ model ExternalJobListing {
   employmentType  String?
   provider        String
   /// Start time of the refresh run that last saw this listing.
-  /// Feed-sourced rows are deleted once no longer returned by that day's full
-  /// re-fetch. SerpApi/JSearch rows are NOT deleted on this basis — each is
-  /// only re-confirmed when its query's turn in the daily rotation comes back
-  /// around (see externalJobs/queryGrid.ts), so an old fetchedAt just means
-  /// "not re-checked recently", not "gone from the market". Those age out of
-  /// view primarily through ranking (getExternalJobsForProfessional always
-  /// sorts newest-first) and are only actually deleted once `createdAt`
-  /// (below) crosses refresh.ts's fixed LISTING_RETENTION_DAYS (35 days) —
-  /// a backstop against unbounded growth, deliberately not keyed off this
-  /// field. The other way one leaves the platform is admin moderation via
-  /// hiddenByAdmin below, which is immediate regardless of age.
+  /// Company-board/feed rows are deleted once no longer returned by that
+  /// day's full re-fetch. SerpApi/JSearch rows are NOT deleted on this basis —
+  /// each is only re-confirmed when its query's turn in the daily rotation
+  /// comes back around (see externalJobs/queryGrid.ts), so an old fetchedAt
+  /// just means "not re-checked recently". Every listing, from any source,
+  /// is deleted 30 days after it was posted (or first seen, when the source
+  /// gives no date) — see externalJobs/expiry.ts. The other way one leaves
+  /// the platform is admin moderation via hiddenByAdmin below, which is
+  /// immediate regardless of age.
   fetchedAt       DateTime
   /// When this listing was first discovered. Never touched by refresh.ts's
   /// upsert `update` payload (only `create` sets it), so it stays fixed at
   /// first-seen time for as long as the row exists — this, not `fetchedAt`,
-  /// is what the 35-day retention window above is measured against.
+  /// is what the 30-day limit falls back to when there's no posted date.
   createdAt       DateTime  @default(now())
   /// Admin review/removal — set when an admin judges a scraped listing bad,
   /// suspicious, or a scam. Deliberately NOT included in refresh.ts's upsert
@@ -520,6 +518,18 @@ model ExternalJobListing {
   @@index([fetchedAt])
   @@index([hiddenByAdmin])
   @@map("external_job_listings")
+}
+
+/// An external listing deleted for being over the 30-day age limit. Kept so
+/// the daily refresh doesn't re-create it the next time its source lists it
+/// again (an undated job would otherwise come back looking brand new, every
+/// time). Ids only; pruned after a while by externalJobs/expiry.ts.
+model ExpiredExternalJob {
+  id        String   @id
+  expiredAt DateTime @default(now())
+
+  @@index([expiredAt])
+  @@map("expired_external_jobs")
 }
 
 model JobApplication {

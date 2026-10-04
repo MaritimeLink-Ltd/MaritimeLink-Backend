@@ -1,6 +1,7 @@
 import { prisma } from '../../config/prisma.js';
 import { scoreProfessionalForJob } from '../../utils/jobMatching.js';
 import { hasMatchableProfile, ProfessionalWithResume } from './profileQuery.js';
+import { isPastMaxAge } from './expiry.js';
 import { recencyTimestamps } from './recency.js';
 import { ExternalJob } from './types.js';
 
@@ -155,8 +156,8 @@ export type ExternalJobsResult = {
  * wider-market band regardless of which country a listing is from. Nothing
  * in the pool is ever discarded: a low score, or simply being older, only
  * pushes a listing to a later page, never off the list entirely. The row
- * itself leaves the platform only once it ages past refresh.ts's retention
- * window or an admin removes it — see hiddenByAdmin above.
+ * itself leaves the platform once it's past the 30-day limit (expiry.ts),
+ * its link dies, or an admin removes it — see hiddenByAdmin above.
  */
 export const getExternalJobsForProfessional = async (
   professional: ProfessionalWithResume,
@@ -165,7 +166,12 @@ export const getExternalJobsForProfessional = async (
   const { page, limit } = clampPagination(pagination);
   const skip = (page - 1) * limit;
 
-  const rows = await loadVisiblePool();
+  // The daily refresh deletes jobs past the 30-day limit; this hides one
+  // that crossed it since (expiry.ts).
+  const now = new Date();
+  const rows = (await loadVisiblePool()).filter(
+    (row) => !isPastMaxAge(row, now),
+  );
   const pool = rows.map(toExternalJob);
   // Newest first — see recency.ts for how undated listings are placed.
   const recency = recencyTimestamps(pool);

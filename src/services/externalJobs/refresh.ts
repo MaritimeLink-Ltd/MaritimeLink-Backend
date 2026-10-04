@@ -2,10 +2,7 @@ import axios from 'axios';
 import { fetchFeedJobs } from './feedSource.js';
 import { fetchAtsJobs } from './ats/index.js';
 import { FULL_REFRESH_PROVIDERS, prunablePrefixes } from './prune.js';
-import {
-  purgeExpiredSearchListings,
-  verifyFetchedSearchJobs,
-} from './expiry.js';
+import { purgeExpiredListings, verifyFetchedJobs } from './expiry.js';
 import { dedupeJobs } from './dedupe.js';
 import {
   fetchSerpApiJobs,
@@ -521,8 +518,8 @@ export type RefreshSummary = {
  * re-confirmed when its query's turn comes back around (see queryGrid.ts),
  * which is not a signal that the listing has expired. Instead expiry.ts
  * permanently deletes the ones that are: links on expiry-prone re-posting
- * sites, links that now 404 or say "no longer available", and anything past
- * SEARCH_LISTING_MAX_AGE_DAYS from its real posted date.
+ * sites and links that now 404 or say "no longer available". Every job, from
+ * any source, is deleted once past MAX_LISTING_AGE_DAYS from its posted date.
  * The other way a scraped listing leaves the platform is admin moderation
  * (`hiddenByAdmin`, see adminExternalJobsController.ts) — always immediate,
  * regardless of age.
@@ -612,9 +609,10 @@ export const refreshExternalJobs = async (): Promise<RefreshSummary> => {
     ),
   );
 
-  // Dead, expired and unverifiable search results are dropped before they
-  // can be saved — and removed if an earlier run had stored them.
-  const verdict = await verifyFetchedSearchJobs(inScope, runStartedAt);
+  // Jobs over the 30-day limit (any source) and dead or unverifiable search
+  // results are dropped before they can be saved — and removed if an
+  // earlier run had stored them.
+  const verdict = await verifyFetchedJobs(inScope, runStartedAt);
   if (verdict.rejectedIds.length > 0) {
     await prisma.externalJobListing.deleteMany({
       // Admin-hidden rows stay: they're tombstones against re-creation.
@@ -642,7 +640,7 @@ export const refreshExternalJobs = async (): Promise<RefreshSummary> => {
               })),
             },
           }),
-      purgeExpiredSearchListings({
+      purgeExpiredListings({
         now: runStartedAt,
         verifiedSince: runStartedAt,
       }).then((purge) => ({ count: purge.total })),

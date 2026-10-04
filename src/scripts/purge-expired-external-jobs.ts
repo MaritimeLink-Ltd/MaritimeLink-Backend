@@ -1,5 +1,5 @@
 import { prisma } from '../config/prisma.js';
-import { purgeExpiredSearchListings } from '../services/externalJobs/expiry.js';
+import { purgeExpiredListings } from '../services/externalJobs/expiry.js';
 
 /**
  * Permanently deletes expired external job listings, checking every link
@@ -11,7 +11,7 @@ import { purgeExpiredSearchListings } from '../services/externalJobs/expiry.js';
  */
 async function main() {
   const startedAt = Date.now();
-  const summary = await purgeExpiredSearchListings({ checkAllLinks: true });
+  const summary = await purgeExpiredListings({ checkAllLinks: true });
   console.log(
     `[purge-expired] deleted ${summary.total} expired listing(s): ` +
       `${summary.expiryProneRemoved} on expiry-prone sites, ${summary.tooOldRemoved} older than the age limit, ` +
