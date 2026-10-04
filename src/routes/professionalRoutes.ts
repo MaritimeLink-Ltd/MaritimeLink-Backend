@@ -659,6 +659,23 @@ router.post(
   phoneHandoffController.createPhoneHandoff,
 );
 
+/**
+ * @swagger
+ * /api/professional/documents/phone-link/{id}:
+ *   get:
+ *     summary: Whether a phone sign-in code is still usable (not used, not expired)
+ *     description: Polled by the desktop upload screen so it can show a fresh QR code once the phone has used the current one.
+ *     tags: [Professional Documents]
+ *     security: [{ bearerAuth: [] }]
+ *     responses:
+ *       200: { description: "{ usable: boolean }" }
+ */
+router.get(
+  '/documents/phone-link/:id',
+  protect,
+  phoneHandoffController.getPhoneHandoffStatus,
+);
+
 const phoneHandoffRedeemLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,

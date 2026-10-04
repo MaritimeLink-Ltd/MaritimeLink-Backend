@@ -10,6 +10,7 @@ const mockPrisma = {
     deleteMany: jest.fn() as AsyncMock,
     updateMany: jest.fn() as AsyncMock,
     findUnique: jest.fn() as AsyncMock,
+    findFirst: jest.fn() as AsyncMock,
   },
   professional: {
     findUnique: jest.fn() as AsyncMock,
@@ -33,8 +34,12 @@ jest.unstable_mockModule('../services/accountModerationService.js', () => ({
 }));
 
 const { env } = await import('../config/env.js');
-const { createPhoneHandoff, redeemPhoneHandoff, PHONE_HANDOFF_TTL_MINUTES } =
-  await import('../controllers/professionalPhoneHandoffController.js');
+const {
+  createPhoneHandoff,
+  getPhoneHandoffStatus,
+  redeemPhoneHandoff,
+  PHONE_HANDOFF_TTL_MINUTES,
+} = await import('../controllers/professionalPhoneHandoffController.js');
 
 const sha256 = (value: string) =>
   crypto.createHash('sha256').update(value).digest('hex');
@@ -95,6 +100,7 @@ beforeEach(() => {
     professionalId: 'pro-1',
   });
   mockPrisma.professional.findUnique.mockResolvedValue(professional);
+  mockPrisma.phoneHandoffToken.create.mockResolvedValue({ id: 'h1' });
 });
 
 describe('createPhoneHandoff', () => {
@@ -185,6 +191,36 @@ describe('redeemPhoneHandoff', () => {
     expect(res.statusCode).toBe(0);
     expect((next.mock.calls[0][0] as { statusCode: number }).statusCode).toBe(
       403,
+    );
+  });
+});
+
+describe('getPhoneHandoffStatus', () => {
+  const statusOf = async (row: unknown) => {
+    mockPrisma.phoneHandoffToken.findFirst.mockResolvedValue(row);
+    const { res } = await run(getPhoneHandoffStatus, {
+      params: { id: 'h1' },
+      user: { id: 'pro-1' },
+    });
+    return (res.body as { data: { usable: boolean } }).data.usable;
+  };
+
+  it('tells the desktop when its code has been used, expired or cleaned up', async () => {
+    const future = new Date(Date.now() + 60_000);
+    expect(await statusOf({ usedAt: null, expiresAt: future })).toBe(true);
+    expect(await statusOf({ usedAt: new Date(), expiresAt: future })).toBe(
+      false,
+    );
+    expect(
+      await statusOf({ usedAt: null, expiresAt: new Date(Date.now() - 1000) }),
+    ).toBe(false);
+    expect(await statusOf(null)).toBe(false);
+  });
+
+  it('only looks at the professional’s own codes', async () => {
+    await statusOf(null);
+    expect(mockPrisma.phoneHandoffToken.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'h1', professionalId: 'pro-1' } }),
     );
   });
 });

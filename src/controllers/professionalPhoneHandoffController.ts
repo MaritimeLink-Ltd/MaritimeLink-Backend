@@ -57,16 +57,44 @@ export const createPhoneHandoff = catchAsync(
       },
     });
 
-    await prisma.phoneHandoffToken.create({
+    const handoff = await prisma.phoneHandoffToken.create({
       data: { tokenHash: hashToken(token), professionalId, expiresAt },
+      select: { id: true },
     });
 
     res.status(201).json({
       status: 'success',
       data: {
+        id: handoff.id,
         token,
         expiresAt: expiresAt.toISOString(),
         expiresInSeconds: PHONE_HANDOFF_TTL_MINUTES * 60,
+      },
+    });
+  },
+);
+
+/**
+ * Whether the desktop's current code is still usable. The QR stays on screen
+ * after the phone has used it (to pick another folder, say), so the desktop
+ * polls this and swaps in a fresh code once it's used or expired. Looked up
+ * by id, never by the token, and only the owner's own codes.
+ */
+export const getPhoneHandoffStatus = catchAsync(
+  async (req: CustomRequest, res: Response) => {
+    const handoff = await prisma.phoneHandoffToken.findFirst({
+      where: { id: req.params.id, professionalId: req.user!.id },
+      select: { usedAt: true, expiresAt: true },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        // A code that's gone (cleaned up) is as unusable as a used one.
+        usable:
+          Boolean(handoff) &&
+          !handoff!.usedAt &&
+          handoff!.expiresAt.getTime() > Date.now(),
       },
     });
   },
