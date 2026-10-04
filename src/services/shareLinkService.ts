@@ -50,17 +50,42 @@ export const createShareCode = async ({
 };
 
 /**
- * The signed token behind a share URL segment. Links issued before short
- * codes carried the JWT itself (it always contains dots), so those still open.
- * Returns null for an unknown code; expiry is left to the JWT check.
+ * A readable name for the front of a share URL — "Umair Siddique" →
+ * "umair-siddique" — so the recipient can see whose profile it is before
+ * opening it. Purely cosmetic: only the code after it is looked up. Accents
+ * are folded to plain letters; anything else non-alphanumeric becomes a dash.
+ */
+export const nameSlug = (name: string | null | undefined): string =>
+  (name ?? '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/-+$/, '');
+
+/** `umair-siddique-CerfVnPniy7H`, or just the code when there's no usable name. */
+export const withNameSlug = (code: string, name: string | null | undefined) => {
+  const slug = nameSlug(name);
+  return slug ? `${slug}-${code}` : code;
+};
+
+/**
+ * The signed token behind a share URL segment: `<code>` or `<name>-<code>`
+ * (the code's alphabet has no dash, so it's always the part after the last
+ * one). Links issued before short codes carried the JWT itself (it always
+ * contains dots), so those still open. Returns null for an unknown code;
+ * expiry is left to the JWT check.
  */
 export const resolveShareToken = async (
   segment: string,
 ): Promise<string | null> => {
   if (segment.includes('.')) return segment;
-  if (segment.length !== SHARE_CODE_LENGTH) return null;
+  const code = segment.slice(segment.lastIndexOf('-') + 1);
+  if (code.length !== SHARE_CODE_LENGTH) return null;
   const link = await prisma.shareLink.findUnique({
-    where: { code: segment },
+    where: { code },
     select: { token: true },
   });
   return link?.token ?? null;

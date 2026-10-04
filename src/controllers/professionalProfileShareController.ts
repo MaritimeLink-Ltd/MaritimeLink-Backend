@@ -7,6 +7,7 @@ import { env } from '../config/env.js';
 import {
   createShareCode,
   resolveShareToken,
+  withNameSlug,
 } from '../services/shareLinkService.js';
 import { CustomRequest } from '../types/index.js';
 import { logActivity } from '../services/activityLogger.js';
@@ -97,7 +98,7 @@ export const createProfileShareLink = catchAsync(
     // Secure share links are a premium capability, matching the document pack flow.
     const professional = await prisma.professional.findUnique({
       where: { id: professionalId },
-      select: { tier: true },
+      select: { tier: true, fullname: true, firstName: true, lastName: true },
     });
     if (String(professional?.tier || 'FREE').toUpperCase() !== 'PRO') {
       return next(
@@ -186,7 +187,14 @@ export const createProfileShareLink = catchAsync(
       token,
       expiresAt: expiresAtDate,
     });
-    const shareLink = `${frontendBase}/shared/profile/${code}`;
+    // Name first so the recipient can tell whose profile it is:
+    // /shared/profile/umair-siddique-CerfVnPniy7H
+    const displayName =
+      professional?.fullname?.trim() ||
+      [professional?.firstName, professional?.lastName]
+        .filter(Boolean)
+        .join(' ');
+    const shareLink = `${frontendBase}/shared/profile/${withNameSlug(code, displayName)}`;
     const expiresAt = expiresAtDate.toISOString();
 
     await logActivity({
