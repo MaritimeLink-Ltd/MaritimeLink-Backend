@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { prisma } from '../config/prisma.js';
 import { commissionFor, payoutFor } from '../config/commission.js';
 import { stripeService } from '../services/stripeService.js';
+import { PROFESSIONALS_FREE_PRO } from '../config/professionalMembership.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { CustomRequest } from '../types/index.js';
 import {
@@ -350,7 +351,14 @@ export const getRevenueOverview = catchAsync(
         },
         _sum: { amountPaid: true },
       }),
-      prisma.professional.count({ where: { tier: 'PRO' } }),
+      // While professionals are free (config/professionalMembership.ts) every
+      // professional is on PRO, so only those actually paying count as
+      // subscribers: Apple payers here, Stripe payers from Stripe below.
+      prisma.professional.count({
+        where: PROFESSIONALS_FREE_PRO
+          ? { tier: 'PRO', appleOriginalTransactionId: { not: null } }
+          : { tier: 'PRO' },
+      }),
       prisma.recruiter.count({ where: { tier: 'PREMIUM' } }),
     ]);
 
@@ -400,7 +408,9 @@ export const getRevenueOverview = catchAsync(
       membershipRevenue = {
         // Counts stay ours — a subscriber is someone holding a paid tier here.
         professionals: {
-          subscribers: proProfessionals,
+          subscribers: PROFESSIONALS_FREE_PRO
+            ? proProfessionals + stripeSummary.professionals.subscribers
+            : proProfessionals,
           revenue: stripeSummary.professionals.revenue,
         },
         recruiters: {

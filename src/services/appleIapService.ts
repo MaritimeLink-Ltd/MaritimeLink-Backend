@@ -10,6 +10,7 @@ import {
 } from '@apple/app-store-server-library';
 import { env } from '../config/env.js';
 import { prisma } from '../config/prisma.js';
+import { lapsedProfessionalTier } from '../config/professionalMembership.js';
 import { logActivity } from './activityLogger.js';
 import { ActionStatus, ActorType } from '../generated/client/index.js';
 import { AppError } from '../utils/AppError.js';
@@ -236,7 +237,9 @@ export const syncAppleMembershipFromNotification = async (params: {
     return;
   }
 
-  const tier = params.action === 'RENEW' ? 'PRO' : 'FREE';
+  // An ended subscription stays PRO while professionals are free — see
+  // config/professionalMembership.ts.
+  const tier = params.action === 'RENEW' ? 'PRO' : lapsedProfessionalTier();
 
   await prisma.professional.update({
     where: { id: professional.id },

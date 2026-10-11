@@ -1,6 +1,7 @@
 import request from 'supertest';
 import app from '../app.js';
 import { prisma } from '../config/prisma.js';
+import { PROFESSIONALS_FREE_PRO } from '../config/professionalMembership.js';
 
 describe('Professional Flow E2E Tests', () => {
   let professionalId: string;
@@ -33,6 +34,14 @@ describe('Professional Flow E2E Tests', () => {
       expect(res.body.status).toBe('success');
       professionalId = res.body.data.professionalId;
       expect(professionalId).toBeDefined();
+
+      // Free for professionals for now: every new account starts on PRO
+      // (config/professionalMembership.ts).
+      const created = await prisma.professional.findUnique({
+        where: { id: professionalId },
+        select: { tier: true },
+      });
+      expect(created?.tier).toBe(PROFESSIONALS_FREE_PRO ? 'PRO' : 'FREE');
     });
 
     it('Step 2: should verify email OTP', async () => {

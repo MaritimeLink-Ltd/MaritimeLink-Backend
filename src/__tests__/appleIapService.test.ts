@@ -1,4 +1,5 @@
 import { prisma } from '../config/prisma.js';
+import { PROFESSIONALS_FREE_PRO } from '../config/professionalMembership.js';
 import {
   isAppleTransactionActive,
   activateAppleMembership,
@@ -189,7 +190,9 @@ describe('syncAppleMembershipFromNotification (real DB)', () => {
     expect(professional?.tier).toBe('PRO'); // untouched
   });
 
-  it('DEACTIVATE (expire/refund/revoke) drops the linked professional to FREE', async () => {
+  // While professionals are free (config/professionalMembership.ts) an ended
+  // subscription leaves them on PRO; otherwise it drops them to FREE.
+  it('DEACTIVATE (expire/refund/revoke) drops the linked professional to the lapsed tier', async () => {
     await syncAppleMembershipFromNotification({
       originalTransactionId,
       productId: 'monthly',
@@ -199,7 +202,7 @@ describe('syncAppleMembershipFromNotification (real DB)', () => {
     const professional = await prisma.professional.findUnique({
       where: { id: professionalId },
     });
-    expect(professional?.tier).toBe('FREE');
+    expect(professional?.tier).toBe(PROFESSIONALS_FREE_PRO ? 'PRO' : 'FREE');
 
     const log = await prisma.activityLog.findFirst({
       where: { actorId: professionalId, action: 'MEMBERSHIP_DOWNGRADED' },

@@ -2,6 +2,7 @@ import Stripe from 'stripe';
 import { env } from '../config/env.js';
 import { prisma } from '../config/prisma.js';
 import { COURSE_COMMISSION_RATE_PERCENT } from '../config/commission.js';
+import { lapsedProfessionalTier } from '../config/professionalMembership.js';
 import { logActivity } from './activityLogger.js';
 import {
   ActionStatus,
@@ -743,7 +744,8 @@ export const stripeService = {
     await prisma.professional.update({
       where: { id: professionalId },
       data: {
-        tier: 'FREE',
+        // PRO while professionals are free — see config/professionalMembership.ts.
+        tier: lapsedProfessionalTier(),
         membershipUpdatedAt: new Date(),
       },
     });

@@ -40,6 +40,7 @@ import {
   describeRestriction,
   liftExpiredProfessionalSuspension,
 } from '../services/accountModerationService.js';
+import { newProfessionalTier } from '../config/professionalMembership.js';
 
 /**
  * Step 1: Registration
@@ -77,6 +78,9 @@ export const register = catchAsync(
         password: hashedPassword,
         isVerified: false,
         registrationStep: 1,
+        // Free for professionals for now — see config/professionalMembership.ts.
+        tier: newProfessionalTier(),
+        membershipUpdatedAt: new Date(),
       },
     });
 
