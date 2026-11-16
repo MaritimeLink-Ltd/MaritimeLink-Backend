@@ -1,6 +1,11 @@
 import { Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma.js';
-import { commissionFor, payoutFor } from '../config/commission.js';
+import {
+  commissionFor,
+  payoutFor,
+  platformShareOf,
+  providerShareOf,
+} from '../config/commission.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { AppError } from '../utils/AppError.js';
 import { CustomRequest } from '../types/index.js';
@@ -360,20 +365,22 @@ export const getPlatformRevenue = catchAsync(
       (sum, b) => sum + Number(b.amountPaid),
       0,
     );
+    // MaritimeLink keeps the whole sale on its own courses; providers' courses
+    // earn commission and owe the provider their share.
     const platformCommission = bookings.reduce(
-      (sum, b) =>
-        sum + Number(b.platformFee ?? commissionFor(Number(b.amountPaid))),
+      (sum, b) => sum + platformShareOf(b),
       0,
     );
     const trainerPayouts = bookings.reduce(
-      (sum, b) =>
-        sum + Number(b.trainerPayout ?? payoutFor(Number(b.amountPaid))),
+      (sum, b) => sum + providerShareOf(b),
       0,
     );
 
-    // Calculate pending payouts (not yet processed)
+    // Calculate pending payouts (not yet processed; provider courses only)
     const pendingPayouts = bookings.filter(
-      (b) => !b.trainerPayout || Number(b.trainerPayout) === 0,
+      (b) =>
+        b.course.recruiterId &&
+        (!b.trainerPayout || Number(b.trainerPayout) === 0),
     );
     const pendingAmount = pendingPayouts.reduce(
       (sum, b) => sum + payoutFor(Number(b.amountPaid)),

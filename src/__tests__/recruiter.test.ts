@@ -365,9 +365,15 @@ describe('Recruiter & Trainer Flow E2E Tests', () => {
     it('Step 3 should generate a 6-digit phone OTP when saving personal info', async () => {
       // Use the already-created recruiter from earlier steps
       // Reset their step so we can re-trigger personal info
+      // Put the account back into the signup wizard (signup steps are only
+      // reachable while an account is still mid-signup).
+      const before = await prisma.recruiter.findUniqueOrThrow({
+        where: { id: recruiterId },
+        select: { status: true },
+      });
       await prisma.recruiter.update({
         where: { id: recruiterId },
-        data: { registrationStep: 2, phoneVerified: false },
+        data: { registrationStep: 2, phoneVerified: false, status: 'PENDING' },
       });
 
       const res = await request(app)
@@ -397,7 +403,11 @@ describe('Recruiter & Trainer Flow E2E Tests', () => {
       // Restore registration step for any following tests
       await prisma.recruiter.update({
         where: { id: recruiterId },
-        data: { registrationStep: 6, phoneVerified: true },
+        data: {
+          registrationStep: 6,
+          phoneVerified: true,
+          status: before.status,
+        },
       });
     });
   });

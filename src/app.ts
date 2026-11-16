@@ -1,3 +1,4 @@
+import { responseSafety } from './middlewares/responseSafety.js';
 import express, { Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
@@ -57,6 +58,10 @@ app.use('/api/webhooks', webhookRoutes);
 // Global body parsers (Only applies to routes below)
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Never send account secrets (password hashes, OTPs, reset tokens) and send
+// stored file links as short-lived signed links — see middlewares/responseSafety.
+app.use(responseSafety);
 
 // Remove X-Powered-By header
 app.disable('x-powered-by');

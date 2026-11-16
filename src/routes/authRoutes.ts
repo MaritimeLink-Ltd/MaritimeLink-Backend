@@ -1,3 +1,4 @@
+import { loginLimiter } from '../middlewares/authRateLimit.js';
 import { Router } from 'express';
 import * as authController from '../controllers/authController.js';
 
@@ -29,6 +30,6 @@ const router = Router();
  *       401:
  *         description: Incorrect email or password
  */
-router.post('/login', authController.unifiedLogin);
+router.post('/login', loginLimiter, authController.unifiedLogin);
 
 export default router;

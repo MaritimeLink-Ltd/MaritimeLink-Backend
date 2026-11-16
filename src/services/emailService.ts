@@ -86,6 +86,43 @@ export const sendPasswordResetEmail = async (to: string, resetLink: string) => {
   );
 };
 
+export type AdminInvitationEmailParams = {
+  to: string;
+  inviterEmail: string;
+  roleLabel: string;
+  acceptUrl: string;
+  expiresInHours: number;
+};
+
+/** Invitation to join the MaritimeLink admin team with a given role. */
+export const sendAdminInvitationEmail = async ({
+  to,
+  inviterEmail,
+  roleLabel,
+  acceptUrl,
+  expiresInHours,
+}: AdminInvitationEmailParams) => {
+  await deliver(
+    to,
+    'You are invited to join the MaritimeLink admin team',
+    buildEmailHtml({
+      headline: 'Admin team invitation',
+      preheader: `Join the MaritimeLink admin team as ${roleLabel}`,
+      greeting: 'Hello,',
+      variant: 'brand',
+      bodyHtml: `${emailParagraph(
+        `<strong>${escapeHtml(inviterEmail)}</strong> has invited you to join the MaritimeLink admin team as <strong>${escapeHtml(roleLabel)}</strong>.`,
+      )}${emailParagraph(
+        `Tap the button below to accept and set your password. This invitation link works once and expires in ${expiresInHours} hours.`,
+      )}${emailCallout(
+        'If you were not expecting this invitation, you can ignore this email — no account is created unless you accept it.',
+        'info',
+      )}`,
+      cta: { label: 'Accept invitation', url: acceptUrl },
+    }),
+  );
+};
+
 export type KycEmailStatus = 'APPROVED' | 'REJECTED';
 
 export type SendKycStatusEmailParams = {

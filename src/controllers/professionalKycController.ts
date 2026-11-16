@@ -193,7 +193,9 @@ export const uploadKYCDocument = catchAsync(
  */
 export const submitKYC = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
-    const { professionalId } = req.body;
+    // Always the logged-in professional — a professionalId in the body is
+    // ignored so nobody can write to another person's KYC record.
+    const professionalId = req.user?.id;
 
     if (!professionalId) {
       return next(new AppError('professionalId is required', 400));
@@ -271,7 +273,8 @@ export const submitKYC = catchAsync(
 export const uploadKYCSelfie = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
     const file = req.file;
-    const { professionalId } = req.body;
+    // Always the logged-in professional (body professionalId is ignored).
+    const professionalId = req.user?.id;
 
     if (!file) {
       return next(new AppError('Please upload a selfie image', 400));

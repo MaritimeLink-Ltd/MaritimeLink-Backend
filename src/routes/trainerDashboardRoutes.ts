@@ -1,11 +1,15 @@
 import { Router } from 'express';
 import * as trainerDashboardController from '../controllers/trainerDashboardController.js';
-import { protectRecruiter } from '../middlewares/recruiterAuthMiddleware.js';
+import {
+  protectRecruiter,
+  requireRecruiterRole,
+} from '../middlewares/recruiterAuthMiddleware.js';
 
 const router = Router();
 
-// All trainer dashboard routes are protected
-router.use(protectRecruiter);
+// All trainer dashboard routes are protected and only for training providers
+// (the demand endpoints list professionals' expiring certificates).
+router.use(protectRecruiter, requireRecruiterRole('TRAINING_AGENT'));
 
 /**
  * @swagger

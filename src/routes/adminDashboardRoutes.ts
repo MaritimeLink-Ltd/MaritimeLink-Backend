@@ -1,11 +1,16 @@
 import { Router } from 'express';
 import * as adminDashboardController from '../controllers/adminDashboardController.js';
-import { protectAdmin } from '../middlewares/adminAuthMiddleware.js';
+import {
+  protectAdmin,
+  requireFinancialAccess,
+} from '../middlewares/adminAuthMiddleware.js';
+import { redactFinancialsForRestrictedAdmins } from '../middlewares/financialRedaction.js';
 
 const router = Router();
 
 // All admin dashboard routes are protected
 router.use(protectAdmin);
+router.use(redactFinancialsForRestrictedAdmins);
 
 /**
  * @swagger
@@ -76,7 +81,11 @@ router.get(
   '/activity-report',
   adminDashboardController.getPlatformActivityReport,
 );
-router.get('/transactions', adminDashboardController.getTransactionHistory);
+router.get(
+  '/transactions',
+  requireFinancialAccess,
+  adminDashboardController.getTransactionHistory,
+);
 router.get('/notifications', adminDashboardController.getAdminNotifications);
 
 /**
@@ -123,7 +132,11 @@ router.get('/notifications', adminDashboardController.getAdminNotifications);
  *                   pendingPayouts: 1200
  *                   refunds: 0
  */
-router.get('/revenue', adminDashboardController.getRevenueOverview);
+router.get(
+  '/revenue',
+  requireFinancialAccess,
+  adminDashboardController.getRevenueOverview,
+);
 
 /**
  * @swagger

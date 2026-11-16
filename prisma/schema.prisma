@@ -366,25 +366,51 @@ model ProfessionalReferee {
 }
 
 model Admin {
-  id                   String         @id @default(uuid())
-  email                String         @unique
+  id                   String            @id @default(uuid())
+  email                String            @unique
   password             String
-  role                 AdminRole      @default(SUPER_ADMIN)
+  role                 AdminRole         @default(SUPER_ADMIN)
   accountSettings      Json?
   passwordResetToken   String?
   passwordResetExpires DateTime?
-  createdAt            DateTime       @default(now())
-  updatedAt            DateTime       @updatedAt
+  /// Set when a super admin removes this person from the admin team. The row is
+  /// kept (jobs, courses and support threads reference it); the account just
+  /// can no longer sign in or use any admin endpoint.
+  disabledAt           DateTime?
+  lastLoginAt          DateTime?
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  sentInvitations      AdminInvitation[] @relation("AdminInvitationsSent")
   caseNotes            CaseNote[]
   conversations        Conversation[]
   courses              Course[]
   jobs                 Job[]
   kycNotes             KycNote[]
-  assignedCases        SupportCase[]  @relation("AssignedCases")
-  reviewedReports      UserReport[]   @relation("ReviewedReports")
+  assignedCases        SupportCase[]     @relation("AssignedCases")
+  reviewedReports      UserReport[]      @relation("ReviewedReports")
   reportNotes          ReportNote[]
 
   @@map("admins")
+}
+
+/// An email invitation to join the admin team with a given role. The invitee
+/// sets their own password from the link; only a hash of the link's token is
+/// stored, and the link expires and works once.
+model AdminInvitation {
+  id          String    @id @default(uuid())
+  email       String
+  role        AdminRole
+  tokenHash   String    @unique
+  invitedById String
+  invitedBy   Admin     @relation("AdminInvitationsSent", fields: [invitedById], references: [id], onDelete: Cascade)
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([email])
+  @@map("admin_invitations")
 }
 
 /// A member-to-member abuse report. Kept separate from SupportCase: a support case is
@@ -1039,6 +1065,7 @@ enum AdminRole {
   SUPER_ADMIN
   ADMIN
   MODERATOR
+  OPERATIONS_MANAGER
 }
 
 enum ApplicationStatus {

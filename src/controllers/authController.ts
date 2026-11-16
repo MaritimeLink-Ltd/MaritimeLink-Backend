@@ -6,6 +6,10 @@ import { env } from '../config/env.js';
 import { AppError } from '../utils/AppError.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import {
+  describeRestriction,
+  liftExpiredProfessionalSuspension,
+} from '../services/accountModerationService.js';
+import {
   isProfessionalSignupIncomplete,
   isRecruiterSignupIncomplete,
   SIGNUP_INCOMPLETE_CODE,
@@ -42,6 +46,17 @@ export const unifiedLogin = catchAsync(
             { professionalId: professional.id, email: professional.email },
           ),
         );
+      }
+
+      // Same suspension/block check as /api/professional/login.
+      const effectiveStatus =
+        await liftExpiredProfessionalSuspension(professional);
+      const restriction = describeRestriction({
+        ...professional,
+        status: effectiveStatus,
+      });
+      if (restriction) {
+        return next(new AppError(restriction, 403));
       }
 
       if (isProfessionalSignupIncomplete(professional)) {

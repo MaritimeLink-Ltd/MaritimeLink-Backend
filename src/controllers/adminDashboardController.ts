@@ -1,6 +1,11 @@
 import { Response } from 'express';
 import { prisma } from '../config/prisma.js';
-import { commissionFor, payoutFor } from '../config/commission.js';
+import {
+  platformShareOf,
+  providerShareOf,
+  payoutFor,
+  type RevenueBooking,
+} from '../config/commission.js';
 import { stripeService } from '../services/stripeService.js';
 import { PROFESSIONALS_FREE_PRO } from '../config/professionalMembership.js';
 import { catchAsync } from '../utils/catchAsync.js';
@@ -66,6 +71,32 @@ const getReportStartDate = (range: string) => {
 
 /** How far back to count already-expired compliance docs (unique professionals). */
 const ADMIN_COMPLIANCE_EXPIRED_LOOKBACK_DAYS = 365;
+
+/**
+ * A sign-up that was never finished: the email code was never confirmed and
+ * no admin has approved the account. Not a real user, and nothing to review.
+ */
+const UNFINISHED_SIGNUP = { isVerified: false, status: 'PENDING' } as const;
+
+/** Real accounts: everyone except unfinished sign-ups. */
+const REGISTERED_ACCOUNT = { NOT: UNFINISHED_SIGNUP };
+
+/** Finished sign-up, waiting for an admin's account review. */
+const AWAITING_ACCOUNT_REVIEW = {
+  status: 'PENDING',
+  isVerified: true,
+} as const;
+
+/** User reports an admin still has to deal with. */
+const OPEN_USER_REPORT = {
+  status: { in: ['PENDING', 'UNDER_REVIEW'] },
+} as Prisma.UserReportWhereInput;
+
+/** System alerts look at this recent window, not all of history. */
+const SYSTEM_ALERT_WINDOW_DAYS = 7;
+
+/** Latest items taken from each review source for the dashboard list. */
+const REVIEW_QUEUE_PER_SOURCE = 10;
 
 const formatBucketLabel = (date: Date, range: string) => {
   if (range === 'today') {
@@ -155,42 +186,62 @@ export const getAdminDashboardStats = catchAsync(
         ADMIN_COMPLIANCE_EXPIRED_LOOKBACK_DAYS,
     );
 
-    // 1. Pending Approvals count (Recruiters + Professional KYC)
-    const pendingRecruiters = await prisma.recruiter.count({
-      where: { status: 'PENDING' },
-    });
-    const pendingProKyc = await prisma.professionalKyc.count({
-      where: { status: 'PENDING' },
-    });
-    const pendingRecruiterKyc = await prisma.recruiterKyc.count({
-      where: { status: 'PENDING' },
-    });
+    // 1. Pending Approvals — both admin reviews:
+    //    account review (Accounts page) for anyone who finished sign-up, and
+    //    the ID check (Compliance page) for every KYC submission waiting.
+    const [
+      pendingProfessionalAccounts,
+      pendingRecruiterAccounts,
+      pendingProKyc,
+      pendingRecruiterKyc,
+      pendingAccountsToday,
+      pendingKycToday,
+    ] = await Promise.all([
+      prisma.professional.count({ where: AWAITING_ACCOUNT_REVIEW }),
+      prisma.recruiter.count({ where: AWAITING_ACCOUNT_REVIEW }),
+      prisma.professionalKyc.count({ where: { status: 'PENDING' } }),
+      prisma.recruiterKyc.count({ where: { status: 'PENDING' } }),
+      Promise.all([
+        prisma.professional.count({
+          where: { ...AWAITING_ACCOUNT_REVIEW, createdAt: { gte: todayStart } },
+        }),
+        prisma.recruiter.count({
+          where: { ...AWAITING_ACCOUNT_REVIEW, createdAt: { gte: todayStart } },
+        }),
+      ]).then(([a, b]) => a + b),
+      Promise.all([
+        prisma.professionalKyc.count({
+          where: { status: 'PENDING', createdAt: { gte: todayStart } },
+        }),
+        prisma.recruiterKyc.count({
+          where: { status: 'PENDING', createdAt: { gte: todayStart } },
+        }),
+      ]).then(([a, b]) => a + b),
+    ]);
+    const pendingAccountReviews =
+      pendingProfessionalAccounts + pendingRecruiterAccounts;
+    const pendingIdChecks = pendingProKyc + pendingRecruiterKyc;
 
-    const pendingToday =
-      (await prisma.recruiter.count({
-        where: {
-          status: 'PENDING',
-          createdAt: { gte: todayStart },
-        },
-      })) +
-      (await prisma.professionalKyc.count({
-        where: {
-          status: 'PENDING',
-          createdAt: { gte: todayStart },
-        },
-      }));
-
-    // 2. Flagged Issues count (Jobs + Courses + Users)
-    const flaggedJobs = await prisma.job.count({ where: { isFlagged: true } });
-    const flaggedCourses = await prisma.course.count({
-      where: { isFlagged: true },
-    });
-    const flaggedRecruiters = await prisma.recruiter.count({
-      where: { status: 'FLAGGED' },
-    });
-    const flaggedProfessionals = await prisma.professional.count({
-      where: { status: 'FLAGGED' },
-    });
+    // 2. Flagged Issues — everything waiting on moderation: open user
+    //    reports, jobs/courses an admin flagged, and flagged accounts.
+    const [
+      flaggedJobs,
+      flaggedCourses,
+      flaggedRecruiters,
+      flaggedProfessionals,
+      openReports,
+      rejectedRecruiters,
+      rejectedProfessionals,
+    ] = await Promise.all([
+      prisma.job.count({ where: { isFlagged: true } }),
+      prisma.course.count({ where: { isFlagged: true } }),
+      prisma.recruiter.count({ where: { status: 'FLAGGED' } }),
+      prisma.professional.count({ where: { status: 'FLAGGED' } }),
+      prisma.userReport.count({ where: OPEN_USER_REPORT }),
+      // What the "Flagged Accounts" page lists (accounts rejected in review).
+      prisma.recruiter.count({ where: { status: 'REJECTED' } }),
+      prisma.professional.count({ where: { kyc: { status: 'REJECTED' } } }),
+    ]);
 
     // 3. Compliance renewal attention: unique professionals with a compliance doc
     //    expired within lookback OR expiring by end of forward window (not only VERIFIED).
@@ -221,14 +272,23 @@ export const getAdminDashboardStats = catchAsync(
       data: {
         stats: {
           pendingApprovals: {
-            total: pendingRecruiters + pendingProKyc + pendingRecruiterKyc,
-            today: pendingToday,
+            total: pendingAccountReviews + pendingIdChecks,
+            today: pendingAccountsToday + pendingKycToday,
+            accountReviews: pendingAccountReviews,
+            idChecks: pendingIdChecks,
           },
           flaggedIssues:
+            openReports +
             flaggedJobs +
             flaggedCourses +
             flaggedRecruiters +
             flaggedProfessionals,
+          flaggedBreakdown: {
+            reports: openReports,
+            content: flaggedJobs + flaggedCourses,
+            accounts: flaggedRecruiters + flaggedProfessionals,
+          },
+          rejectedAccounts: rejectedRecruiters + rejectedProfessionals,
           expiringCompliance: {
             count: expiringComplianceCount,
             timeframe: `${complianceWindowDays}d`,
@@ -251,26 +311,42 @@ export const getAdminDashboardStats = catchAsync(
  */
 export const getPlatformActivity = catchAsync(
   async (req: CustomRequest, res: Response) => {
-    // Counts for overview
-    const jobsCount = await prisma.job.count();
-    const coursesCount = await prisma.course.count();
-    const applicationsCount = await prisma.jobApplication.count();
-    const bookingsCount = await prisma.courseBooking.count();
-
-    // User breakdown
-    const providersCount = await prisma.recruiter.count({
-      where: { role: 'TRAINING_AGENT' },
-    });
-    const recruitersCount = await prisma.recruiter.count({
-      where: { role: 'RECRUITMENT_AGENT' },
-    });
-    const professionalsCount = await prisma.professional.count();
+    const [
+      // Posted = published at some point; unpaid/unfinished drafts never went live.
+      jobsCount,
+      coursesCount,
+      applicationsCount,
+      // A booking counts once it is paid. The booking row is created when
+      // checkout starts, so unpaid, failed and refunded ones are left out.
+      bookingsCount,
+      // Real accounts only (see REGISTERED_ACCOUNT).
+      providersCount,
+      recruitersCount,
+      professionalsCount,
+      unfinishedRecruiterSignups,
+      unfinishedProfessionalSignups,
+      acceptedApps,
+    ] = await Promise.all([
+      prisma.job.count({ where: { status: { not: 'DRAFT' } } }),
+      prisma.course.count({ where: { status: { not: 'DRAFT' } } }),
+      prisma.jobApplication.count(),
+      prisma.courseBooking.count({
+        where: { paymentStatus: PaymentStatus.SUCCEEDED },
+      }),
+      prisma.recruiter.count({
+        where: { role: 'TRAINING_AGENT', ...REGISTERED_ACCOUNT },
+      }),
+      prisma.recruiter.count({
+        where: { role: 'RECRUITMENT_AGENT', ...REGISTERED_ACCOUNT },
+      }),
+      prisma.professional.count({ where: REGISTERED_ACCOUNT }),
+      prisma.recruiter.count({ where: UNFINISHED_SIGNUP }),
+      prisma.professional.count({ where: UNFINISHED_SIGNUP }),
+      prisma.jobApplication.count({ where: { status: 'OFFER' } }),
+    ]);
 
     // Success rate calculated from job applications
-    const totalApps = await prisma.jobApplication.count();
-    const acceptedApps = await prisma.jobApplication.count({
-      where: { status: 'OFFER' },
-    });
+    const totalApps = applicationsCount;
     const successRate =
       totalApps > 0 ? `${Math.round((acceptedApps / totalApps) * 100)}%` : '0%';
 
@@ -288,6 +364,9 @@ export const getPlatformActivity = catchAsync(
           providers: providersCount,
           recruiters: recruitersCount,
           professionals: professionalsCount,
+          // Shown as a note so the totals reconcile with the Accounts page.
+          unfinishedSignups:
+            unfinishedRecruiterSignups + unfinishedProfessionalSignups,
         },
       },
     });
@@ -313,6 +392,7 @@ export const getRevenueOverview = catchAsync(
       amountPaid: true,
       platformFee: true,
       trainerPayout: true,
+      course: { select: { recruiterId: true } },
     };
 
     const [
@@ -340,8 +420,12 @@ export const getRevenueOverview = catchAsync(
         select: bookingSelect,
       }),
       // Payouts still owed are not month-scoped — they are whatever is unsettled.
+      // Only provider courses are ever paid out.
       prisma.courseBooking.findMany({
-        where: { paymentStatus: PaymentStatus.SUCCEEDED },
+        where: {
+          paymentStatus: PaymentStatus.SUCCEEDED,
+          course: { recruiterId: { not: null } },
+        },
         select: { amountPaid: true, trainerPayout: true },
       }),
       prisma.courseBooking.aggregate({
@@ -362,17 +446,8 @@ export const getRevenueOverview = catchAsync(
       prisma.recruiter.count({ where: { tier: 'PREMIUM' } }),
     ]);
 
-    const sumCommission = (
-      bookings: { amountPaid: unknown; platformFee: unknown }[],
-    ) =>
-      bookings.reduce(
-        (sum, b) =>
-          sum +
-          (b.platformFee != null
-            ? Number(b.platformFee)
-            : commissionFor(Number(b.amountPaid))),
-        0,
-      );
+    const sumCommission = (bookings: RevenueBooking[]) =>
+      bookings.reduce((sum, b) => sum + platformShareOf(b), 0);
 
     const commissionRevenue = sumCommission(monthBookings);
     const previousCommissionRevenue = sumCommission(previousMonthBookings);
@@ -382,11 +457,7 @@ export const getRevenueOverview = catchAsync(
     );
     // What the sales cost us: the providers' share of this month's bookings.
     const costOfSales = monthBookings.reduce(
-      (sum, b) =>
-        sum +
-        (b.trainerPayout != null
-          ? Number(b.trainerPayout)
-          : payoutFor(Number(b.amountPaid))),
+      (sum, b) => sum + providerShareOf(b),
       0,
     );
     const pendingPayouts = outstandingBookings
@@ -476,33 +547,70 @@ export const getRevenueOverview = catchAsync(
  */
 export const getAdminActionQueues = catchAsync(
   async (req: CustomRequest, res: Response) => {
-    // 1. Review Queue: Pending recruiters and KYC
-    const pendingRecruiters = await prisma.recruiter.findMany({
-      where: { status: RecruiterStatus.PENDING },
-      take: 5,
-      orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        organizationName: true,
-        createdAt: true,
-        email: true,
-      },
-    });
-
-    const pendingKyc = await prisma.professionalKyc.findMany({
-      where: { status: RecruiterStatus.PENDING },
-      take: 5,
-      orderBy: { createdAt: 'desc' },
-      include: { professional: { select: { fullname: true } } },
-    });
+    // 1. Review Queue: the same items as the Pending Approvals card — account
+    //    reviews and ID checks — newest first. The list holds the latest few
+    //    of each; `reviewQueueTotal` is the real number waiting.
+    const [
+      pendingRecruiters,
+      pendingProfessionals,
+      pendingKyc,
+      pendingRecruiterKyc,
+      reviewQueueTotal,
+    ] = await Promise.all([
+      prisma.recruiter.findMany({
+        where: AWAITING_ACCOUNT_REVIEW,
+        take: REVIEW_QUEUE_PER_SOURCE,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          organizationName: true,
+          createdAt: true,
+          email: true,
+        },
+      }),
+      prisma.professional.findMany({
+        where: AWAITING_ACCOUNT_REVIEW,
+        take: REVIEW_QUEUE_PER_SOURCE,
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, fullname: true, email: true, createdAt: true },
+      }),
+      prisma.professionalKyc.findMany({
+        where: { status: RecruiterStatus.PENDING },
+        take: REVIEW_QUEUE_PER_SOURCE,
+        orderBy: { createdAt: 'desc' },
+        include: { professional: { select: { fullname: true } } },
+      }),
+      prisma.recruiterKyc.findMany({
+        where: { status: RecruiterStatus.PENDING },
+        take: REVIEW_QUEUE_PER_SOURCE,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          recruiter: { select: { organizationName: true, email: true } },
+        },
+      }),
+      Promise.all([
+        prisma.recruiter.count({ where: AWAITING_ACCOUNT_REVIEW }),
+        prisma.professional.count({ where: AWAITING_ACCOUNT_REVIEW }),
+        prisma.professionalKyc.count({ where: { status: 'PENDING' } }),
+        prisma.recruiterKyc.count({ where: { status: 'PENDING' } }),
+      ]).then((counts) => counts.reduce((sum, n) => sum + n, 0)),
+    ]);
 
     const reviewQueue = [
       ...pendingRecruiters.map((r) => ({
         id: r.id,
         type: 'RECRUITER_VERIFICATION',
         title: r.organizationName || r.email,
-        reason: 'Verification Pending',
+        reason: 'Account review pending',
         timestamp: r.createdAt,
+        severity: 'yellow',
+      })),
+      ...pendingProfessionals.map((p) => ({
+        id: p.id,
+        type: 'PROFESSIONAL_ACCOUNT',
+        title: p.fullname || p.email,
+        reason: 'Account review pending',
+        timestamp: p.createdAt,
         severity: 'yellow',
       })),
       ...pendingKyc.map((k) => ({
@@ -513,17 +621,34 @@ export const getAdminActionQueues = catchAsync(
         timestamp: k.createdAt,
         severity: 'blue',
       })),
+      ...pendingRecruiterKyc.map((k) => ({
+        id: k.id,
+        type: 'RECRUITER_KYC',
+        title: k.recruiter.organizationName || k.recruiter.email,
+        reason: 'ID Verification Pending',
+        timestamp: k.createdAt,
+        severity: 'blue',
+      })),
     ].sort(
       (a, b) =>
         new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
     );
 
-    // 2. System Alerts (real derived signals only)
+    // 2. System Alerts (real derived signals only). Failures are counted over
+    //    a recent window so the alert clears once things are working again.
+    const alertWindowStart = new Date(
+      Date.now() - SYSTEM_ALERT_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+    );
+    const recentFailure = {
+      status: 'FAILED',
+      createdAt: { gte: alertWindowStart },
+    } as const;
     const [
       flaggedJobs,
       flaggedCourses,
       flaggedRecruiters,
       flaggedProfessionals,
+      openReports,
       failedLogs,
       recentFailedLogs,
     ] = await Promise.all([
@@ -531,9 +656,10 @@ export const getAdminActionQueues = catchAsync(
       prisma.course.count({ where: { isFlagged: true } }),
       prisma.recruiter.count({ where: { status: RecruiterStatus.FLAGGED } }),
       prisma.professional.count({ where: { status: 'FLAGGED' } }),
-      prisma.activityLog.count({ where: { status: 'FAILED' } }),
+      prisma.userReport.count({ where: OPEN_USER_REPORT }),
+      prisma.activityLog.count({ where: recentFailure }),
       prisma.activityLog.findMany({
-        where: { status: 'FAILED' },
+        where: recentFailure,
         orderBy: { createdAt: 'desc' },
         take: 3,
         select: {
@@ -545,15 +671,20 @@ export const getAdminActionQueues = catchAsync(
       }),
     ]);
 
+    // Same total as the Flagged Issues card.
     const totalFlagged =
-      flaggedJobs + flaggedCourses + flaggedRecruiters + flaggedProfessionals;
+      openReports +
+      flaggedJobs +
+      flaggedCourses +
+      flaggedRecruiters +
+      flaggedProfessionals;
 
     const systemAlerts = [
       totalFlagged > 0
         ? {
             id: 'flagged-entities',
             type: 'SECURITY',
-            message: `${totalFlagged} flagged item${totalFlagged === 1 ? '' : 's'} need review.`,
+            message: `${totalFlagged} flagged item${totalFlagged === 1 ? ' needs' : 's need'} review.`,
             severity: 'red',
             timestamp: new Date(),
           }
@@ -562,7 +693,7 @@ export const getAdminActionQueues = catchAsync(
         ? {
             id: 'failed-activity-logs',
             type: 'OPERATIONS',
-            message: `${failedLogs} failed platform action${failedLogs === 1 ? '' : 's'} detected.`,
+            message: `${failedLogs} failed platform action${failedLogs === 1 ? '' : 's'} in the last ${SYSTEM_ALERT_WINDOW_DAYS} days.`,
             severity: 'yellow',
             timestamp: new Date(),
           }
@@ -580,6 +711,7 @@ export const getAdminActionQueues = catchAsync(
       status: 'success',
       data: {
         reviewQueue,
+        reviewQueueTotal,
         systemAlerts,
       },
     });

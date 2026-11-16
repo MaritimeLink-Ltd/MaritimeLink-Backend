@@ -1,3 +1,4 @@
+import { isPlatformAdminRole } from '../config/adminRoles.js';
 import { Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma.js';
 import {
@@ -35,13 +36,6 @@ const normalizeFieldValue = (value: unknown) => {
   if (typeof value === 'string') return value.trim();
   return value ?? null;
 };
-
-const PLATFORM_ADMIN_ROLES = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'] as const;
-
-const isPlatformAdminRole = (role?: string) =>
-  PLATFORM_ADMIN_ROLES.includes(
-    (role || '') as (typeof PLATFORM_ADMIN_ROLES)[number],
-  );
 
 /** Recruiters own recruiterId rows; platform admins manage MaritimeLink (adminId) listings. */
 const canManageJob = (
@@ -115,6 +109,32 @@ const canRecruiterActivateJobForFree = async (
 /** Message shown when a listing has to be paid for before it can be published. */
 const FLEX_PAYMENT_REQUIRED_MESSAGE =
   'This job listing has not been paid for yet, so it stays a draft and is not visible to professionals. Pay the Flex fee to publish it for 30 days, or upgrade to Premium Recruiter for unlimited active listings.';
+
+/**
+ * Public job responses (the /api/jobs feed is readable without logging in)
+ * don't include the poster's login email. Admin/internal views keep it.
+ */
+const withoutPosterEmails = <
+  T extends {
+    recruiter?: Record<string, unknown> | null;
+    admin?: Record<string, unknown> | null;
+  },
+>(
+  job: T,
+): T => {
+  const copy = { ...job };
+  if (copy.recruiter) {
+    const { email: _email, ...rest } = copy.recruiter;
+    void _email;
+    copy.recruiter = rest;
+  }
+  if (copy.admin) {
+    const { email: _email, ...rest } = copy.admin;
+    void _email;
+    copy.admin = rest;
+  }
+  return copy;
+};
 
 /**
  * Create a new job post
@@ -232,6 +252,7 @@ export const getJobs = catchAsync(async (req: CustomRequest, res: Response) => {
     'SUPER_ADMIN',
     'ADMIN',
     'MODERATOR',
+    'OPERATIONS_MANAGER',
     'RECRUITER',
   ].includes(userRole || '');
 
@@ -358,7 +379,11 @@ export const getJobs = catchAsync(async (req: CustomRequest, res: Response) => {
     status: 'success',
     results: filteredJobs.length,
     total,
-    data: { jobs: filteredJobs },
+    data: {
+      jobs: isInternalViewer
+        ? filteredJobs
+        : filteredJobs.map(withoutPosterEmails),
+    },
   });
 });
 
@@ -374,6 +399,7 @@ export const getJobById = catchAsync(
       'SUPER_ADMIN',
       'ADMIN',
       'MODERATOR',
+      'OPERATIONS_MANAGER',
       'RECRUITER',
     ].includes(userRole || '');
 
@@ -448,7 +474,9 @@ export const getJobById = catchAsync(
     res.status(200).json({
       status: 'success',
       data: {
-        job: effectiveJob,
+        job: isInternalViewer
+          ? effectiveJob
+          : withoutPosterEmails(effectiveJob),
         hasApplied,
         applicationStatus,
         applicationRejectionReason,
@@ -467,9 +495,7 @@ export const getMyJobs = catchAsync(
     const userId = req.user?.id;
     const userRole = req.user?.role;
 
-    const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'].includes(
-      userRole || '',
-    );
+    const isAdmin = isPlatformAdminRole(userRole || '');
 
     const jobs = await prisma.job.findMany({
       where: isAdmin ? { adminId: userId } : { recruiterId: userId },

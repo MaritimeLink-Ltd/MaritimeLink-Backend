@@ -33,7 +33,9 @@ export const protect = catchAsync(
       );
     }
 
-    const decoded = jwt.verify(token, env.JWT_SECRET) as unknown as JWTPayload;
+    const decoded = jwt.verify(token, env.JWT_SECRET, {
+      algorithms: ['HS256'],
+    }) as unknown as JWTPayload;
 
     const currentUser = await prisma.professional.findUnique({
       where: { id: decoded.id },

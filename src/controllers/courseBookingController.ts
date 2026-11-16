@@ -47,6 +47,29 @@ export const checkout = catchAsync(
       return next(new AppError('Please select at least one session', 400));
     }
 
+    // Only the booker's own wallet documents may be attached — anything else
+    // in the list (another professional's document id) is dropped, so the
+    // trainer can never be handed someone else's files through a booking.
+    const requestedDocumentIds: string[] = Array.isArray(documentIds)
+      ? [
+          ...new Set(
+            documentIds.filter(
+              (id: unknown): id is string =>
+                typeof id === 'string' && id.length > 0,
+            ),
+          ),
+        ]
+      : [];
+    const ownedDocumentIds =
+      requestedDocumentIds.length > 0
+        ? (
+            await prisma.professionalDocument.findMany({
+              where: { id: { in: requestedDocumentIds }, professionalId },
+              select: { id: true },
+            })
+          ).map((doc) => doc.id)
+        : [];
+
     let booking:
       | {
           id: string;
@@ -188,12 +211,11 @@ export const checkout = catchAsync(
             sessions: {
               connect: normalizedSessionIds.map((id: string) => ({ id })),
             },
-            ...(documentIds &&
-              documentIds.length > 0 && {
-                attachedDocuments: {
-                  connect: documentIds.map((id: string) => ({ id })),
-                },
-              }),
+            ...(ownedDocumentIds.length > 0 && {
+              attachedDocuments: {
+                connect: ownedDocumentIds.map((id: string) => ({ id })),
+              },
+            }),
           },
           select: {
             id: true,
@@ -296,6 +318,23 @@ export const confirmBooking = catchAsync(
 
     if (paymentIntent.status !== 'succeeded') {
       return next(new AppError('Payment has not been completed yet', 400));
+    }
+
+    // Only a booking still waiting for payment is moved to paid. A refunded
+    // PaymentIntent still reports "succeeded", so without this a refunded
+    // booking could be flipped back to paid (and paid out to the trainer).
+    if (
+      booking.paymentStatus !== 'PENDING' &&
+      booking.paymentStatus !== 'FAILED'
+    ) {
+      return res.status(200).json({
+        status: 'success',
+        data: {
+          bookingId: booking.id,
+          paymentStatus: booking.paymentStatus,
+          bookingStatus: booking.bookingStatus,
+        },
+      });
     }
 
     const updatedBooking = await prisma.courseBooking.update({

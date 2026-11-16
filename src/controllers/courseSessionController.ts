@@ -1,3 +1,6 @@
+import jwt from 'jsonwebtoken';
+import { env } from '../config/env.js';
+import { canViewFinancials } from '../config/adminRoles.js';
 import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma.js';
 import { catchAsync } from '../utils/catchAsync.js';
@@ -6,6 +9,61 @@ import {
   createSessionSchema,
   updateSessionSchema,
 } from '../validations/courseSessionValidation.js';
+import { CustomRequest } from '../types/index.js';
+import { canManageCourse } from './courseController.js';
+
+/**
+ * Sessions can only be changed by whoever can manage the parent course (its
+ * owning trainer, or a platform admin for MaritimeLink-listed courses) — the
+ * same rule course edits already follow.
+ */
+const userCanManageCourse = async (
+  req: Request,
+  courseId: string,
+): Promise<boolean> => {
+  const user = (req as CustomRequest).user;
+  if (!user?.id) return false;
+  const course = await prisma.course.findUnique({
+    where: { id: courseId },
+    select: { adminId: true, recruiterId: true },
+  });
+  if (!course) return false;
+  return canManageCourse(course, user.id, user.role);
+};
+
+/**
+ * True when the (optional) session token belongs to the course's owner or to
+ * a platform admin whose role may see money.
+ */
+const viewerMaySeeCourseRevenue = async (
+  req: Request,
+  courseId: string,
+): Promise<boolean> => {
+  const header = req.headers.authorization;
+  if (!header || !header.startsWith('Bearer ')) return false;
+  let viewerId: string | undefined;
+  try {
+    const decoded = jwt.verify(header.slice(7).trim(), env.JWT_SECRET, {
+      algorithms: ['HS256'],
+    }) as { id?: unknown };
+    viewerId = typeof decoded?.id === 'string' ? decoded.id : undefined;
+  } catch {
+    return false;
+  }
+  if (!viewerId) return false;
+
+  const admin = await prisma.admin.findUnique({
+    where: { id: viewerId },
+    select: { role: true, disabledAt: true },
+  });
+  if (admin) return !admin.disabledAt && canViewFinancials(admin.role);
+
+  const course = await prisma.course.findUnique({
+    where: { id: courseId },
+    select: { recruiterId: true },
+  });
+  return !!course?.recruiterId && course.recruiterId === viewerId;
+};
 
 /**
  * Create a new session for a course
@@ -22,6 +80,10 @@ export const createSession = catchAsync(
     const course = await prisma.course.findUnique({ where: { id: courseId } });
     if (!course) {
       return next(new AppError('Course not found', 404));
+    }
+
+    if (!(await userCanManageCourse(req, courseId))) {
+      return next(new AppError('Unauthorized', 403));
     }
 
     const session = await prisma.courseSession.create({
@@ -62,6 +124,10 @@ export const getCourseSessions = catchAsync(
       },
       orderBy: { startDate: 'asc' },
     });
+    // This list is public (booking pages use it), but takings per session are
+    // only for the course's owner and for admins allowed to see money.
+    const showRevenue = await viewerMaySeeCourseRevenue(req, courseId);
+
     const sessions = rawSessions.map(({ bookings, ...session }) => {
       const activeBookings = bookings.filter((booking) =>
         ['CONFIRMED', 'COMPLETED'].includes(booking.bookingStatus),
@@ -77,10 +143,12 @@ export const getCourseSessions = catchAsync(
         ...session,
         bookedCount: activeBookings.length,
         pendingBookings: pendingBookings.length,
-        revenue: paidBookings.reduce(
-          (sum, booking) => sum + Number(booking.amountPaid),
-          0,
-        ),
+        ...(showRevenue && {
+          revenue: paidBookings.reduce(
+            (sum, booking) => sum + Number(booking.amountPaid),
+            0,
+          ),
+        }),
       };
     });
 
@@ -134,6 +202,10 @@ export const updateSession = catchAsync(
       return next(new AppError('Session not found', 404));
     }
 
+    if (!(await userCanManageCourse(req, existingSession.courseId))) {
+      return next(new AppError('Unauthorized', 403));
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const updateData: Record<string, any> = { ...validation.data };
     if (validation.data.startDate)
@@ -177,6 +249,10 @@ export const deleteSession = catchAsync(
     const session = await prisma.courseSession.findUnique({ where: { id } });
     if (!session) {
       return next(new AppError('Session not found', 404));
+    }
+
+    if (!(await userCanManageCourse(req, session.courseId))) {
+      return next(new AppError('Unauthorized', 403));
     }
 
     await prisma.courseSession.delete({ where: { id } });

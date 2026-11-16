@@ -1,3 +1,7 @@
+import {
+  fetchStoredFile,
+  safeShareContentType,
+} from '../utils/storedFileFetch.js';
 import { Response, NextFunction } from 'express';
 import { prisma, Prisma } from '../config/prisma.js';
 import { AppError } from '../utils/AppError.js';
@@ -61,7 +65,9 @@ const verifyDocumentPackShareToken = async (
     throw new AppError('Invalid or expired share link', 401);
   }
   try {
-    const payload = jwt.verify(token, env.JWT_SECRET) as DocumentPackShareJwt;
+    const payload = jwt.verify(token, env.JWT_SECRET, {
+      algorithms: ['HS256'],
+    }) as DocumentPackShareJwt;
     if (
       typeof payload.sub !== 'string' ||
       payload.type !== 'DOCUMENT_PACK_SHARE'
@@ -1032,16 +1038,17 @@ export const streamSharedDocumentFile = catchAsync(
       return next(new AppError('Document not found', 404));
     }
 
-    const upstream = await fetch(document.fileUrl);
-    if (!upstream.ok) {
+    const upstream = await fetchStoredFile(document.fileUrl);
+    if (!upstream || !upstream.ok) {
       return next(new AppError('File temporarily unavailable', 502));
     }
 
-    const arrayBuffer = await upstream.arrayBuffer();
-    const buf = Buffer.from(arrayBuffer);
-
-    const contentType =
-      upstream.headers.get('content-type') || 'application/octet-stream';
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    // Only PDFs and images are shown inline; anything else downloads, so a
+    // stored file can never be rendered as a web page from this address.
+    const { contentType, forceDownload } = safeShareContentType(
+      upstream.headers.get('content-type'),
+    );
     const safeName = String(document.name || 'document')
       .replace(/[^\w.\- ]+/g, '_')
       .trim()
@@ -1049,7 +1056,8 @@ export const streamSharedDocumentFile = catchAsync(
 
     // `?download=1` is only honoured when the sharer allowed downloads.
     const wantsDownload =
-      payload.allowDownload === true && req.query.download === '1';
+      forceDownload ||
+      (payload.allowDownload === true && req.query.download === '1');
 
     res.setHeader('Content-Type', contentType);
     res.setHeader(

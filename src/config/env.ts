@@ -133,3 +133,28 @@ if (!parsed.success) {
 }
 
 export const env = parsed.data;
+
+/**
+ * JWT_SECRET signs every login session. A short or well-known value (such as
+ * the `your_secret_here` placeholder) lets anyone create a valid session for
+ * any account. The server still starts — refusing to boot would take the API
+ * down — but it says so loudly on every start until the secret is replaced
+ * (generate one with `openssl rand -base64 48`).
+ */
+const KNOWN_PLACEHOLDER_SECRETS = new Set([
+  'your_secret_here',
+  'secret',
+  'changeme',
+  'change_me',
+  'jwt_secret',
+  'your-secret',
+  'your_jwt_secret',
+]);
+if (
+  env.JWT_SECRET.length < 32 ||
+  KNOWN_PLACEHOLDER_SECRETS.has(env.JWT_SECRET.trim().toLowerCase())
+) {
+  console.error(
+    '🚨 SECURITY: JWT_SECRET is too short or a known placeholder. Anyone can forge login sessions until it is replaced with a long random value (openssl rand -base64 48).',
+  );
+}

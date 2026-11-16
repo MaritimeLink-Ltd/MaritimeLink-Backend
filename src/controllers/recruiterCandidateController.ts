@@ -1,3 +1,4 @@
+import { isPlatformAdminRole } from '../config/adminRoles.js';
 import { Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma.js';
 import {
@@ -130,6 +131,20 @@ const buildComplianceMeta = (prof: {
 };
 
 /**
+ * Wallet documents as shown to recruiters: the raw OCR extraction (passport
+ * numbers, dates of birth, …) is internal to the professional's own wallet and
+ * is not used by any recruiter screen.
+ */
+const withoutOcrData = <T extends Record<string, unknown>>(
+  documents: T[] | null | undefined,
+): Omit<T, 'ocrData'>[] =>
+  (documents ?? []).map((doc) => {
+    const { ocrData: _ocrData, ...rest } = doc;
+    void _ocrData;
+    return rest;
+  });
+
+/**
  * Get matching candidates for a specific job
  */
 export const getMatchingCandidates = catchAsync(
@@ -137,9 +152,7 @@ export const getMatchingCandidates = catchAsync(
     const { id: jobId } = req.params;
     const userId = req.user?.id;
     const userRole = req.user?.role;
-    const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'].includes(
-      userRole || '',
-    );
+    const isAdmin = isPlatformAdminRole(userRole || '');
 
     const job = await prisma.job.findUnique({
       where: { id: jobId },
@@ -268,7 +281,9 @@ export const getMatchingCandidates = catchAsync(
           matchPercentage: Math.min(match.score, 100),
           matchCriteria: match.criteria,
           cvUrl: prof.cvUrl,
-          documents: showMatchDocumentWallet ? prof.documents : [],
+          documents: showMatchDocumentWallet
+            ? withoutOcrData(prof.documents)
+            : [],
         };
       })
       .filter((candidate): candidate is NonNullable<typeof candidate> =>
@@ -606,8 +621,31 @@ export const getCandidateProfile = catchAsync(
       });
     }
 
+    // Recruiters never need the passport/ID upload link or billing/account
+    // internals; secrets (password hash, OTPs, reset tokens) are additionally
+    // stripped from every response by the responseSafety middleware.
+    const {
+      idPassportUrl: _idPassportUrl,
+      appleOriginalTransactionId: _appleOriginalTransactionId,
+      suspendedAt: _suspendedAt,
+      suspendedUntil: _suspendedUntil,
+      suspensionReason: _suspensionReason,
+      suspendedById: _suspendedById,
+      statusBeforeSuspension: _statusBeforeSuspension,
+      ...professionalForRecruiter
+    } = professional;
+    void [
+      _idPassportUrl,
+      _appleOriginalTransactionId,
+      _suspendedAt,
+      _suspendedUntil,
+      _suspensionReason,
+      _suspendedById,
+      _statusBeforeSuspension,
+    ];
+
     const responseProfessional = {
-      ...professional,
+      ...professionalForRecruiter,
       cvUrl: access.viewResume ? professional.cvUrl : null,
       lastCoverLetter: access.viewResume ? professional.lastCoverLetter : null,
       // Free/Flex recruiters keep the public-profile basics so the candidate never
@@ -615,7 +653,9 @@ export const getCandidateProfile = catchAsync(
       resume: access.viewResume
         ? professional.resume
         : toPublicResumeBasics(professional.resume),
-      documents: access.viewDocumentWallet ? professional.documents : [],
+      documents: access.viewDocumentWallet
+        ? withoutOcrData(professional.documents)
+        : [],
       // Always the true count, even when `documents` is withheld, so a gated
       // recruiter can be shown "this candidate has N documents — upgrade to view"
       // rather than an empty list that reads as "no documents on file".
@@ -656,8 +696,7 @@ export const inviteProfessional = catchAsync(
     if (!job) return next(new AppError('Job not found', 404));
     if (
       job.recruiterId !== recruiterId &&
-      req.user?.role !== 'ADMIN' &&
-      req.user?.role !== 'SUPER_ADMIN'
+      !isPlatformAdminRole(req.user?.role)
     ) {
       return next(new AppError('Not authorized to invite for this job', 403));
     }
@@ -719,7 +758,7 @@ export const inviteProfessional = catchAsync(
 
     // 4. Create Alert for Professional
     let senderName = 'A recruiter';
-    if (req.user?.role === 'ADMIN' || req.user?.role === 'SUPER_ADMIN') {
+    if (isPlatformAdminRole(req.user?.role)) {
       senderName = 'MaritimeLink Admin';
     } else {
       const recruiterData = await prisma.recruiter.findUnique({

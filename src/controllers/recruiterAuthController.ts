@@ -1,3 +1,5 @@
+import { generateOtpCode, isOtpCodeFormat } from '../utils/otp.js';
+import { checkRecruiterSignupStep } from '../utils/signupStepGuard.js';
 import crypto from 'crypto';
 import { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
@@ -94,7 +96,7 @@ export const register = catchAsync(
       },
     });
 
-    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpCode = generateOtpCode();
     const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
     await prisma.recruiter.update({
@@ -105,9 +107,11 @@ export const register = catchAsync(
       },
     });
 
-    console.log(
-      `[LOCAL TEST OTP] Recruiter email OTP for ${email}: ${otpCode}`,
-    );
+    if (env.NODE_ENV !== 'production') {
+      console.log(
+        `[LOCAL TEST OTP] Recruiter email OTP for ${email}: ${otpCode}`,
+      );
+    }
 
     await sendOTPEmail(email, otpCode);
 
@@ -137,6 +141,13 @@ export const register = catchAsync(
 export const verifyOTP = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const { recruiterId, code } = req.body;
+
+    // The code must be the digits the user typed. Anything else (missing, or
+    // an object) would otherwise be read by the database query as "match any
+    // code" and verify the account without the OTP.
+    if (typeof recruiterId !== 'string' || !isOtpCodeFormat(code)) {
+      return next(new AppError('Invalid or expired OTP', 400));
+    }
 
     const recruiter = await prisma.recruiter.findFirst({
       where: {
@@ -172,7 +183,7 @@ export const verifyOTP = catchAsync(
  * Step 3: Tell Us About Yourself
  */
 export const setPersonalInfo = catchAsync(
-  async (req: Request, res: Response) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     const validatedData = setPersonalInfoSchema.parse(req.body);
     const {
       recruiterId,
@@ -185,21 +196,24 @@ export const setPersonalInfo = catchAsync(
       otherRole,
     } = validatedData;
 
+    const stepError = await checkRecruiterSignupStep(req, recruiterId);
+    if (stepError) return next(stepError);
+
     // With Twilio Verify the code lives on Twilio's side, so nothing is stored
     // locally. The fallback below keeps local development (and the test suite)
     // working without Twilio credentials.
     const useVerify = isPhoneVerifyConfigured();
-    const phoneOtpCode = useVerify
-      ? null
-      : Math.floor(100000 + Math.random() * 900000).toString();
+    const phoneOtpCode = useVerify ? null : generateOtpCode();
     const phoneOtpExpiresAt = phoneOtpCode
       ? new Date(Date.now() + 10 * 60 * 1000)
       : null;
 
     if (phoneOtpCode) {
-      console.log(
-        `[LOCAL TEST OTP] Recruiter phone OTP for ${phoneCode}${phoneNumber}: ${phoneOtpCode}`,
-      );
+      if (env.NODE_ENV !== 'production') {
+        console.log(
+          `[LOCAL TEST OTP] Recruiter phone OTP for ${phoneCode}${phoneNumber}: ${phoneOtpCode}`,
+        );
+      }
     }
 
     await prisma.recruiter.update({
@@ -260,6 +274,13 @@ export const setPersonalInfo = catchAsync(
 export const verifyPhone = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const { recruiterId, code } = req.body;
+
+    const stepError = await checkRecruiterSignupStep(req, recruiterId);
+    if (stepError) return next(stepError);
+
+    if (!isOtpCodeFormat(code)) {
+      return next(new AppError('Invalid or expired phone OTP', 400));
+    }
 
     if (isPhoneVerifyConfigured()) {
       const recruiter = await prisma.recruiter.findUnique({
@@ -334,8 +355,13 @@ export const verifyPhone = catchAsync(
  * Step 5: Company Details
  */
 export const setCompanyDetails = catchAsync(
-  async (req: Request, res: Response) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     const validatedData = setCompanyDetailsSchema.parse(req.body);
+    const stepError = await checkRecruiterSignupStep(
+      req,
+      validatedData.recruiterId,
+    );
+    if (stepError) return next(stepError);
     const {
       recruiterId,
       organizationVerified,
@@ -564,36 +590,41 @@ export const getCompanyPreview = catchAsync(
 /**
  * Step 6: Compliance & Trust
  */
-export const setCompliance = catchAsync(async (req: Request, res: Response) => {
-  const validatedData = setComplianceSchema.parse(req.body);
-  const { recruiterId, isAuthorized, agreedToTerms, howDidYouHear } =
-    validatedData;
+export const setCompliance = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const validatedData = setComplianceSchema.parse(req.body);
+    const { recruiterId, isAuthorized, agreedToTerms, howDidYouHear } =
+      validatedData;
 
-  const recruiter = await prisma.recruiter.update({
-    where: { id: recruiterId },
-    data: {
-      isAuthorized,
-      agreedToTerms,
-      howDidYouHear,
-      registrationStep: 6,
-      status: 'PENDING',
-    },
-  });
+    const stepError = await checkRecruiterSignupStep(req, recruiterId);
+    if (stepError) return next(stepError);
 
-  // Issue token upon completion
-  const token = jwt.sign(
-    { id: recruiter.id, role: recruiter.role },
-    env.JWT_SECRET,
-    { expiresIn: '7d' },
-  );
+    const recruiter = await prisma.recruiter.update({
+      where: { id: recruiterId },
+      data: {
+        isAuthorized,
+        agreedToTerms,
+        howDidYouHear,
+        registrationStep: 6,
+        status: 'PENDING',
+      },
+    });
 
-  res.status(200).json({
-    status: 'success',
-    message: 'Registration complete. Your account is under review.',
-    token,
-    data: { registrationStep: 6 },
-  });
-});
+    // Issue token upon completion
+    const token = jwt.sign(
+      { id: recruiter.id, role: recruiter.role },
+      env.JWT_SECRET,
+      { expiresIn: '7d' },
+    );
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Registration complete. Your account is under review.',
+      token,
+      data: { registrationStep: 6 },
+    });
+  },
+);
 
 /**
  * Step 3: Upload ID (Multipart) - Legacy support for existing routes
@@ -644,6 +675,9 @@ export const uploadProfilePhoto = catchAsync(
     if (!recruiterId) {
       return next(new AppError('recruiterId is required', 400));
     }
+
+    const stepError = await checkRecruiterSignupStep(req, recruiterId);
+    if (stepError) return next(stepError);
 
     const sanitizedOriginalName = file.originalname.replace(
       /[^a-zA-Z0-9.]/g,
@@ -706,6 +740,9 @@ export const completeProfile = catchAsync(
     if (!recruiter.isVerified) {
       return next(new AppError('Please verify your email first', 401));
     }
+
+    const stepError = await checkRecruiterSignupStep(req, recruiterId);
+    if (stepError) return next(stepError);
 
     await prisma.recruiter.update({
       where: { id: recruiterId },
@@ -855,6 +892,9 @@ export const resendPhoneOTP = catchAsync(
       return next(new AppError('Please provide a recruiterId', 400));
     }
 
+    const stepError = await checkRecruiterSignupStep(req, recruiterId);
+    if (stepError) return next(stepError);
+
     const recruiter = await prisma.recruiter.findUnique({
       where: { id: recruiterId },
       select: {
@@ -893,9 +933,7 @@ export const resendPhoneOTP = catchAsync(
         toE164(recruiter.phoneCode, recruiter.phoneNumber),
       );
     } else {
-      const phoneOtpCode = Math.floor(
-        100000 + Math.random() * 900000,
-      ).toString();
+      const phoneOtpCode = generateOtpCode();
       const phoneOtpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
       await prisma.recruiter.update({
@@ -903,9 +941,11 @@ export const resendPhoneOTP = catchAsync(
         data: { phoneOtpCode, phoneOtpExpiresAt },
       });
 
-      console.log(
-        `[LOCAL TEST OTP] Resent phone OTP for ${recruiter.phoneCode}${recruiter.phoneNumber}: ${phoneOtpCode}`,
-      );
+      if (env.NODE_ENV !== 'production') {
+        console.log(
+          `[LOCAL TEST OTP] Resent phone OTP for ${recruiter.phoneCode}${recruiter.phoneNumber}: ${phoneOtpCode}`,
+        );
+      }
 
       // Neither channel is allowed to fail the request — the code is already saved,
       // and step 3 treats delivery the same way.
@@ -958,7 +998,7 @@ export const resendOTP = catchAsync(
       return next(new AppError('Account is already verified', 400));
     }
 
-    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpCode = generateOtpCode();
     const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
     await prisma.recruiter.update({
@@ -969,9 +1009,11 @@ export const resendOTP = catchAsync(
       },
     });
 
-    console.log(
-      `[LOCAL TEST OTP] Recruiter resend email OTP for ${email}: ${otpCode}`,
-    );
+    if (env.NODE_ENV !== 'production') {
+      console.log(
+        `[LOCAL TEST OTP] Recruiter resend email OTP for ${email}: ${otpCode}`,
+      );
+    }
 
     await sendOTPEmail(email, otpCode);
 

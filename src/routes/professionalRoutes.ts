@@ -1,5 +1,12 @@
+import {
+  forgotPasswordLimiter,
+  loginLimiter,
+  otpResendLimiter,
+  otpVerifyLimiter,
+  registerLimiter,
+} from '../middlewares/authRateLimit.js';
 import { Router } from 'express';
-import multer from 'multer';
+import { createUpload } from '../config/upload.js';
 import { rateLimit } from 'express-rate-limit';
 import * as authController from '../controllers/professionalAuthController.js';
 import * as kycController from '../controllers/professionalKycController.js';
@@ -11,7 +18,7 @@ import * as courseController from '../controllers/professionalCourseController.j
 import { protect } from '../middlewares/authMiddleware.js';
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = createUpload();
 
 /**
  * @swagger
@@ -50,7 +57,7 @@ const upload = multer({ storage: multer.memoryStorage() });
  *       400:
  *         $ref: '#/components/responses/ValidationError'
  */
-router.post('/register', authController.register);
+router.post('/register', registerLimiter, authController.register);
 
 /**
  * @swagger
@@ -83,7 +90,7 @@ router.post('/register', authController.register);
  *       400:
  *         description: Invalid or expired OTP
  */
-router.post('/verify-otp', authController.verifyOTP);
+router.post('/verify-otp', otpVerifyLimiter, authController.verifyOTP);
 
 /**
  * @swagger
@@ -262,7 +269,7 @@ router.post('/complete-profile', authController.completeProfile);
  *       401:
  *         description: Invalid credentials or unverified account
  */
-router.post('/login', authController.login);
+router.post('/login', loginLimiter, authController.login);
 /**
  * @swagger
  * /api/professional/resend-otp:
@@ -293,7 +300,7 @@ router.post('/login', authController.login);
  *       404:
  *         $ref: '#/components/responses/NotFoundError'
  */
-router.post('/resend-otp', authController.resendOTP);
+router.post('/resend-otp', otpResendLimiter, authController.resendOTP);
 
 /**
  * @swagger
@@ -323,7 +330,11 @@ router.post('/resend-otp', authController.resendOTP);
  *       404:
  *         $ref: '#/components/responses/NotFoundError'
  */
-router.post('/forgot-password', authController.forgotPassword);
+router.post(
+  '/forgot-password',
+  forgotPasswordLimiter,
+  authController.forgotPassword,
+);
 
 /**
  * @swagger

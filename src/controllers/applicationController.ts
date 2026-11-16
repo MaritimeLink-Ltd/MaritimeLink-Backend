@@ -1,3 +1,5 @@
+import { isPlatformAdminRole } from '../config/adminRoles.js';
+import { isHttpUrl } from '../utils/storedFileFetch.js';
 import { Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma.js';
 import { AppError } from '../utils/AppError.js';
@@ -123,6 +125,14 @@ export const applyToJob = catchAsync(
         : null;
     const finalCvUrl =
       typeof cvUrl === 'string' && cvUrl.trim() ? cvUrl.trim() : null;
+
+    // Recruiters open these links directly, so only real web links are kept.
+    if (finalCvUrl && !isHttpUrl(finalCvUrl)) {
+      return next(new AppError('Invalid CV link', 400));
+    }
+    if (coverLetterUrl && !isHttpUrl(coverLetterUrl)) {
+      return next(new AppError('Invalid cover letter link', 400));
+    }
 
     // 3. Check if Job exists and is open for applications
     const job = await prisma.job.findUnique({ where: { id: jobId } });
@@ -357,9 +367,7 @@ export const getApplicationDetails = catchAsync(
     const { id } = req.params;
     const userId = req.user?.id;
     const userRole = req.user?.role;
-    const isAdminViewer = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'].includes(
-      userRole || '',
-    );
+    const isAdminViewer = isPlatformAdminRole(userRole || '');
 
     const application = await prisma.jobApplication.findUnique({
       where: { id },
@@ -439,9 +447,22 @@ export const getApplicationDetails = catchAsync(
             email: application.professional.email,
             profession: application.professional.profession,
             profilePhotoUrl: application.professional.profilePhotoUrl,
-            idPassportUrl: application.professional.idPassportUrl,
-            kyc: application.professional.kyc,
+            // Recruiters see whether identity was verified, never the ID scan
+            // itself or the document number.
+            kyc: application.professional.kyc
+              ? {
+                  status: application.professional.kyc.status,
+                  documentType: application.professional.kyc.documentType,
+                  expiryDate: application.professional.kyc.expiryDate,
+                }
+              : null,
           },
+          // The raw OCR extraction stays in the professional's own wallet.
+          attachedDocuments: application.attachedDocuments.map((doc) => {
+            const { ocrData: _ocrData, ...rest } = doc;
+            void _ocrData;
+            return rest;
+          }),
         };
 
     res.status(200).json({
@@ -536,9 +557,7 @@ export const updateApplicationStatus = catchAsync(
     if (!application) return next(new AppError('Application not found', 404));
 
     // Ensure user has authority to update this application
-    const isRecruiter = !['SUPER_ADMIN', 'ADMIN'].includes(
-      req.user?.role as string,
-    );
+    const isRecruiter = !isPlatformAdminRole(req.user?.role as string);
     if (isRecruiter && application.job.recruiterId !== userId) {
       return next(new AppError('Not authorized to update this status', 403));
     }
@@ -618,9 +637,7 @@ export const updateApplicationStatus = catchAsync(
 
     // Log for Recruiter activity
     if (userId) {
-      const actorType = ['SUPER_ADMIN', 'ADMIN'].includes(
-        req.user?.role as string,
-      )
+      const actorType = isPlatformAdminRole(req.user?.role as string)
         ? ActorType.ADMIN
         : ActorType.RECRUITER;
 
@@ -655,9 +672,7 @@ export const getJobApplicants = catchAsync(
     const { id: jobId } = req.params;
     const userId = req.user?.id;
     const userRole = req.user?.role;
-    const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'].includes(
-      userRole || '',
-    );
+    const isAdmin = isPlatformAdminRole(userRole || '');
 
     const job = await prisma.job.findUnique({ where: { id: jobId } });
     if (!job) {
@@ -764,9 +779,18 @@ export const getJobApplicants = catchAsync(
 
       return {
         ...app,
+        // OCR extraction (ID numbers, dates of birth) isn't shown in any
+        // applicant screen, so it isn't sent.
+        attachedDocuments: app.attachedDocuments.map((doc) => {
+          const { ocrData: _ocrData, ...rest } = doc;
+          void _ocrData;
+          return rest;
+        }),
         access: applicantAccess,
         professional: {
           ...app.professional,
+          // Not used by any applicant screen; never send the ID/passport scan.
+          idPassportUrl: undefined,
           // Compliance uses only doc id/expiry (already selected above, never
           // full file data) so it stays accurate regardless of tier — actual
           // resume/CV content is what "View Resume" gates.

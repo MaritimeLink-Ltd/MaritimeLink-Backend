@@ -1,12 +1,19 @@
+import {
+  forgotPasswordLimiter,
+  loginLimiter,
+  otpResendLimiter,
+  otpVerifyLimiter,
+  registerLimiter,
+} from '../middlewares/authRateLimit.js';
 import express from 'express';
-import multer from 'multer';
+import { createUpload } from '../config/upload.js';
 import * as recruiterController from '../controllers/recruiterAuthController.js';
 import * as recruiterSettingsController from '../controllers/recruiterSettingsController.js';
 import * as recruiterMembershipController from '../controllers/recruiterMembershipController.js';
 import * as kycController from '../controllers/kycController.js';
 import * as candidateController from '../controllers/recruiterCandidateController.js';
 const router = express.Router();
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = createUpload();
 import {
   protectRecruiter,
   protectRecruiterKyc,
@@ -50,7 +57,7 @@ import {
  *       400:
  *         $ref: '#/components/responses/ValidationError'
  */
-router.post('/register', recruiterController.register);
+router.post('/register', registerLimiter, recruiterController.register);
 
 /**
  * @swagger
@@ -82,7 +89,7 @@ router.post('/register', recruiterController.register);
  *       400:
  *         description: Invalid or expired OTP
  */
-router.post('/verify-otp', recruiterController.verifyOTP);
+router.post('/verify-otp', otpVerifyLimiter, recruiterController.verifyOTP);
 
 /**
  * @swagger
@@ -148,7 +155,7 @@ router.patch('/personal-info', recruiterController.setPersonalInfo);
  *                 status: { type: string, example: "success" }
  *                 data: { type: object, properties: { registrationStep: { type: integer, example: 4 } } }
  */
-router.post('/verify-phone', recruiterController.verifyPhone);
+router.post('/verify-phone', otpVerifyLimiter, recruiterController.verifyPhone);
 
 /**
  * @swagger
@@ -169,7 +176,11 @@ router.post('/verify-phone', recruiterController.verifyPhone);
  *       200:
  *         description: Verification code resent
  */
-router.post('/resend-phone-otp', recruiterController.resendPhoneOTP);
+router.post(
+  '/resend-phone-otp',
+  otpResendLimiter,
+  recruiterController.resendPhoneOTP,
+);
 
 /**
  * @swagger
@@ -302,6 +313,7 @@ router.patch('/compliance', recruiterController.setCompliance);
  */
 router.post(
   '/upload-id',
+  protectRecruiterKyc,
   upload.single('id_passport'),
   recruiterController.uploadID,
 );
@@ -377,7 +389,7 @@ router.post('/complete-profile', recruiterController.completeProfile);
  *       403:
  *         description: Account rejected or blocked
  */
-router.post('/login', recruiterController.login);
+router.post('/login', loginLimiter, recruiterController.login);
 
 /**
  * @swagger
@@ -409,7 +421,7 @@ router.post('/login', recruiterController.login);
  *       404:
  *         $ref: '#/components/responses/NotFoundError'
  */
-router.post('/resend-otp', recruiterController.resendOTP);
+router.post('/resend-otp', otpResendLimiter, recruiterController.resendOTP);
 
 /**
  * @swagger
@@ -439,7 +451,11 @@ router.post('/resend-otp', recruiterController.resendOTP);
  *       404:
  *         $ref: '#/components/responses/NotFoundError'
  */
-router.post('/forgot-password', recruiterController.forgotPassword);
+router.post(
+  '/forgot-password',
+  forgotPasswordLimiter,
+  recruiterController.forgotPassword,
+);
 
 /**
  * @swagger
@@ -699,6 +715,7 @@ router.post(
  */
 router.post(
   '/kyc/upload-document',
+  protectRecruiterKyc,
   upload.single('document'),
   kycController.uploadKYCDocument,
 );

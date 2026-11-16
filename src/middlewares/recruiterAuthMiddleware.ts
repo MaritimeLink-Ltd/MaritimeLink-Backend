@@ -34,7 +34,9 @@ export const protectRecruiter = catchAsync(
       );
     }
 
-    const decoded = jwt.verify(token, env.JWT_SECRET) as unknown as JWTPayload;
+    const decoded = jwt.verify(token, env.JWT_SECRET, {
+      algorithms: ['HS256'],
+    }) as unknown as JWTPayload;
 
     const currentRecruiter = await prisma.recruiter.findUnique({
       where: { id: decoded.id },
@@ -91,7 +93,9 @@ export const protectRecruiterKyc = catchAsync(
       );
     }
 
-    const decoded = jwt.verify(token, env.JWT_SECRET) as unknown as JWTPayload;
+    const decoded = jwt.verify(token, env.JWT_SECRET, {
+      algorithms: ['HS256'],
+    }) as unknown as JWTPayload;
 
     const currentRecruiter = await prisma.recruiter.findUnique({
       where: { id: decoded.id },
@@ -128,3 +132,23 @@ export const protectRecruiterKyc = catchAsync(
     next();
   },
 );
+
+/**
+ * Restricts a route to one recruiter account type (use after protectRecruiter).
+ * Recruitment agents and training providers share the recruiter table, so
+ * without this a recruitment agent could call training-provider endpoints
+ * (and vice versa).
+ */
+export const requireRecruiterRole =
+  (...roles: string[]) =>
+  (req: CustomRequest, res: Response, next: NextFunction) => {
+    if (!req.user?.role || !roles.includes(req.user.role)) {
+      return next(
+        new AppError(
+          'This feature is not available for your account type.',
+          403,
+        ),
+      );
+    }
+    next();
+  };

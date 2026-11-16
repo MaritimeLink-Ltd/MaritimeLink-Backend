@@ -27,3 +27,29 @@ export const commissionFor = (amountPaid: number): number =>
 /** Trainer payout for a booking amount, used the same way as `commissionFor`. */
 export const payoutFor = (amountPaid: number): number =>
   amountPaid * TRAINER_PAYOUT_RATE;
+
+export type RevenueBooking = {
+  amountPaid: unknown;
+  platformFee: unknown;
+  trainerPayout: unknown;
+  course: { recruiterId: string | null };
+};
+
+/**
+ * MaritimeLink's share of a course sale: the commission on a provider's
+ * course, or the whole amount for a course MaritimeLink itself runs (there is
+ * no provider to pay).
+ */
+export const platformShareOf = (b: RevenueBooking): number => {
+  const amount = Number(b.amountPaid);
+  if (!b.course.recruiterId) return amount;
+  return b.platformFee != null ? Number(b.platformFee) : commissionFor(amount);
+};
+
+/** The provider's share of a course sale (none for MaritimeLink's own courses). */
+export const providerShareOf = (b: RevenueBooking): number => {
+  if (!b.course.recruiterId) return 0;
+  return b.trainerPayout != null
+    ? Number(b.trainerPayout)
+    : payoutFor(Number(b.amountPaid));
+};

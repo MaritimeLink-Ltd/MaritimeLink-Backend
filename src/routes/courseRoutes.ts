@@ -1,3 +1,4 @@
+import { redactFinancialsForRestrictedAdmins } from '../middlewares/financialRedaction.js';
 import { Router } from 'express';
 import * as courseController from '../controllers/courseController.js';
 import * as sessionController from '../controllers/courseSessionController.js';
@@ -498,6 +499,7 @@ router.delete(
 router.get(
   '/:courseId/bookings',
   protectAdminOrRecruiter,
+  redactFinancialsForRestrictedAdmins,
   async (req, res, next) => {
     const { getCourseBookings } =
       await import('../controllers/trainerBookingController.js');

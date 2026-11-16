@@ -1,3 +1,8 @@
+import {
+  adminRoleLabel,
+  canManageAdminTeam,
+  canViewFinancials,
+} from '../config/adminRoles.js';
 import bcrypt from 'bcryptjs';
 import { Response, NextFunction } from 'express';
 import { z } from 'zod';
@@ -91,6 +96,14 @@ const mapAdminProfile = (admin: {
     department: stored.department || DEFAULT_DEPARTMENT,
     region: stored.region || DEFAULT_REGION,
     createdAt: admin.createdAt.toISOString(),
+    // The admin's current role and what it allows, so the dashboard can show
+    // only what this person may use (the API enforces the same rules).
+    role: admin.role,
+    roleLabel: adminRoleLabel(admin.role),
+    permissions: {
+      canManageTeam: canManageAdminTeam(admin.role),
+      canViewFinancials: canViewFinancials(admin.role),
+    },
   };
 };
 

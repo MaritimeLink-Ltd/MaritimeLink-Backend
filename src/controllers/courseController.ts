@@ -17,12 +17,12 @@ import {
   updateCourseSchema,
 } from '../validations/jobValidation.js';
 
-const adminRoles = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'];
+const adminRoles = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR', 'OPERATIONS_MANAGER'];
 
 const isPlatformAdminRole = (role?: string) => adminRoles.includes(role || '');
 
 /** Recruiters own recruiterId rows; platform admins manage MaritimeLink (adminId) listings. */
-const canManageCourse = (
+export const canManageCourse = (
   course: { adminId: string | null; recruiterId: string | null },
   userId: string,
   userRole?: string,
@@ -264,10 +264,19 @@ export const updateCourse = catchAsync(
       return next(new AppError('Unauthorized', 403));
     }
 
+    // Moderation fields (flag / flag reason) can only be changed by platform
+    // admins; a course owner's edit keeps whatever moderation state it had.
+    const { isFlagged, flagReason, ...ownerEditableData } = validatedData;
+    const updateData = isPlatformAdminRole(userRole)
+      ? validatedData
+      : ownerEditableData;
+    void isFlagged;
+    void flagReason;
+
     const updatedCourse = await prisma.course.update({
       where: { id },
       data: {
-        ...validatedData,
+        ...updateData,
       },
     });
 

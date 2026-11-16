@@ -2,6 +2,10 @@ import { Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
 import { AppError } from '../utils/AppError.js';
+import {
+  ADMIN_ACCOUNT_DISABLED_CODE,
+  ADMIN_ACCOUNT_DISABLED_MESSAGE,
+} from './adminAuthMiddleware.js';
 import { catchAsync } from '../utils/catchAsync.js';
 import { prisma } from '../config/prisma.js';
 import { CustomRequest } from '../types/index.js';
@@ -30,7 +34,9 @@ export const protectAdminOrRecruiter = catchAsync(
       );
     }
 
-    const decoded = jwt.verify(token, env.JWT_SECRET) as unknown as JWTPayload;
+    const decoded = jwt.verify(token, env.JWT_SECRET, {
+      algorithms: ['HS256'],
+    }) as unknown as JWTPayload;
 
     // 1) Try finding as Admin
     const admin = await prisma.admin.findUnique({
@@ -38,6 +44,15 @@ export const protectAdminOrRecruiter = catchAsync(
     });
 
     if (admin) {
+      if (admin.disabledAt) {
+        return next(
+          new AppError(
+            ADMIN_ACCOUNT_DISABLED_MESSAGE,
+            403,
+            ADMIN_ACCOUNT_DISABLED_CODE,
+          ),
+        );
+      }
       req.user = {
         id: admin.id,
         email: admin.email,

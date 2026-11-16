@@ -1,5 +1,10 @@
+import {
+  loginLimiter,
+  otpVerifyLimiter,
+  registerLimiter,
+} from '../middlewares/authRateLimit.js';
 import express from 'express';
-import multer from 'multer';
+import { createUpload } from '../config/upload.js';
 import * as recruiterAuthController from '../controllers/recruiterAuthController.js';
 import * as recruiterSettingsController from '../controllers/recruiterSettingsController.js';
 import * as kycController from '../controllers/kycController.js';
@@ -12,7 +17,7 @@ import {
 } from '../middlewares/recruiterAuthMiddleware.js';
 
 const router = express.Router();
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = createUpload();
 
 /**
  * @swagger
@@ -46,6 +51,7 @@ const upload = multer({ storage: multer.memoryStorage() });
  */
 router.post(
   '/register',
+  registerLimiter,
   (req: express.Request, res: express.Response, next: express.NextFunction) => {
     req.body.role = 'TRAINING_AGENT';
     return recruiterAuthController.register(req, res, next);
@@ -73,7 +79,7 @@ router.post(
  *       200:
  *         description: Login successful
  */
-router.post('/login', recruiterAuthController.login);
+router.post('/login', loginLimiter, recruiterAuthController.login);
 
 /**
  * @swagger
@@ -82,7 +88,7 @@ router.post('/login', recruiterAuthController.login);
  *     summary: Step 2 - Verify Email with OTP
  *     tags: [Trainer]
  */
-router.post('/verify-otp', recruiterAuthController.verifyOTP);
+router.post('/verify-otp', otpVerifyLimiter, recruiterAuthController.verifyOTP);
 
 /**
  * @swagger

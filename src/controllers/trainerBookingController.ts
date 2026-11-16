@@ -1,3 +1,5 @@
+import { isPlatformAdminRole } from '../config/adminRoles.js';
+import { isHttpUrl } from '../utils/storedFileFetch.js';
 import { Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma.js';
 import { commissionFor, payoutFor } from '../config/commission.js';
@@ -76,9 +78,7 @@ export const getCourseBookings = catchAsync(
     }
 
     // Check if user owns this course
-    const isAdmin = ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'].includes(
-      userRole || '',
-    );
+    const isAdmin = isPlatformAdminRole(userRole || '');
     if (!isAdmin && course.recruiterId !== userId) {
       return next(new AppError('Unauthorized', 403));
     }
@@ -237,7 +237,14 @@ export const getTrainerProfessionalById = catchAsync(
         },
       },
       include: {
-        kyc: true,
+        // Trainers only need to know whether identity was verified — never
+        // the document number, date of birth or the ID/selfie images.
+        kyc: {
+          select: {
+            status: true,
+            issueCountry: true,
+          },
+        },
         bookings: {
           where: {
             course: {
@@ -260,9 +267,31 @@ export const getTrainerProfessionalById = catchAsync(
       return next(new AppError('Professional not found', 404));
     }
 
+    // Trainers get the attendee's profile, not account internals or the
+    // ID/passport scan (secrets are also stripped globally by responseSafety).
+    const {
+      idPassportUrl: _idPassportUrl,
+      appleOriginalTransactionId: _appleOriginalTransactionId,
+      suspendedAt: _suspendedAt,
+      suspendedUntil: _suspendedUntil,
+      suspensionReason: _suspensionReason,
+      suspendedById: _suspendedById,
+      statusBeforeSuspension: _statusBeforeSuspension,
+      ...professionalForTrainer
+    } = professional;
+    void [
+      _idPassportUrl,
+      _appleOriginalTransactionId,
+      _suspendedAt,
+      _suspendedUntil,
+      _suspensionReason,
+      _suspendedById,
+      _statusBeforeSuspension,
+    ];
+
     res.status(200).json({
       status: 'success',
-      data: { professional },
+      data: { professional: professionalForTrainer },
     });
   },
 );
@@ -295,6 +324,21 @@ export const updateBookingStatus = catchAsync(
     }
 
     const newStatus = validatedData.status;
+
+    // Once an attendee has been approved and the trainer paid out, the
+    // booking can't be reopened — reopening it would allow a second payout.
+    if (
+      booking.bookingStatus === 'COMPLETED' &&
+      booking.trainerPayout !== null &&
+      newStatus !== 'COMPLETED'
+    ) {
+      return next(
+        new AppError(
+          'This booking has already been completed and paid out, so its status can no longer be changed.',
+          400,
+        ),
+      );
+    }
 
     const updatedBooking = await prisma.courseBooking.update({
       where: { id: bookingId },
@@ -420,26 +464,51 @@ export const approveAttendee = catchAsync(
     const platformFee = commissionFor(Number(booking.amountPaid));
     const trainerPayout = payoutFor(Number(booking.amountPaid));
 
-    if (booking.paymentStatus === 'SUCCEEDED') {
-      const trainer = booking.course.recruiter;
-      if (!trainer?.stripeAccountId || !trainer?.stripeOnboardingComplete) {
-        return next(
-          new AppError(
-            'Trainer Stripe onboarding is not complete. Connect Stripe before releasing payout.',
-            400,
-          ),
-        );
-      }
-
-      await stripeService.createTransfer({
-        amount: trainerPayout,
-        currency: booking.currency,
-        destinationAccountId: trainer.stripeAccountId,
-        bookingId: booking.id,
-      });
+    const trainer = booking.course.recruiter;
+    if (
+      booking.paymentStatus === 'SUCCEEDED' &&
+      (!trainer?.stripeAccountId || !trainer?.stripeOnboardingComplete)
+    ) {
+      return next(
+        new AppError(
+          'Trainer Stripe onboarding is not complete. Connect Stripe before releasing payout.',
+          400,
+        ),
+      );
     }
 
-    // Update status to COMPLETED only after payout succeeds or if no payment is due.
+    // Claim the approval atomically: if two approvals race (double click, or
+    // a retried request) only one of them can move the booking to COMPLETED
+    // and release the payout.
+    const claimed = await prisma.courseBooking.updateMany({
+      where: { id: bookingId, bookingStatus: { not: 'COMPLETED' } },
+      data: { bookingStatus: 'COMPLETED' },
+    });
+    if (claimed.count !== 1) {
+      return next(
+        new AppError('Attendee already approved and payout processed', 400),
+      );
+    }
+
+    if (booking.paymentStatus === 'SUCCEEDED' && trainer?.stripeAccountId) {
+      try {
+        await stripeService.createTransfer({
+          amount: trainerPayout,
+          currency: booking.currency,
+          destinationAccountId: trainer.stripeAccountId,
+          bookingId: booking.id,
+        });
+      } catch (error) {
+        // Payout failed — put the booking back so it can be approved again.
+        await prisma.courseBooking.update({
+          where: { id: bookingId },
+          data: { bookingStatus: booking.bookingStatus },
+        });
+        throw error;
+      }
+    }
+
+    // Status is COMPLETED (claimed above); record the payout figures.
     const updatedBooking = await prisma.courseBooking.update({
       where: { id: bookingId },
       data: {
@@ -761,6 +830,12 @@ export const issueCertificate = catchAsync(
 
     if (!certificateUrl || !certificateName) {
       return next(new AppError('Certificate URL and name are required', 400));
+    }
+
+    if (!isHttpUrl(certificateUrl)) {
+      return next(
+        new AppError('Certificate URL must be a valid http(s) link', 400),
+      );
     }
 
     // Verify ownership

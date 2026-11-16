@@ -1,3 +1,4 @@
+import { generateOtpCode, isOtpCodeFormat } from '../utils/otp.js';
 import crypto from 'crypto';
 import { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
@@ -26,6 +27,7 @@ import {
   professionalKycLoginSelect,
   mapKycForLogin,
 } from '../utils/kycLoginPayload.js';
+import { checkProfessionalSignupStep } from '../utils/signupStepGuard.js';
 import {
   isProfessionalSignupIncomplete,
   SIGNUP_INCOMPLETE_CODE,
@@ -84,7 +86,7 @@ export const register = catchAsync(
       },
     });
 
-    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpCode = generateOtpCode();
     const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
     await prisma.professional.update({
@@ -121,6 +123,13 @@ export const verifyOTP = catchAsync(
   async (req: Request, res: Response, next: NextFunction) => {
     const { professionalId, code } = req.body;
 
+    // The code must be the digits the user typed. Anything else (missing, or
+    // an object) would otherwise be read by the database query as "match any
+    // code" and verify the account without the OTP.
+    if (typeof professionalId !== 'string' || !isOtpCodeFormat(code)) {
+      return next(new AppError('Invalid or expired OTP', 400));
+    }
+
     const professional = await prisma.professional.findFirst({
       where: {
         id: professionalId,
@@ -154,24 +163,29 @@ export const verifyOTP = catchAsync(
 /**
  * Step 3: Select Profession
  */
-export const setProfession = catchAsync(async (req: Request, res: Response) => {
-  const validatedData = setProfessionSchema.parse(req.body);
-  const { professionalId, profession } = validatedData;
+export const setProfession = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const validatedData = setProfessionSchema.parse(req.body);
+    const { professionalId, profession } = validatedData;
 
-  await prisma.professional.update({
-    where: { id: professionalId },
-    data: {
-      profession,
-      registrationStep: 3,
-    },
-  });
+    const stepError = await checkProfessionalSignupStep(req, professionalId);
+    if (stepError) return next(stepError);
 
-  res.status(200).json({
-    status: 'success',
-    message: 'Profession set successfully. Please upload your profile photo.',
-    data: { registrationStep: 3 },
-  });
-});
+    await prisma.professional.update({
+      where: { id: professionalId },
+      data: {
+        profession,
+        registrationStep: 3,
+      },
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Profession set successfully. Please upload your profile photo.',
+      data: { registrationStep: 3 },
+    });
+  },
+);
 
 /**
  * Step 4: Upload Profile Photo
@@ -188,6 +202,9 @@ export const uploadProfilePhoto = catchAsync(
     if (!professionalId) {
       return next(new AppError('Professional ID is required', 400));
     }
+
+    const stepError = await checkProfessionalSignupStep(req, professionalId);
+    if (stepError) return next(stepError);
 
     const sanitizedOriginalName = file.originalname.replace(
       /[^a-zA-Z0-9.]/g,
@@ -589,40 +606,45 @@ export const deleteMyAccount = catchAsync(
 /**
  * Step 5: Select Role (Subcategory)
  */
-export const setRole = catchAsync(async (req: Request, res: Response) => {
-  const validatedData = setRoleSchema.parse(req.body);
-  const { professionalId, subcategory } = validatedData;
+export const setRole = catchAsync(
+  async (req: Request, res: Response, next: NextFunction) => {
+    const validatedData = setRoleSchema.parse(req.body);
+    const { professionalId, subcategory } = validatedData;
 
-  const professional = await prisma.professional.update({
-    where: { id: professionalId },
-    data: {
-      subcategory,
-      registrationStep: 5,
-    },
-  });
+    const stepError = await checkProfessionalSignupStep(req, professionalId);
+    if (stepError) return next(stepError);
 
-  const token = jwt.sign({ id: professional.id }, env.JWT_SECRET, {
-    expiresIn: '7d',
-  });
-
-  res.status(200).json({
-    status: 'success',
-    message: 'Role set successfully. Registration complete.',
-    token,
-    data: {
-      user: {
-        id: professional.id,
-        firstName: professional.firstName,
-        lastName: professional.lastName,
-        email: professional.email,
-        profession: professional.profession,
-        subcategory: professional.subcategory,
-        profilePhotoUrl: professional.profilePhotoUrl,
+    const professional = await prisma.professional.update({
+      where: { id: professionalId },
+      data: {
+        subcategory,
+        registrationStep: 5,
       },
-      registrationStep: 5,
-    },
-  });
-});
+    });
+
+    const token = jwt.sign({ id: professional.id }, env.JWT_SECRET, {
+      expiresIn: '7d',
+    });
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Role set successfully. Registration complete.',
+      token,
+      data: {
+        user: {
+          id: professional.id,
+          firstName: professional.firstName,
+          lastName: professional.lastName,
+          email: professional.email,
+          profession: professional.profession,
+          subcategory: professional.subcategory,
+          profilePhotoUrl: professional.profilePhotoUrl,
+        },
+        registrationStep: 5,
+      },
+    });
+  },
+);
 
 /**
  * Step 6: Complete Profile (Legacy/Catch-all)
@@ -649,6 +671,9 @@ export const completeProfile = catchAsync(
         ),
       );
     }
+
+    const stepError = await checkProfessionalSignupStep(req, professionalId);
+    if (stepError) return next(stepError);
 
     const updatedProfessional = await prisma.professional.update({
       where: { id: professionalId },
@@ -804,7 +829,7 @@ export const resendOTP = catchAsync(
       return next(new AppError('Account is already verified', 400));
     }
 
-    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpCode = generateOtpCode();
     const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
     await prisma.professional.update({

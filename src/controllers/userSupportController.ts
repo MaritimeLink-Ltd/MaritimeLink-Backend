@@ -1,3 +1,4 @@
+import { isPlatformAdminRole } from '../config/adminRoles.js';
 import { Response, NextFunction } from 'express';
 import { prisma } from '../config/prisma.js';
 import { AppError } from '../utils/AppError.js';
@@ -50,9 +51,7 @@ export const createCase = catchAsync(
       );
     } else {
       const role = (user as { role?: string }).role;
-      const isPlatformAdmin = role
-        ? ['SUPER_ADMIN', 'ADMIN', 'MODERATOR'].includes(role)
-        : false;
+      const isPlatformAdmin = role ? isPlatformAdminRole(role) : false;
       // Recruiters (not platform admins) get priority support at Premium tier,
       // matching the Professional side.
       if (!isPlatformAdmin) {

@@ -1,3 +1,8 @@
+import {
+  adminRoleLabel,
+  canManageAdminTeam,
+  canViewFinancials,
+} from '../config/adminRoles.js';
 import crypto from 'crypto';
 import { Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
@@ -10,6 +15,10 @@ import { sendPasswordResetEmail } from '../services/emailService.js';
 import { logActivity } from '../services/activityLogger.js';
 import { ActionStatus, ActorType } from '../generated/client/index.js';
 import { getClientIp } from '../utils/requestMetadata.js';
+import {
+  ADMIN_ACCOUNT_DISABLED_CODE,
+  ADMIN_ACCOUNT_DISABLED_MESSAGE,
+} from '../middlewares/adminAuthMiddleware.js';
 
 /**
  * Admin Login
@@ -29,6 +38,21 @@ export const login = catchAsync(
     if (!admin || !(await bcrypt.compare(password, admin.password))) {
       return next(new AppError('Incorrect email or password', 401));
     }
+
+    if (admin.disabledAt) {
+      return next(
+        new AppError(
+          ADMIN_ACCOUNT_DISABLED_MESSAGE,
+          403,
+          ADMIN_ACCOUNT_DISABLED_CODE,
+        ),
+      );
+    }
+
+    await prisma.admin.update({
+      where: { id: admin.id },
+      data: { lastLoginAt: new Date() },
+    });
 
     const token = jwt.sign({ id: admin.id, role: admin.role }, env.JWT_SECRET, {
       expiresIn: '7d',
@@ -54,6 +78,11 @@ export const login = catchAsync(
           id: admin.id,
           email: admin.email,
           role: admin.role,
+          roleLabel: adminRoleLabel(admin.role),
+          permissions: {
+            canManageTeam: canManageAdminTeam(admin.role),
+            canViewFinancials: canViewFinancials(admin.role),
+          },
         },
       },
     });
@@ -77,6 +106,16 @@ export const forgotPassword = catchAsync(
 
     if (!admin) {
       return next(new AppError('No admin found with that email address', 404));
+    }
+
+    if (admin.disabledAt) {
+      return next(
+        new AppError(
+          ADMIN_ACCOUNT_DISABLED_MESSAGE,
+          403,
+          ADMIN_ACCOUNT_DISABLED_CODE,
+        ),
+      );
     }
 
     const resetToken = crypto.randomBytes(32).toString('hex');
@@ -146,6 +185,16 @@ export const resetPassword = catchAsync(
 
     if (!admin) {
       return next(new AppError('Token is invalid or has expired', 400));
+    }
+
+    if (admin.disabledAt) {
+      return next(
+        new AppError(
+          ADMIN_ACCOUNT_DISABLED_MESSAGE,
+          403,
+          ADMIN_ACCOUNT_DISABLED_CODE,
+        ),
+      );
     }
 
     const hashedPassword = await bcrypt.hash(password, 12);

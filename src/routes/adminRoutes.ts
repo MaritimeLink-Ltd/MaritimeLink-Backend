@@ -1,5 +1,9 @@
+import {
+  forgotPasswordLimiter,
+  loginLimiter,
+} from '../middlewares/authRateLimit.js';
 import { Router } from 'express';
-import multer from 'multer';
+import { createUpload } from '../config/upload.js';
 import * as adminAuthController from '../controllers/adminAuthController.js';
 import * as adminRecruiterController from '../controllers/adminRecruiterController.js';
 import * as adminProfessionalController from '../controllers/adminProfessionalController.js';
@@ -15,10 +19,31 @@ import * as adminModerationController from '../controllers/adminModerationContro
 import * as adminReportController from '../controllers/adminReportController.js';
 import * as adminAnnouncementController from '../controllers/adminAnnouncementController.js';
 import * as adminExternalJobsController from '../controllers/adminExternalJobsController.js';
-import { protectAdmin } from '../middlewares/adminAuthMiddleware.js';
+import {
+  protectAdmin,
+  requireFinancialAccess,
+  requireSuperAdmin,
+} from '../middlewares/adminAuthMiddleware.js';
+import { redactFinancialsForRestrictedAdmins } from '../middlewares/financialRedaction.js';
+import * as adminTeamController from '../controllers/adminTeamController.js';
+import { rateLimit } from 'express-rate-limit';
+
+const invitationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 30,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  handler: (_req, res) => {
+    res.status(429).json({
+      status: 'error',
+      message: 'Too many attempts. Please wait a few minutes and try again.',
+    });
+  },
+  validate: { trustProxy: false, xForwardedForHeader: false },
+});
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = createUpload();
 
 /**
  * @swagger
@@ -65,7 +90,7 @@ const upload = multer({ storage: multer.memoryStorage() });
  *       401:
  *         $ref: '#/components/responses/UnauthorizedError'
  */
-router.post('/login', adminAuthController.login);
+router.post('/login', loginLimiter, adminAuthController.login);
 
 /**
  * @swagger
@@ -99,7 +124,11 @@ router.post('/login', adminAuthController.login);
  *       404:
  *         $ref: '#/components/responses/NotFoundError'
  */
-router.post('/forgot-password', adminAuthController.forgotPassword);
+router.post(
+  '/forgot-password',
+  forgotPasswordLimiter,
+  adminAuthController.forgotPassword,
+);
 
 /**
  * @swagger
@@ -132,8 +161,57 @@ router.post('/forgot-password', adminAuthController.forgotPassword);
  */
 router.post('/reset-password/:token', adminAuthController.resetPassword);
 
+// Admin team invitations (public: the invitee has no account yet). The link's
+// token is the credential, so these are rate limited per IP.
+router.get(
+  '/invitations/:token',
+  invitationLimiter,
+  adminTeamController.getInvitation,
+);
+router.post(
+  '/invitations/:token/accept',
+  invitationLimiter,
+  adminTeamController.acceptInvitation,
+);
+
 // Recruiter Management Routes
 router.use(protectAdmin);
+// Admins whose role may not see money (Operations Manager) get every response
+// below with revenue/commission/payout fields removed.
+router.use(redactFinancialsForRestrictedAdmins);
+
+// Admin team management — super admins only.
+router.get('/team', requireSuperAdmin, adminTeamController.getTeam);
+router.post(
+  '/team/invitations',
+  requireSuperAdmin,
+  adminTeamController.inviteTeamMember,
+);
+router.post(
+  '/team/invitations/:id/resend',
+  requireSuperAdmin,
+  adminTeamController.resendInvitation,
+);
+router.delete(
+  '/team/invitations/:id',
+  requireSuperAdmin,
+  adminTeamController.revokeInvitation,
+);
+router.patch(
+  '/team/members/:id',
+  requireSuperAdmin,
+  adminTeamController.changeMemberRole,
+);
+router.post(
+  '/team/members/:id/deactivate',
+  requireSuperAdmin,
+  adminTeamController.deactivateMember,
+);
+router.post(
+  '/team/members/:id/reactivate',
+  requireSuperAdmin,
+  adminTeamController.reactivateMember,
+);
 
 router.get('/settings', adminSettingsController.getAdminSettings);
 router.patch('/settings/profile', adminSettingsController.updateAdminProfile);
@@ -1082,6 +1160,7 @@ router.get('/trainers', adminTrainerController.getTrainers);
  */
 router.get(
   '/trainers/payout-stats',
+  requireFinancialAccess,
   adminTrainerPayoutController.getTrainerPayoutStats,
 );
 
@@ -1451,6 +1530,7 @@ router.post('/reports/:id/notes', adminReportController.addReportNote);
  */
 router.post(
   '/trainers/:id/initiate-stripe',
+  requireFinancialAccess,
   adminTrainerPayoutController.initiateTrainerStripe,
 );
 
@@ -2431,11 +2511,16 @@ router.get(
  *                     platformFees: { type: number, example: 5000.00 }
  *                     trainerPayouts: { type: number, example: 45000.00 }
  */
-router.get('/revenue', protectAdmin, async (req, res, next) => {
-  const { getPlatformRevenue } =
-    await import('../controllers/adminCourseController.js');
-  return getPlatformRevenue(req, res, next);
-});
+router.get(
+  '/revenue',
+  protectAdmin,
+  requireFinancialAccess,
+  async (req, res, next) => {
+    const { getPlatformRevenue } =
+      await import('../controllers/adminCourseController.js');
+    return getPlatformRevenue(req, res, next);
+  },
+);
 
 /**
  * @swagger
@@ -2462,10 +2547,15 @@ router.get('/revenue', protectAdmin, async (req, res, next) => {
  *                 status: { type: string, example: success }
  *                 message: { type: string, example: "Payout initiated" }
  */
-router.post('/payouts/:providerId', protectAdmin, async (req, res, next) => {
-  const { processPayout } =
-    await import('../controllers/adminCourseController.js');
-  return processPayout(req, res, next);
-});
+router.post(
+  '/payouts/:providerId',
+  protectAdmin,
+  requireFinancialAccess,
+  async (req, res, next) => {
+    const { processPayout } =
+      await import('../controllers/adminCourseController.js');
+    return processPayout(req, res, next);
+  },
+);
 
 export default router;

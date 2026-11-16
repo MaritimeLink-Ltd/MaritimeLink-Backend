@@ -428,13 +428,19 @@ export const stripeService = {
   }) {
     const { amount, currency, destinationAccountId, bookingId } = params;
 
-    const transfer = await stripe.transfers.create({
-      amount: Math.round(amount * 100), // Convert to cents
-      currency: currency.toLowerCase(),
-      destination: destinationAccountId,
-      description: `Payout for booking ${bookingId}`,
-      metadata: { bookingId },
-    });
+    const transfer = await stripe.transfers.create(
+      {
+        amount: Math.round(amount * 100), // Convert to cents
+        currency: currency.toLowerCase(),
+        destination: destinationAccountId,
+        description: `Payout for booking ${bookingId}`,
+        metadata: { bookingId },
+        transfer_group: `booking-${bookingId}`,
+      },
+      // A repeated request for the same booking returns the first transfer
+      // instead of paying the trainer a second time.
+      { idempotencyKey: `booking-payout-${bookingId}` },
+    );
 
     return transfer;
   },
@@ -898,6 +904,21 @@ export const stripeService = {
       session.status === 'complete';
     if (!isComplete) {
       return null;
+    }
+
+    // A completed checkout session stays "complete" forever, even after the
+    // subscription it started has been cancelled. Only grant Premium while that
+    // subscription is still live, so an old session can't be replayed to get
+    // Premium back after cancelling.
+    const subscriptionId =
+      typeof session.subscription === 'string'
+        ? session.subscription
+        : session.subscription?.id;
+    if (subscriptionId) {
+      const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+      if (!['active', 'trialing', 'past_due'].includes(subscription.status)) {
+        return null;
+      }
     }
 
     const recruiter = await prisma.recruiter.update({
