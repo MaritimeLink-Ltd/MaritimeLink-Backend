@@ -1,4 +1,5 @@
 import {
+  adminDisplayTitle,
   adminRoleLabel,
   canManageAdminTeam,
   canViewFinancials,
@@ -79,6 +80,7 @@ const mapAdminProfile = (admin: {
   id: string;
   email: string;
   role: string;
+  title?: string | null;
   createdAt: Date;
   accountSettings?: unknown;
 }) => {
@@ -100,6 +102,8 @@ const mapAdminProfile = (admin: {
     // only what this person may use (the API enforces the same rules).
     role: admin.role,
     roleLabel: adminRoleLabel(admin.role),
+    title: admin.title ?? null,
+    displayTitle: adminDisplayTitle(admin.title, admin.role),
     permissions: {
       canManageTeam: canManageAdminTeam(admin.role),
       canViewFinancials: canViewFinancials(admin.role),
@@ -140,6 +144,7 @@ export const getAdminSettings = catchAsync(
         id: true,
         email: true,
         role: true,
+        title: true,
         createdAt: true,
         accountSettings: true,
       },
@@ -223,6 +228,7 @@ export const updateAdminProfile = catchAsync(
         id: true,
         email: true,
         role: true,
+        title: true,
         createdAt: true,
         accountSettings: true,
       },

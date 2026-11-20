@@ -311,7 +311,7 @@ describe('Accepting an invitation', () => {
     expect(details.body.data.invitation).toMatchObject({
       email,
       role: 'OPERATIONS_MANAGER',
-      roleLabel: 'Operations Manager',
+      roleLabel: 'Team Member',
     });
 
     const weak = await request(app)
@@ -450,5 +450,106 @@ describe('Changing roles and removing people', () => {
           .set('Authorization', member.auth)
       ).status,
     ).toBe(200);
+  });
+});
+
+describe('Job titles', () => {
+  it('an invite can carry a title; it shows on the team, the account and the login', async () => {
+    const email = `dev-${suffix}@example.com`;
+    invitedEmails.push(email);
+    const invite = await request(app)
+      .post('/api/admin/team/invitations')
+      .set('Authorization', superAdmin.auth)
+      .send({ email, role: 'OPERATIONS_MANAGER', title: '  Developer ' });
+    expect(invite.status).toBe(201);
+    expect(invite.body.data.invitation).toMatchObject({
+      title: 'Developer',
+      displayTitle: 'Developer',
+      roleLabel: 'Team Member',
+    });
+
+    const team = await request(app)
+      .get('/api/admin/team')
+      .set('Authorization', superAdmin.auth);
+    expect(
+      team.body.data.invitations.find(
+        (i: { email: string }) => i.email === email,
+      )?.title,
+    ).toBe('Developer');
+
+    // Accept with a known token for the same invite.
+    const token = crypto.randomBytes(32).toString('hex');
+    await prisma.adminInvitation.updateMany({
+      where: { email, acceptedAt: null, revokedAt: null },
+      data: {
+        tokenHash: crypto.createHash('sha256').update(token).digest('hex'),
+      },
+    });
+    const details = await request(app).get(`/api/admin/invitations/${token}`);
+    expect(details.body.data.invitation.displayTitle).toBe('Developer');
+    const accepted = await request(app)
+      .post(`/api/admin/invitations/${token}/accept`)
+      .send({ password: 'Strong-pass-123', name: 'Dana Dev' });
+    expect(accepted.status).toBe(201);
+    expect(accepted.body.data.user.title).toBe('Developer');
+
+    const login = await request(app)
+      .post('/api/admin/login')
+      .send({ email, password: 'Strong-pass-123' });
+    expect(login.body.data.user.title).toBe('Developer');
+
+    // A title is only a label: a Team Member developer still can't see money.
+    const revenue = await request(app)
+      .get('/api/admin/dashboard/revenue')
+      .set('Authorization', `Bearer ${login.body.token}`);
+    expect(revenue.status).toBe(403);
+  });
+
+  it('refuses titles with markup or that are too long', async () => {
+    for (const title of ['<b>Boss</b>', 'x'.repeat(61)]) {
+      const res = await request(app)
+        .post('/api/admin/team/invitations')
+        .set('Authorization', superAdmin.auth)
+        .send({
+          email: `bad-title-${suffix}@example.com`,
+          role: 'SUPER_ADMIN',
+          title,
+        });
+      expect(res.status).toBe(400);
+    }
+  });
+
+  it('a super admin can edit titles (their own too) without changing access', async () => {
+    const member = await createAdmin('OPERATIONS_MANAGER', 'titled');
+    const set = await request(app)
+      .patch(`/api/admin/team/members/${member.admin.id}`)
+      .set('Authorization', superAdmin.auth)
+      .send({ title: 'Support Lead' });
+    expect(set.status).toBe(200);
+    expect(set.body.data.member).toMatchObject({
+      title: 'Support Lead',
+      role: 'OPERATIONS_MANAGER',
+    });
+
+    const cleared = await request(app)
+      .patch(`/api/admin/team/members/${member.admin.id}`)
+      .set('Authorization', superAdmin.auth)
+      .send({ title: '' });
+    expect(cleared.body.data.member.title).toBeNull();
+    expect(cleared.body.data.member.displayTitle).toBe('Team Member');
+
+    const own = await request(app)
+      .patch(`/api/admin/team/members/${superAdmin.admin.id}`)
+      .set('Authorization', superAdmin.auth)
+      .send({ title: 'Founder' });
+    expect(own.status).toBe(200);
+    expect(own.body.data.member.role).toBe('SUPER_ADMIN');
+
+    // Only super admins edit the team.
+    const byTeamMember = await request(app)
+      .patch(`/api/admin/team/members/${member.admin.id}`)
+      .set('Authorization', opsManager.auth)
+      .send({ title: 'Self promoted' });
+    expect(byTeamMember.status).toBe(403);
   });
 });

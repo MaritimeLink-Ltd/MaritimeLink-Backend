@@ -378,6 +378,8 @@ model Admin {
   /// can no longer sign in or use any admin endpoint.
   disabledAt           DateTime?
   lastLoginAt          DateTime?
+  /// Job title shown on the Team page (e.g. Developer); access comes from `role`.
+  title                String?
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt
   sentInvitations      AdminInvitation[] @relation("AdminInvitationsSent")
@@ -400,6 +402,7 @@ model AdminInvitation {
   id          String    @id @default(uuid())
   email       String
   role        AdminRole
+  title       String?
   tokenHash   String    @unique
   invitedById String
   invitedBy   Admin     @relation("AdminInvitationsSent", fields: [invitedById], references: [id], onDelete: Cascade)

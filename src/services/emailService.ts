@@ -1,11 +1,8 @@
-import path from 'path';
-import { fileURLToPath } from 'url';
 import nodemailer from 'nodemailer';
 import { env } from '../config/env.js';
 import { ApplicationStatus } from '../generated/client/index.js';
 import {
   EMAIL_BRAND,
-  EMAIL_LOGO_CID,
   buildEmailHtml,
   emailCallout,
   emailOtpBlock,
@@ -13,9 +10,6 @@ import {
   escapeHtml,
   supportEmailLink,
 } from './emailLayout.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const LOGO_PATH = path.join(__dirname, '../assets/email/logo-icon.png');
 
 const transporter = nodemailer.createTransport({
   host: env.SMTP_HOST,
@@ -45,13 +39,6 @@ async function deliver(
     to,
     subject,
     html,
-    attachments: [
-      {
-        filename: 'logo.png',
-        path: LOGO_PATH,
-        cid: EMAIL_LOGO_CID,
-      },
-    ],
   });
 }
 
@@ -89,16 +76,20 @@ export const sendPasswordResetEmail = async (to: string, resetLink: string) => {
 export type AdminInvitationEmailParams = {
   to: string;
   inviterEmail: string;
-  roleLabel: string;
+  /** What they'll be on the team, e.g. "Developer" (or the access level). */
+  title: string;
+  /** One line on what their access level allows. */
+  accessSummary: string;
   acceptUrl: string;
   expiresInHours: number;
 };
 
-/** Invitation to join the MaritimeLink admin team with a given role. */
+/** Invitation to join the MaritimeLink admin team. */
 export const sendAdminInvitationEmail = async ({
   to,
   inviterEmail,
-  roleLabel,
+  title,
+  accessSummary,
   acceptUrl,
   expiresInHours,
 }: AdminInvitationEmailParams) => {
@@ -107,12 +98,12 @@ export const sendAdminInvitationEmail = async ({
     'You are invited to join the MaritimeLink admin team',
     buildEmailHtml({
       headline: 'Admin team invitation',
-      preheader: `Join the MaritimeLink admin team as ${roleLabel}`,
+      preheader: `Join the MaritimeLink admin team as ${title}`,
       greeting: 'Hello,',
       variant: 'brand',
       bodyHtml: `${emailParagraph(
-        `<strong>${escapeHtml(inviterEmail)}</strong> has invited you to join the MaritimeLink admin team as <strong>${escapeHtml(roleLabel)}</strong>.`,
-      )}${emailParagraph(
+        `<strong>${escapeHtml(inviterEmail)}</strong> has invited you to join the MaritimeLink admin team as <strong>${escapeHtml(title)}</strong>.`,
+      )}${emailParagraph(escapeHtml(accessSummary))}${emailParagraph(
         `Tap the button below to accept and set your password. This invitation link works once and expires in ${expiresInHours} hours.`,
       )}${emailCallout(
         'If you were not expecting this invitation, you can ignore this email — no account is created unless you accept it.',

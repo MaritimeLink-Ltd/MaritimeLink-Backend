@@ -2,7 +2,7 @@
  * Admin team roles.
  *
  * - SUPER_ADMIN: everything, including managing the admin team.
- * - OPERATIONS_MANAGER: runs the platform day to day (users, KYC, jobs,
+ * - OPERATIONS_MANAGER (shown as "Team Member"): runs the platform day to day (users, KYC, jobs,
  *   courses, support, reports…) but cannot see money — revenue, commission,
  *   payouts, transactions — and cannot manage the admin team.
  * - ADMIN / MODERATOR: legacy roles; they keep exactly the access they had
@@ -27,8 +27,24 @@ export const ADMIN_ROLE_LABELS: Record<PlatformAdminRole, string> = {
   SUPER_ADMIN: 'Super Admin',
   ADMIN: 'Admin',
   MODERATOR: 'Moderator',
-  OPERATIONS_MANAGER: 'Operations Manager',
+  // Restricted access level. The person's actual job (Operations Manager,
+  // Developer, Support…) is their free-text `title`.
+  OPERATIONS_MANAGER: 'Team Member',
 };
+
+/** One line on what an access level allows, for emails and the UI. */
+export const adminAccessSummary = (role?: string | null): string =>
+  role === 'SUPER_ADMIN'
+    ? 'Full access, including revenue, commission, payouts and managing the admin team.'
+    : role === 'OPERATIONS_MANAGER'
+      ? 'Access to the admin panel except revenue, commission, payouts and managing the admin team.'
+      : 'Access to the admin panel.';
+
+/** Title shown for a team member: their job title, or their access level. */
+export const adminDisplayTitle = (
+  title?: string | null,
+  role?: string | null,
+): string => (title && title.trim()) || adminRoleLabel(role);
 
 export const isPlatformAdminRole = (role?: string | null): boolean =>
   !!role && (PLATFORM_ADMIN_ROLES as readonly string[]).includes(role);

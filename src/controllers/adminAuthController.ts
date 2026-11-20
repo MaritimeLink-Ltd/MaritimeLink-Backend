@@ -79,6 +79,7 @@ export const login = catchAsync(
           email: admin.email,
           role: admin.role,
           roleLabel: adminRoleLabel(admin.role),
+          title: admin.title,
           permissions: {
             canManageTeam: canManageAdminTeam(admin.role),
             canViewFinancials: canViewFinancials(admin.role),

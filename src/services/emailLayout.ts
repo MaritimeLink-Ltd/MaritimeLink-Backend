@@ -21,8 +21,13 @@ export const EMAIL_BRAND = {
   infoBg: '#eff6ff',
 } as const;
 
-/** Content-ID referencing the inline logo attachment added by emailService's `deliver`. */
-export const EMAIL_LOGO_CID = 'maritimelink-logo';
+/**
+ * The header logo is loaded from the website (public/images/email-logo.png in
+ * MaritimeLink-Frontend). A hosted image shows in every mail app, including
+ * Gmail; an image embedded in the email is often hidden or shown only as an
+ * attachment.
+ */
+export const EMAIL_LOGO_URL = `${env.FRONTEND_URL.replace(/\/+$/, '')}/images/email-logo.png`;
 
 export type EmailVariant = 'brand' | 'success' | 'warning' | 'danger' | 'info';
 
@@ -195,7 +200,7 @@ export function buildEmailHtml(params: EmailLayoutParams): string {
                     <table role="presentation" width="52" height="52" cellpadding="0" cellspacing="0" style="border-collapse: collapse;">
                       <tr>
                         <td align="center" valign="middle" width="52" height="52" style="background-color: #ffffff; border-radius: 12px;">
-                          <img src="cid:${EMAIL_LOGO_CID}" width="34" height="34" alt="MaritimeLink" style="display: block;" />
+                          <img src="${EMAIL_LOGO_URL}" width="34" height="34" alt="MaritimeLink" style="display: block; border: 0; outline: none;" />
                         </td>
                       </tr>
                     </table>

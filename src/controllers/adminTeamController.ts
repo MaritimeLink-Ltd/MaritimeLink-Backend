@@ -18,6 +18,8 @@ import {
 import { getClientIp } from '../utils/requestMetadata.js';
 import {
   INVITABLE_ADMIN_ROLES,
+  adminAccessSummary,
+  adminDisplayTitle,
   adminRoleLabel,
   canManageAdminTeam,
   canViewFinancials,
@@ -44,18 +46,39 @@ const hashToken = (token: string) =>
 
 const normalizeEmail = (email: string) => email.trim().toLowerCase();
 
-const inviteSchema = z.object({
-  email: z.string().trim().email('Please enter a valid email address'),
-  role: z.enum(INVITABLE_ADMIN_ROLES, {
-    message: 'Please choose a role: Super Admin or Operations Manager',
-  }),
+const accessSchema = z.enum(INVITABLE_ADMIN_ROLES, {
+  message: 'Please choose an access level: Super Admin or Team Member',
 });
 
-const roleChangeSchema = z.object({
-  role: z.enum(INVITABLE_ADMIN_ROLES, {
-    message: 'Please choose a role: Super Admin or Operations Manager',
-  }),
+/**
+ * Optional job title, e.g. "Operations Manager" or "Developer". It is only a
+ * label: what someone can see is decided by their access level (`role`).
+ * An empty value clears it.
+ */
+const titleSchema = z
+  .string()
+  .trim()
+  .max(60, 'Title must be 60 characters or fewer')
+  .regex(
+    /^[\p{L}\p{N} &.,'()/+-]*$/u,
+    'Title contains characters that are not allowed',
+  )
+  .transform((value) => value.replace(/\s+/g, ' ') || null);
+
+const inviteSchema = z.object({
+  email: z.string().trim().email('Please enter a valid email address'),
+  role: accessSchema,
+  title: titleSchema.optional(),
 });
+
+const memberUpdateSchema = z
+  .object({
+    role: accessSchema.optional(),
+    title: titleSchema.optional(),
+  })
+  .refine((body) => body.role !== undefined || body.title !== undefined, {
+    message: 'Nothing to update',
+  });
 
 const acceptSchema = z.object({
   password: z
@@ -113,6 +136,7 @@ export const getTeam = catchAsync(async (req: CustomRequest, res: Response) => {
         id: true,
         email: true,
         role: true,
+        title: true,
         accountSettings: true,
         createdAt: true,
         lastLoginAt: true,
@@ -126,6 +150,7 @@ export const getTeam = catchAsync(async (req: CustomRequest, res: Response) => {
         id: true,
         email: true,
         role: true,
+        title: true,
         expiresAt: true,
         acceptedAt: true,
         revokedAt: true,
@@ -143,6 +168,8 @@ export const getTeam = catchAsync(async (req: CustomRequest, res: Response) => {
         id: admin.id,
         email: admin.email,
         name: displayNameOf(admin.accountSettings),
+        title: admin.title,
+        displayTitle: adminDisplayTitle(admin.title, admin.role),
         role: admin.role,
         roleLabel: adminRoleLabel(admin.role),
         status: admin.disabledAt ? 'DEACTIVATED' : 'ACTIVE',
@@ -154,6 +181,8 @@ export const getTeam = catchAsync(async (req: CustomRequest, res: Response) => {
       invitations: invitations.map((invite) => ({
         id: invite.id,
         email: invite.email,
+        title: invite.title,
+        displayTitle: adminDisplayTitle(invite.title, invite.role),
         role: invite.role,
         roleLabel: adminRoleLabel(invite.role),
         status: invitationStatus(invite),
@@ -164,6 +193,7 @@ export const getTeam = catchAsync(async (req: CustomRequest, res: Response) => {
       invitableRoles: INVITABLE_ADMIN_ROLES.map((role) => ({
         value: role,
         label: adminRoleLabel(role),
+        description: adminAccessSummary(role),
       })),
     },
   });
@@ -177,6 +207,7 @@ const issueInvitation = async (
   req: CustomRequest,
   email: string,
   role: (typeof INVITABLE_ADMIN_ROLES)[number],
+  title: string | null,
 ) => {
   const token = crypto.randomBytes(32).toString('hex');
   const expiresAt = new Date(Date.now() + INVITE_TTL_HOURS * 60 * 60 * 1000);
@@ -191,6 +222,7 @@ const issueInvitation = async (
       data: {
         email,
         role,
+        title,
         tokenHash: hashToken(token),
         invitedById: req.user!.id,
         expiresAt,
@@ -202,7 +234,8 @@ const issueInvitation = async (
     await sendAdminInvitationEmail({
       to: email,
       inviterEmail: req.user?.email ?? 'A MaritimeLink super admin',
-      roleLabel: adminRoleLabel(role),
+      title: adminDisplayTitle(title, role),
+      accessSummary: adminAccessSummary(role),
       acceptUrl: acceptUrlFor(token),
       expiresInHours: INVITE_TTL_HOURS,
     });
@@ -226,7 +259,7 @@ const issueInvitation = async (
     status: ActionStatus.SUCCESS,
     ipAddress: getClientIp(req),
     userAgent: req.get('user-agent') || undefined,
-    metadata: { email, role },
+    metadata: { email, role, title },
   });
 
   return invitation;
@@ -248,7 +281,12 @@ export const inviteTeamMember = catchAsync(
       );
     }
 
-    const invitation = await issueInvitation(req, email, parsed.role);
+    const invitation = await issueInvitation(
+      req,
+      email,
+      parsed.role,
+      parsed.title ?? null,
+    );
 
     res.status(201).json({
       status: 'success',
@@ -257,6 +295,8 @@ export const inviteTeamMember = catchAsync(
         invitation: {
           id: invitation.id,
           email: invitation.email,
+          title: invitation.title,
+          displayTitle: adminDisplayTitle(invitation.title, invitation.role),
           role: invitation.role,
           roleLabel: adminRoleLabel(invitation.role),
           status: invitationStatus(invitation),
@@ -283,7 +323,12 @@ export const resendInvitation = catchAsync(
     )
       ? (invite.role as (typeof INVITABLE_ADMIN_ROLES)[number])
       : 'OPERATIONS_MANAGER';
-    const invitation = await issueInvitation(req, invite.email, role);
+    const invitation = await issueInvitation(
+      req,
+      invite.email,
+      role,
+      invite.title,
+    );
 
     res.status(200).json({
       status: 'success',
@@ -292,6 +337,8 @@ export const resendInvitation = catchAsync(
         invitation: {
           id: invitation.id,
           email: invitation.email,
+          title: invitation.title,
+          displayTitle: adminDisplayTitle(invitation.title, invitation.role),
           role: invitation.role,
           roleLabel: adminRoleLabel(invitation.role),
           status: invitationStatus(invitation),
@@ -320,20 +367,26 @@ export const revokeInvitation = catchAsync(
   },
 );
 
-/** PATCH /api/admin/team/members/:id — { role } */
+/**
+ * PATCH /api/admin/team/members/:id — { role?, title? }
+ * Super admins can change anyone's title (their own too) and anyone else's
+ * access level.
+ */
 export const changeMemberRole = catchAsync(
   async (req: CustomRequest, res: Response, next: NextFunction) => {
-    const { role } = roleChangeSchema.parse(req.body);
+    const { role, title } = memberUpdateSchema.parse(req.body);
     const memberId = req.params.id;
-
-    if (memberId === req.user?.id) {
-      return next(new AppError('You cannot change your own role.', 400));
-    }
 
     const member = await prisma.admin.findUnique({ where: { id: memberId } });
     if (!member) return next(new AppError('Team member not found', 404));
 
+    const roleChanges = role !== undefined && role !== member.role;
+    if (roleChanges && memberId === req.user?.id) {
+      return next(new AppError('You cannot change your own role.', 400));
+    }
+
     if (
+      roleChanges &&
       member.role === AdminRole.SUPER_ADMIN &&
       role !== AdminRole.SUPER_ADMIN &&
       !member.disabledAt &&
@@ -346,12 +399,14 @@ export const changeMemberRole = catchAsync(
 
     const updated = await prisma.admin.update({
       where: { id: memberId },
-      data: { role },
-      select: { id: true, email: true, role: true },
+      data: {
+        ...(roleChanges && { role }),
+        ...(title !== undefined && { title }),
+      },
+      select: { id: true, email: true, role: true, title: true },
     });
 
-    await logActivity({
-      action: 'ADMIN_ROLE_CHANGED',
+    const audit = {
       actorId: req.user!.id,
       actorType: ActorType.ADMIN,
       status: ActionStatus.SUCCESS,
@@ -359,14 +414,31 @@ export const changeMemberRole = catchAsync(
       targetType: 'Admin',
       ipAddress: getClientIp(req),
       userAgent: req.get('user-agent') || undefined,
-      metadata: { email: updated.email, from: member.role, to: role },
-    });
+    };
+    if (roleChanges) {
+      await logActivity({
+        ...audit,
+        action: 'ADMIN_ROLE_CHANGED',
+        metadata: { email: updated.email, from: member.role, to: role },
+      });
+    }
+    if (title !== undefined && title !== member.title) {
+      await logActivity({
+        ...audit,
+        action: 'ADMIN_TITLE_CHANGED',
+        metadata: { email: updated.email, from: member.title, to: title },
+      });
+    }
 
     res.status(200).json({
       status: 'success',
-      message: 'Role updated.',
+      message: roleChanges ? 'Access updated.' : 'Title updated.',
       data: {
-        member: { ...updated, roleLabel: adminRoleLabel(updated.role) },
+        member: {
+          ...updated,
+          roleLabel: adminRoleLabel(updated.role),
+          displayTitle: adminDisplayTitle(updated.title, updated.role),
+        },
       },
     });
   },
@@ -475,6 +547,9 @@ export const getInvitation = catchAsync(
           email: invite.email,
           role: invite.role,
           roleLabel: adminRoleLabel(invite.role),
+          title: invite.title,
+          displayTitle: adminDisplayTitle(invite.title, invite.role),
+          accessSummary: adminAccessSummary(invite.role),
           expiresAt: invite.expiresAt,
           invitedBy: invite.invitedBy?.email ?? null,
         },
@@ -536,6 +611,7 @@ export const acceptInvitation = catchAsync(
           data: {
             password: hashedPassword,
             role: invite.role,
+            title: invite.title,
             disabledAt: null,
             passwordResetToken: null,
             passwordResetExpires: null,
@@ -555,6 +631,7 @@ export const acceptInvitation = catchAsync(
           email: invite.email,
           password: hashedPassword,
           role: invite.role,
+          title: invite.title,
           lastLoginAt: new Date(),
           ...(name && { accountSettings: { profile: { displayName: name } } }),
         },
@@ -585,6 +662,8 @@ export const acceptInvitation = catchAsync(
           email: admin.email,
           role: admin.role,
           roleLabel: adminRoleLabel(admin.role),
+          title: admin.title,
+          displayTitle: adminDisplayTitle(admin.title, admin.role),
           name: name || null,
           permissions: {
             canManageTeam: canManageAdminTeam(admin.role),
